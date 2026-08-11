@@ -206,6 +206,8 @@ wss.on("connection", async (socket, request) => {
   try {
     const me = await rest(token, "/api/me");
     state.userId = me.user.id;
+    socket.on("message", handleMessage);
+    timer = setInterval(() => void sync(false), pollIntervalMs);
     sendJson(socket, { type: "ready", protocol: 1, userId: state.userId });
     await sync(true);
   } catch (error) {
@@ -217,9 +219,7 @@ wss.on("connection", async (socket, request) => {
     return;
   }
 
-  timer = setInterval(() => void sync(false), pollIntervalMs);
-
-  socket.on("message", async (data, isBinary) => {
+  async function handleMessage(data, isBinary) {
     if (isBinary || data.length > 16_384) {
       socket.close(1009, "payload_too_large");
       return;
@@ -310,7 +310,7 @@ wss.on("connection", async (socket, request) => {
         error: { code: error.code || "request_failed", message: error.message || "Ошибка запроса" },
       });
     }
-  });
+  }
 
 });
 
