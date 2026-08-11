@@ -7,14 +7,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:ws": "node scripts/ws-gateway.mjs",
     "typecheck": "tsc --noEmit",
     "test:api": "node scripts/api-smoke.mjs",
+    "test:ws": "node scripts/ws-smoke.mjs",
     "migrate:choice-options": "node scripts/migrate-choice-options.mjs"
   },
   "dependencies": {
     "next": "16.3.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

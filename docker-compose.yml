@@ -4,10 +4,13 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
     environment:
       MESSENGER_DATA_FILE: /app/data/store.json
       RATE_LIMIT_PUBLIC: 120
       RATE_LIMIT_AUTH: 480
+      WS_UPSTREAM: http://127.0.0.1:3000
+      WS_PORT: 3001
     volumes:
       - ./data:/app/data
     healthcheck:
