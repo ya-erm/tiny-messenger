@@ -53,6 +53,31 @@ const ready = await waitFor(socket, (frame) => frame.type === "ready");
 assert.equal(ready.protocol, 1);
 await waitFor(socket, (frame) => frame.type === "inbox_snapshot");
 
+const dashboardSnapshotPromise = waitFor(
+  socket,
+  (frame) => frame.type === "dashboard_snapshot" && frame.requestId === "dashboard-1",
+  12_000,
+);
+const dashboardAckPromise = waitFor(
+  socket,
+  (frame) => frame.type === "ack" && frame.requestId === "dashboard-1",
+  12_000,
+);
+socket.send(JSON.stringify({
+  type: "dashboard_refresh",
+  requestId: "dashboard-1",
+  weather: true,
+  rates: true,
+  latitude: 44.8176,
+  longitude: 20.4633,
+}));
+const dashboard = await dashboardSnapshotPromise;
+assert.equal(dashboard.ok, true);
+assert.equal(Array.isArray(dashboard.weather.minTemp), true);
+assert.equal(dashboard.weather.minTemp.length, 4);
+assert.equal(Number.isFinite(dashboard.rates.eurRsd), true);
+assert.equal((await dashboardAckPromise).ok, true);
+
 const created = await api("/api/messages", {
   token: alice.token,
   method: "POST",
@@ -133,4 +158,4 @@ const aliceInbox = await api("/api/messages?box=inbox&limit=10", { token: alice.
 assert.equal(aliceInbox.messages.some((message) => message.text === "Хорошо"), true);
 
 socket.close();
-console.log("WebSocket smoke test passed: snapshot/push + read/answer/send acknowledgements");
+console.log("WebSocket smoke test passed: dashboard + inbox/push + read/answer/send");

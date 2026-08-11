@@ -5,6 +5,10 @@ const port = Number(process.env.WS_PORT || 3001);
 const upstream = process.env.WS_UPSTREAM || "http://127.0.0.1:3000";
 const inboxLimit = Math.min(Math.max(Number(process.env.WS_INBOX_LIMIT || 10), 1), 50);
 const pollIntervalMs = Math.max(Number(process.env.WS_POLL_INTERVAL_MS || 2000), 500);
+const weatherCacheTtlMs = 10 * 60_000;
+const ratesCacheTtlMs = 60 * 60_000;
+const weatherCache = new Map();
+let ratesCache;
 
 function tokenFromUpgrade(request) {
   const apiKey = request.headers["x-api-key"];
@@ -49,6 +53,74 @@ function safeRequestId(value) {
 
 function safeString(value, maxLength) {
   return typeof value === "string" && value.length <= maxLength ? value : "";
+}
+
+async function publicJson(url) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(7000) });
+  if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
+  return response.json();
+}
+
+function finiteNumber(value, field) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new Error(`Некорректное поле ${field}`);
+  return number;
+}
+
+async function dashboardWeather(latitude, longitude) {
+  const lat = finiteNumber(latitude, "latitude");
+  const lon = finiteNumber(longitude, "longitude");
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    throw Object.assign(new Error("Некорректные координаты"), { code: "invalid_coordinates" });
+  }
+  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+  const cached = weatherCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude", lat.toFixed(4));
+  url.searchParams.set("longitude", lon.toFixed(4));
+  url.searchParams.set("current", "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m");
+  url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
+  url.searchParams.set("timezone", "auto");
+  url.searchParams.set("forecast_days", "4");
+  const source = await publicJson(url);
+  const current = source.current || {};
+  const daily = source.daily || {};
+  const four = (values, field) => {
+    if (!Array.isArray(values) || values.length < 4) throw new Error(`Некорректное поле ${field}`);
+    return values.slice(0, 4).map((value) => finiteNumber(value, field));
+  };
+  const data = {
+    temperature: finiteNumber(current.temperature_2m, "temperature_2m"),
+    apparent: finiteNumber(current.apparent_temperature, "apparent_temperature"),
+    wind: finiteNumber(current.wind_speed_10m, "wind_speed_10m"),
+    humidity: finiteNumber(current.relative_humidity_2m, "relative_humidity_2m"),
+    code: finiteNumber(current.weather_code, "weather_code"),
+    minTemp: four(daily.temperature_2m_min, "temperature_2m_min"),
+    maxTemp: four(daily.temperature_2m_max, "temperature_2m_max"),
+    dailyCode: four(daily.weather_code, "daily.weather_code"),
+    rainChance: four(daily.precipitation_probability_max, "precipitation_probability_max"),
+  };
+  if (!weatherCache.has(cacheKey) && weatherCache.size >= 32) {
+    weatherCache.delete(weatherCache.keys().next().value);
+  }
+  weatherCache.set(cacheKey, { data, expiresAt: Date.now() + weatherCacheTtlMs });
+  return data;
+}
+
+async function dashboardRates() {
+  if (ratesCache && ratesCache.expiresAt > Date.now()) return ratesCache.data;
+  const pairs = ["EUR", "USD", "RUB"];
+  const values = await Promise.all(pairs.map(async (currency) => {
+    const source = await publicJson(`https://fxapi.app/api/${currency}/RSD.json`);
+    const rate = finiteNumber(source.rate, `${currency}/RSD`);
+    if (rate <= 0) throw new Error(`Некорректный курс ${currency}/RSD`);
+    return rate;
+  }));
+  const data = { eurRsd: values[0], usdRsd: values[1], rubRsd: values[2] };
+  ratesCache = { data, expiresAt: Date.now() + ratesCacheTtlMs };
+  return data;
 }
 
 const sockets = new Set();
@@ -171,8 +243,29 @@ wss.on("connection", async (socket, request) => {
     }
     const requestId = safeRequestId(frame.requestId);
     try {
+      let syncInboxAfter = true;
       if (frame.type === "refresh") {
         await sync(true);
+        syncInboxAfter = false;
+      } else if (frame.type === "dashboard_refresh") {
+        const includeWeather = frame.weather !== false;
+        const includeRates = frame.rates !== false;
+        if (!includeWeather && !includeRates) {
+          throw Object.assign(new Error("Не выбраны данные dashboard"), { code: "empty_dashboard_request" });
+        }
+        const [weather, rates] = await Promise.all([
+          includeWeather ? dashboardWeather(frame.latitude, frame.longitude) : undefined,
+          includeRates ? dashboardRates() : undefined,
+        ]);
+        sendJson(socket, {
+          type: "dashboard_snapshot",
+          requestId,
+          ok: true,
+          ...(weather ? { weather } : {}),
+          ...(rates ? { rates } : {}),
+          serverTime: new Date().toISOString(),
+        });
+        syncInboxAfter = false;
       } else if (frame.type === "read") {
         const messageId = safeString(frame.messageId, 128);
         if (!messageId) throw Object.assign(new Error("Некорректный messageId"), { code: "invalid_message_id" });
@@ -207,7 +300,7 @@ wss.on("connection", async (socket, request) => {
         throw Object.assign(new Error("Неизвестный тип события"), { code: "unknown_event" });
       }
       sendJson(socket, { type: "ack", requestId, action: frame.type, ok: true });
-      await sync(true);
+      if (syncInboxAfter) await sync(true);
     } catch (error) {
       sendJson(socket, {
         type: "ack",
