@@ -82,10 +82,23 @@ wss.on("connection", async (socket, request) => {
 
   async function sendSnapshot() {
     const inbox = await rest(token, `/api/messages?box=inbox&limit=${inboxLimit}`);
+    // The ESP8266 needs only the inbox presentation fields. REST keeps the
+    // complete PublicMessage contract; the persistent WSS channel uses this
+    // lean projection so repeated snapshots fit without heap fragmentation.
+    const messages = inbox.messages.map((message) => ({
+      id: message.id,
+      fromUserId: message.fromUserId,
+      senderName: message.senderName,
+      text: message.text,
+      kind: message.kind,
+      ...(Array.isArray(message.options) ? { options: message.options } : {}),
+      status: message.status,
+      sentAt: message.sentAt,
+    }));
     sendJson(socket, {
       type: "inbox_snapshot",
       ok: true,
-      data: { messages: inbox.messages },
+      data: { messages },
       serverTime: new Date().toISOString(),
     });
   }
