@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { LIMITS } from "@/lib/constants";
-import { animalNames } from "@/lib/names";
+import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
@@ -11,15 +11,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 const AVATAR_PRESETS = [
   { name: "Без изображения", url: "" },
-  { name: "Янтарь", url: "https://api.dicebear.com/9.x/shapes/svg?seed=amber" },
-  { name: "Лагуна", url: "https://api.dicebear.com/9.x/shapes/svg?seed=lagoon" },
-  { name: "Орбита", url: "https://api.dicebear.com/9.x/shapes/svg?seed=orbit" },
-  { name: "Мята", url: "https://api.dicebear.com/9.x/shapes/svg?seed=mint" },
-  { name: "Коралл", url: "https://api.dicebear.com/9.x/shapes/svg?seed=coral" },
-  { name: "Сумерки", url: "https://api.dicebear.com/9.x/shapes/svg?seed=twilight" },
-  { name: "Мозаика", url: "https://api.dicebear.com/9.x/shapes/svg?seed=mosaic" },
-  { name: "Комета", url: "https://api.dicebear.com/9.x/shapes/svg?seed=comet" },
-] as const;
+  ...animalAvatars,
+];
 
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
 type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; saved: boolean };
@@ -474,9 +467,12 @@ function WelcomeScreen({ busy, notice, sharedNickname, onRegister, onLogin }: { 
   const [loginToken, setLoginToken] = useState("");
   const [suggestion, setSuggestion] = useState<string>(animalNames[0]);
 
+  useEffect(() => {
+    setSuggestion(randomAnimalName());
+  }, []);
+
   function generateName() {
-    const alternatives = animalNames.filter((candidate) => candidate !== suggestion);
-    const generated = alternatives[Math.floor(Math.random() * alternatives.length)] ?? animalNames[0];
+    const generated = randomAnimalName(suggestion);
     setSuggestion(generated);
     setName(generated);
   }
@@ -487,7 +483,7 @@ function WelcomeScreen({ busy, notice, sharedNickname, onRegister, onLogin }: { 
       <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>У меня есть токен</button></div>
       {sharedNickname ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>@{sharedNickname}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
       {mode === "new" ? (
-        <form onSubmit={(event) => { event.preventDefault(); void onRegister(name, nickname); }}>
+        <form onSubmit={(event) => { event.preventDefault(); void onRegister(name.trim() || suggestion, nickname); }}>
           <span className="step-label">Ваше имя на устройстве</span>
           <h2>Как вас показать?</h2>
           <p className="form-hint">Если оставить пустым, имя придумаем сами.</p>
