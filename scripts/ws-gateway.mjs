@@ -55,8 +55,11 @@ function safeString(value, maxLength) {
   return typeof value === "string" && value.length <= maxLength ? value : "";
 }
 
-async function publicJson(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(7000) });
+async function publicJson(url, { timeoutMs = 7000, headers = {} } = {}) {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers,
+  });
   if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`);
   return response.json();
 }
@@ -67,16 +70,91 @@ function finiteNumber(value, field) {
   return number;
 }
 
-async function dashboardWeather(latitude, longitude) {
-  const lat = finiteNumber(latitude, "latitude");
-  const lon = finiteNumber(longitude, "longitude");
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    throw Object.assign(new Error("Некорректные координаты"), { code: "invalid_coordinates" });
-  }
-  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
-  const cached = weatherCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.data;
+function worldWeatherOnlineCodeToWmo(value) {
+  const code = finiteNumber(value, "weatherCode");
+  if (code === 113) return 0;
+  if (code === 116) return 2;
+  if (code === 119 || code === 122) return 3;
+  if (code === 143 || code === 248) return 45;
+  if (code === 260) return 48;
+  if (code === 176) return 51;
+  if (code === 263 || code === 266) return 53;
+  if (code === 185 || code === 281) return 56;
+  if (code === 284) return 57;
+  if (code === 293 || code === 296) return 61;
+  if (code === 299 || code === 302) return 63;
+  if (code === 305 || code === 308) return 65;
+  if (code === 182 || code === 311 || code === 314 || code === 317 || code === 320) return 67;
+  if (code === 179 || code === 323 || code === 326) return 71;
+  if (code === 227 || code === 329 || code === 332) return 73;
+  if (code === 230 || code === 335 || code === 338) return 75;
+  if (code === 350 || code === 374 || code === 377) return 77;
+  if (code === 353) return 80;
+  if (code === 356) return 81;
+  if (code === 359) return 82;
+  if (code === 362 || code === 365 || code === 368) return 85;
+  if (code === 371 || code === 395) return 86;
+  if (code === 200 || code === 386 || code === 392) return 95;
+  if (code === 389) return 99;
+  return 3;
+}
 
+function wttrDailyCode(day, index) {
+  if (!Array.isArray(day?.hourly) || !day.hourly.length) {
+    throw new Error(`Некорректное поле weather[${index}].hourly`);
+  }
+  const representative = day.hourly.find((hour) => String(hour.time) === "1200") ||
+    day.hourly[Math.floor(day.hourly.length / 2)];
+  return worldWeatherOnlineCodeToWmo(representative.weatherCode);
+}
+
+function wttrRainChance(day, index) {
+  if (!Array.isArray(day?.hourly) || !day.hourly.length) {
+    throw new Error(`Некорректное поле weather[${index}].hourly`);
+  }
+  return Math.max(...day.hourly.map((hour) =>
+    finiteNumber(hour.chanceofrain ?? 0, `weather[${index}].chanceofrain`)));
+}
+
+async function wttrWeather(latitude, longitude) {
+  let lastError;
+  for (const domain of ["wttr.in", "wttr.is"]) {
+    const url = new URL(`https://${domain}/${latitude.toFixed(4)},${longitude.toFixed(4)}`);
+    url.searchParams.set("format", "j1");
+    url.searchParams.set("m", "");
+    try {
+      const source = await publicJson(url, {
+        timeoutMs: 3500,
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Tiny-Messenger-device-gateway/1.0",
+        },
+      });
+      const current = source.current_condition?.[0];
+      const days = source.weather;
+      if (!current || !Array.isArray(days) || days.length < 3) {
+        throw new Error("wttr.in вернул неполный прогноз");
+      }
+      const forecast = days.slice(0, 3);
+      return {
+        temperature: finiteNumber(current.temp_C, "temp_C"),
+        apparent: finiteNumber(current.FeelsLikeC, "FeelsLikeC"),
+        wind: finiteNumber(current.windspeedKmph, "windspeedKmph"),
+        humidity: finiteNumber(current.humidity, "humidity"),
+        code: worldWeatherOnlineCodeToWmo(current.weatherCode),
+        minTemp: forecast.map((day, index) => finiteNumber(day.mintempC, `weather[${index}].mintempC`)),
+        maxTemp: forecast.map((day, index) => finiteNumber(day.maxtempC, `weather[${index}].maxtempC`)),
+        dailyCode: forecast.map(wttrDailyCode),
+        rainChance: forecast.map(wttrRainChance),
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("wttr.in недоступен");
+}
+
+async function openMeteoWeather(lat, lon) {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", lat.toFixed(4));
   url.searchParams.set("longitude", lon.toFixed(4));
@@ -91,7 +169,7 @@ async function dashboardWeather(latitude, longitude) {
     if (!Array.isArray(values) || values.length < 4) throw new Error(`Некорректное поле ${field}`);
     return values.slice(0, 4).map((value) => finiteNumber(value, field));
   };
-  const data = {
+  return {
     temperature: finiteNumber(current.temperature_2m, "temperature_2m"),
     apparent: finiteNumber(current.apparent_temperature, "apparent_temperature"),
     wind: finiteNumber(current.wind_speed_10m, "wind_speed_10m"),
@@ -102,6 +180,34 @@ async function dashboardWeather(latitude, longitude) {
     dailyCode: four(daily.weather_code, "daily.weather_code"),
     rainChance: four(daily.precipitation_probability_max, "precipitation_probability_max"),
   };
+}
+
+async function dashboardWeather(latitude, longitude) {
+  const lat = finiteNumber(latitude, "latitude");
+  const lon = finiteNumber(longitude, "longitude");
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    throw Object.assign(new Error("Некорректные координаты"), { code: "invalid_coordinates" });
+  }
+  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+  const cached = weatherCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const [openMeteo, wttrResult] = await Promise.all([
+    openMeteoWeather(lat, lon),
+    wttrWeather(lat, lon).then((data) => ({ data })).catch((error) => ({ error })),
+  ]);
+  let data = openMeteo;
+  if (wttrResult.data) {
+    data = {
+      ...wttrResult.data,
+      minTemp: [...wttrResult.data.minTemp, openMeteo.minTemp[3]],
+      maxTemp: [...wttrResult.data.maxTemp, openMeteo.maxTemp[3]],
+      dailyCode: [...wttrResult.data.dailyCode, openMeteo.dailyCode[3]],
+      rainChance: [...wttrResult.data.rainChance, openMeteo.rainChance[3]],
+    };
+  } else {
+    console.warn(`Weather fallback to Open-Meteo: ${wttrResult.error?.message || "unknown error"}`);
+  }
   if (!weatherCache.has(cacheKey) && weatherCache.size >= 32) {
     weatherCache.delete(weatherCache.keys().next().value);
   }

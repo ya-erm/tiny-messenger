@@ -17,6 +17,7 @@ export function publicUser(user: UserRecord): PublicUser {
   return {
     id: user.id,
     name: user.name,
+    ...(user.nickname ? { nickname: user.nickname } : {}),
     ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
     createdAt: user.createdAt,
   };

@@ -7,6 +7,7 @@ import { animalNames } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const AVATAR_PRESETS = [
   { name: "Без изображения", url: "" },
@@ -21,7 +22,7 @@ const AVATAR_PRESETS = [
 ] as const;
 
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
-type Peer = { id: string; name: string; avatarUrl?: string; saved: boolean };
+type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; saved: boolean };
 
 async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
   const response = await fetch(path, {
@@ -37,7 +38,7 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
   return payload.data;
 }
 
-function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" }) {
+function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" }) {
   const paths = {
     plus: <path d="M12 5v14M5 12h14" />,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.37.72.66 1 .3.29.69.43 1.1.4h.1v4h-.1c-.41-.03-.8.11-1.1.4-.29.28-.51.62-.66 1Z" /></>,
@@ -48,6 +49,9 @@ function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" 
     refresh: <><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.7-2.6L20 12M4 12l2.2 5.6A7 7 0 0 0 17.9 15" /></>,
     eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></>,
     eyeOff: <><path d="m3 3 18 18" /><path d="M10.6 6.2A11.6 11.6 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-2.1 2.8M6.5 6.5C3.6 8.2 2 12 2 12s3.5 6 10 6a10 10 0 0 0 4.1-.8" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
+    logout: <><path d="M10 17l5-5-5-5" /><path d="M15 12H3" /><path d="M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /></>,
+    close: <path d="m6 6 12 12M18 6 6 18" />,
+    share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.7 10.7 6.6-4.4M8.7 13.3l6.6 4.4" /></>,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -91,7 +95,7 @@ function StatusTicks({ message }: { message: PublicMessage }) {
   }[message.status];
 
   return (
-    <span className={`ticks ${double ? "ticks-double" : ""} ${active ? "ticks-active" : ""}`} title={label} aria-label={label}>
+    <span className={`ticks ${double ? "ticks-double" : ""} ${active ? "ticks-active" : ""}`} data-tooltip={label} aria-label={label}>
       <svg viewBox={double ? "0 0 17 11" : "0 0 13 11"} aria-hidden="true">
         {double ? <path d="m1.5 5.7 3 3 6.2-7" /> : null}
         <path d={double ? "m5.5 5.7 3 3 6.2-7" : "m1.5 5.7 3 3 6.2-7"} />
@@ -153,7 +157,7 @@ function AnswerBubble({ message, currentUserId, currentUserName, peerName }: { m
   );
 }
 
-export function MessengerApp() {
+export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "welcome" | "ready">("loading");
@@ -164,6 +168,7 @@ export function MessengerApp() {
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sharedContactHandled, setSharedContactHandled] = useState(false);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -213,11 +218,22 @@ export function MessengerApp() {
     return () => window.clearInterval(interval);
   }, [phase, token, refreshState]);
 
+  useEffect(() => {
+    if (phase !== "ready" || !user || !sharedNickname || sharedContactHandled) return;
+    setSharedContactHandled(true);
+    if (user.nickname === sharedNickname) {
+      setNotice("Это ваша ссылка на профиль");
+      return;
+    }
+    void addContact(`@${sharedNickname}`);
+  }, [phase, user, sharedNickname, sharedContactHandled]);
+
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
     for (const contact of contacts) result.set(contact.userId, {
       id: contact.userId,
       name: contact.user.name,
+      nickname: contact.user.nickname,
       avatarUrl: contact.user.avatarUrl,
       saved: true,
     });
@@ -254,12 +270,12 @@ export function MessengerApp() {
     setNotice("");
   }
 
-  async function register(name: string) {
+  async function register(name: string, nickname: string) {
     setBusy(true);
     try {
       const data = await request<{ user: PublicUser; token: string }>("/api/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, nickname }),
       }, "");
       saveSession(data.user, data.token);
     } catch (error) {
@@ -296,12 +312,12 @@ export function MessengerApp() {
     setPhase("welcome");
   }
 
-  async function addContact(userId: string) {
+  async function addContact(identifier: string) {
     setBusy(true);
     try {
       const data = await request<{ contact: PublicContact }>("/api/contacts", {
         method: "POST",
-        body: JSON.stringify({ userId: userId.trim() }),
+        body: JSON.stringify({ identifier: identifier.trim() }),
       });
       await refreshState();
       setSelectedId(data.contact.userId);
@@ -365,7 +381,7 @@ export function MessengerApp() {
 
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "welcome" || !user) {
-    return <WelcomeScreen busy={busy} notice={notice} onRegister={register} onLogin={login} />;
+    return <WelcomeScreen busy={busy} notice={notice} sharedNickname={sharedNickname} onRegister={register} onLogin={login} />;
   }
 
   return (
@@ -374,26 +390,34 @@ export function MessengerApp() {
         <aside className="sidebar">
           <header className="sidebar-header">
             <div className="brand"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div>
-            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки"><Glyph name="settings" /></button>
+            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки" data-tooltip-position="bottom"><Glyph name="settings" /></button>
           </header>
           <div className="profile-strip">
             <Avatar name={user.name} avatarUrl={user.avatarUrl} className="avatar" />
             <div className="profile-details">
               <strong>{user.name}</strong>
+              {user.nickname ? <span className="profile-nickname">@{user.nickname}</span> : null}
               <div className="profile-id-row">
                 <code>{user.id}</code>
-                <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" title="Скопировать UUID"><Glyph name="copy" /></button>
+                <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" data-tooltip="Скопировать UUID"><Glyph name="copy" /></button>
               </div>
             </div>
           </div>
-          <div className="contacts-title"><span>Диалоги</span><button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт"><Glyph name="plus" /></button></div>
+          <div className="contacts-title"><span>Диалоги</span><button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт" data-tooltip="Добавить контакт" data-tooltip-position="bottom"><Glyph name="plus" /></button></div>
           <div className="contact-list">
-            {peers.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по UUID, чтобы написать первым.</p></div> : peers.map((peer) => {
+            {peers.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по нику или UUID, чтобы написать первым.</p></div> : peers.map((peer) => {
               const last = [...messages].reverse().find((message) => message.fromUserId === peer.id || message.toUserId === peer.id);
               const unread = messages.filter((message) => message.fromUserId === peer.id && message.toUserId === user.id && !message.readAt).length;
               return <button key={peer.id} className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => setSelectedId(peer.id)}>
                 <Avatar name={peer.name} avatarUrl={peer.avatarUrl} className="contact-avatar" />
-                <span className="contact-copy"><strong>{peer.name}</strong><small>{last?.text || (peer.saved ? shortId(peer.id) : "Не сохранён")}</small></span>
+                <span className="contact-copy">
+                  <strong>{peer.name}</strong>
+                  <span className="contact-identity">
+                    {peer.nickname ? <small className="contact-nickname">@{peer.nickname}<span className="contact-identity-separator"> · </span></small> : null}
+                    <code className="contact-id">{peer.id}</code>
+                  </span>
+                  {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
+                </span>
                 {unread > 0 && <span className="unread-badge">{unread}</span>}
               </button>;
             })}
@@ -404,9 +428,9 @@ export function MessengerApp() {
         <section className="conversation-panel">
           {selectedPeer ? <>
             <header className="conversation-header">
-              <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад"><Glyph name="back" /></button>
+              <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
               <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} className="contact-avatar large" />
-              <div className="conversation-title"><strong>{selectedPeer.name}</strong><span>{selectedPeer.id}</span></div>
+              <div className="conversation-title"><strong>{selectedPeer.name}</strong><span>{selectedPeer.nickname ? `@${selectedPeer.nickname} · ` : ""}{selectedPeer.id}</span></div>
               {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
             </header>
             <div className="message-stream">
@@ -432,7 +456,7 @@ export function MessengerApp() {
         </section>
       </div>
 
-      {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
+      {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
       {showSettings && <SettingsDialog user={user} token={token} request={request} onUser={setUser} onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }} onLogout={logout} onClose={() => setShowSettings(false)} setNotice={setNotice} />}
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<span>×</span></button>}
     </main>
@@ -443,9 +467,10 @@ function LoadingScreen() {
   return <main className="loading-screen"><span className="brand-mark big pulse">tm</span><p>Открываем канал…</p></main>;
 }
 
-function WelcomeScreen({ busy, notice, onRegister, onLogin }: { busy: boolean; notice: string; onRegister: (name: string) => void; onLogin: (token: string) => void }) {
+function WelcomeScreen({ busy, notice, sharedNickname, onRegister, onLogin }: { busy: boolean; notice: string; sharedNickname: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {
   const [mode, setMode] = useState<"new" | "login">("new");
   const [name, setName] = useState("");
+  const [nickname, setNickname] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [suggestion, setSuggestion] = useState<string>(animalNames[0]);
 
@@ -457,11 +482,12 @@ function WelcomeScreen({ busy, notice, onRegister, onLogin }: { busy: boolean; n
   }
 
   return <main className="welcome-shell">
-    <section className="welcome-copy"><div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div><div><span className="eyebrow">80 × 160 пикселей</span><h1>Маленький экран.<br />Важные сообщения.</h1><p>Личный мессенджер для браузера и устройства с тремя кнопками. Без регистрации и публичных профилей.</p></div><div className="feature-line"><span>✓</span> Только UUID и секретный токен</div></section>
+    <section className="welcome-copy"><div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div><div><span className="eyebrow">80 × 160 пикселей</span><h1>Маленький экран.<br />Важные сообщения.</h1><p>Личный мессенджер для браузера и устройства с тремя кнопками. Без регистрации и публичных профилей.</p></div><div className="feature-line"><span>✓</span> Ник или UUID для личных диалогов</div></section>
     <section className="welcome-card">
       <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>У меня есть токен</button></div>
+      {sharedNickname ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>@{sharedNickname}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
       {mode === "new" ? (
-        <form onSubmit={(event) => { event.preventDefault(); void onRegister(name); }}>
+        <form onSubmit={(event) => { event.preventDefault(); void onRegister(name, nickname); }}>
           <span className="step-label">Ваше имя на устройстве</span>
           <h2>Как вас показать?</h2>
           <p className="form-hint">Если оставить пустым, имя придумаем сами.</p>
@@ -475,6 +501,10 @@ function WelcomeScreen({ busy, notice, onRegister, onLogin }: { busy: boolean; n
             <input id="welcome-name" autoFocus value={name} maxLength={LIMITS.name} onChange={(event) => setName(event.target.value)} placeholder={suggestion} />
           </div>
           <div className="character-count">{Array.from(name).length} / {LIMITS.name}</div>
+          <label className="field-label">Ник <span className="optional-label">необязательно</span>
+            <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
+          </label>
+          <p className="input-hint">По нику вас смогут найти друзья. Только a–z, 0–9, точка, дефис и подчёркивание.</p>
           <button className="primary-button wide" disabled={busy}>{busy ? "Создаём…" : "Создать мой канал"}</button>
         </form>
       ) : (
@@ -506,21 +536,182 @@ function Composer({ busy, onSend }: { busy: boolean; onSend: (input: { text: str
   }
   return <form className="composer" onSubmit={submit}>
     <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button><button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button><span>{Array.from(text).length}/{LIMITS.message}</span></div>
-    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className="send-button" disabled={busy || !text.trim()} aria-label="Отправить"><Glyph name="send" /></button></div>
+    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className="send-button" disabled={busy || !text.trim()} aria-label="Отправить" data-tooltip="Отправить"><Glyph name="send" /></button></div>
     {kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;
 }
 
-function ContactDialog({ defaultId, busy, onClose, onSubmit }: { defaultId: string; busy: boolean; onClose: () => void; onSubmit: (id: string) => void }) {
-  const [id, setId] = useState(defaultId);
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form className="modal-card" onSubmit={(event) => { event.preventDefault(); void onSubmit(id); }}><button type="button" className="modal-close" onClick={onClose}>×</button><span className="step-label">Новый диалог</span><h2>Добавить контакт</h2><p className="form-hint">Попросите друга прислать UUID. Имя и изображение загрузятся из его профиля.</p><label className="field-label">UUID<input required value={id} onChange={(event) => setId(event.target.value)} placeholder="xxxxxxxx-xxxx-…" /></label><button className="primary-button wide contact-submit-button" disabled={busy}>{busy ? "Добавляем…" : "Добавить"}</button></form></div>;
+function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaultId: string; busy: boolean; request: <T>(path: string, init?: RequestInit) => Promise<T>; onClose: () => void; onSubmit: (id: string) => void }) {
+  const [mode, setMode] = useState<"nickname" | "uuid">(defaultId ? "uuid" : "nickname");
+  const [value, setValue] = useState(defaultId);
+  const [results, setResults] = useState<PublicUser[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const nicknameQuery = value.trim().replace(/^@/, "").toLowerCase();
+  const uuidQuery = value.trim().toLowerCase();
+  const uuidIsValid = UUID_PATTERN.test(uuidQuery);
+  const uuidCandidate = mode === "uuid" ? results[0] : undefined;
+
+  useEffect(() => {
+    if (mode !== "nickname" || !nicknameQuery || !/^[a-z0-9_.-]+$/.test(nicknameQuery)) {
+      setResults([]);
+      setSearching(false);
+      setSearchError("");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setSearching(true);
+      setSearchError("");
+      void request<{ users: PublicUser[] }>(
+        `/api/users?query=${encodeURIComponent(nicknameQuery)}`,
+        { signal: controller.signal },
+      )
+        .then((data) => setResults(data.users))
+        .catch((error: Error) => {
+          if (error.name !== "AbortError") {
+            setResults([]);
+            setSearchError(error.message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [mode, nicknameQuery, request]);
+
+  useEffect(() => {
+    if (mode !== "uuid" || !uuidIsValid) {
+      if (mode === "uuid") {
+        setResults([]);
+        setSearching(false);
+        setSearchError("");
+      }
+      return;
+    }
+
+    const controller = new AbortController();
+    setResults([]);
+    setSearching(true);
+    setSearchError("");
+    const timeout = window.setTimeout(() => {
+      void request<{ user: PublicUser }>(
+        `/api/users/${encodeURIComponent(uuidQuery)}`,
+        { signal: controller.signal },
+      )
+        .then((data) => setResults([data.user]))
+        .catch((error: Error) => {
+          if (error.name !== "AbortError") {
+            setResults([]);
+            setSearchError(error.message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [mode, request, uuidIsValid, uuidQuery]);
+
+  function switchMode(nextMode: "nickname" | "uuid") {
+    setMode(nextMode);
+    setValue("");
+    setResults([]);
+    setSearching(false);
+    setSearchError("");
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="modal-card contact-card" onSubmit={(event) => { event.preventDefault(); if (mode === "uuid" && uuidCandidate) void onSubmit(uuidCandidate.id); }}>
+        <div className="modal-header">
+          <h2>Добавить контакт</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
+        <div className="contact-mode-switch" role="group" aria-label="Способ поиска">
+          <button type="button" className={mode === "nickname" ? "active" : ""} onClick={() => switchMode("nickname")}>По нику</button>
+          <button type="button" className={mode === "uuid" ? "active" : ""} onClick={() => switchMode("uuid")}>По UUID</button>
+        </div>
+
+        {mode === "nickname" ? (
+          <div className="contact-mode-panel nickname-panel">
+            <label className="field-label">Ник
+              <input autoFocus value={value} maxLength={LIMITS.nickname + 1} autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value.toLowerCase())} placeholder="Начните вводить ник" />
+            </label>
+            <div className="contact-search-results" aria-live="polite">
+              {!searching && !nicknameQuery && !searchError && results.length === 0 ? (
+                <div className="contact-search-placeholder">
+                  <svg viewBox="0 0 120 72" aria-hidden="true">
+                    <rect className="contact-placeholder-card back" x="15" y="14" width="48" height="42" rx="13" />
+                    <circle className="contact-placeholder-avatar back" cx="39" cy="29" r="8" />
+                    <path className="contact-placeholder-person back" d="M26 48c2-8 8-12 13-12s11 4 13 12" />
+                    <rect className="contact-placeholder-card front" x="48" y="8" width="48" height="42" rx="13" />
+                    <circle className="contact-placeholder-avatar front" cx="72" cy="23" r="8" />
+                    <path className="contact-placeholder-person front" d="M59 42c2-8 8-12 13-12s11 4 13 12" />
+                    <circle className="contact-placeholder-search" cx="91" cy="48" r="14" />
+                    <path className="contact-placeholder-handle" d="m101 58 10 10" />
+                  </svg>
+                  <strong>Найдите друга</strong>
+                  <span>Введите несколько символов ника</span>
+                </div>
+              ) : null}
+              {searching ? <p className="contact-search-status">Ищем пользователей…</p> : null}
+              {!searching && nicknameQuery && !searchError && results.length === 0 ? <p className="contact-search-status">Никого не нашли</p> : null}
+              {searchError ? <p className="contact-search-status error">{searchError}</p> : null}
+              {!searching && results.map((candidate) => (
+                <button key={candidate.id} type="button" className="contact-search-result" disabled={busy} onClick={() => { if (candidate.nickname) void onSubmit(`@${candidate.nickname}`); }}>
+                  <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} className="contact-search-avatar" />
+                  <span><strong>{candidate.name}</strong><small>@{candidate.nickname}</small></span>
+                  <span className="contact-add-label">Добавить</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="contact-mode-panel uuid-panel">
+            <p className="form-hint contact-mode-hint">Введите UUID пользователя.<br />Имя и изображение загрузятся из профиля автоматически.</p>
+            <label className="field-label">UUID<input autoFocus required value={value} maxLength={36} autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value.toLowerCase())} placeholder="xxxxxxxx-xxxx-…" /></label>
+            <div className={`uuid-result-slot ${uuidCandidate ? "found" : ""}`} aria-live="polite">
+              {!value.trim() ? <p className="contact-search-status">Здесь появится найденный пользователь</p> : null}
+              {value.trim() && !uuidIsValid ? <p className="contact-search-status">{value.trim().length >= 36 ? "Пользователь не найден" : "Введите UUID полностью"}</p> : null}
+              {uuidIsValid && searching ? <p className="contact-search-status">Ищем пользователя…</p> : null}
+              {uuidIsValid && !searching && searchError ? <p className="contact-search-status error">{searchError}</p> : null}
+              {uuidCandidate && !searching ? (
+                <div className="uuid-user-card">
+                  <Avatar name={uuidCandidate.name} avatarUrl={uuidCandidate.avatarUrl} className="contact-search-avatar" />
+                  <span>
+                    <strong>{uuidCandidate.name}</strong>
+                    {uuidCandidate.nickname ? <small>@{uuidCandidate.nickname}</small> : null}
+                    <code>{uuidCandidate.id}</code>
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            <button className="primary-button wide contact-submit-button" disabled={busy || searching || !uuidCandidate}>{busy ? "Добавляем…" : "Добавить"}</button>
+          </div>
+        )}
+      </form>
+    </div>
+  );
 }
 
 function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClose, setNotice }: { user: PublicUser; token: string; request: <T>(path: string, init?: RequestInit) => Promise<T>; onUser: (user: PublicUser) => void; onToken: (token: string) => void; onLogout: () => void; onClose: () => void; setNotice: (message: string) => void }) {
   const [name, setName] = useState(user.name);
+  const [nickname, setNickname] = useState(user.nickname ?? "");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
   const [showToken, setShowToken] = useState(false);
   const [confirmTokenReset, setConfirmTokenReset] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function updateProfile() {
@@ -528,9 +719,10 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
     try {
       const data = await request<{ user: PublicUser }>("/api/me", {
         method: "PATCH",
-        body: JSON.stringify({ name, avatarUrl }),
+        body: JSON.stringify({ name, nickname, avatarUrl }),
       });
       onUser(data.user);
+      setNickname(data.user.nickname ?? "");
       setAvatarUrl(data.user.avatarUrl ?? "");
       setNotice("Профиль обновлён");
     } catch (error) {
@@ -555,22 +747,51 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
     }
   }
 
-  const profileChanged = name.trim() !== user.name || avatarUrl.trim() !== (user.avatarUrl ?? "");
+  async function shareProfile() {
+    if (!user.nickname) return;
+    const url = `${window.location.origin}/@${user.nickname}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `${user.name} в Tiny Messenger`, text: `Напишите мне в Tiny Messenger: @${user.nickname}`, url });
+        return;
+      } catch (error) {
+        if ((error as DOMException).name === "AbortError") return;
+      }
+    }
+    await navigator.clipboard.writeText(url);
+    setNotice("Ссылка на профиль скопирована");
+  }
+
+  const profileChanged = name.trim() !== user.name || nickname.trim() !== (user.nickname ?? "") || avatarUrl.trim() !== (user.avatarUrl ?? "");
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть">×</button>
-        <span className="step-label">Профиль и устройство</span>
-        <h2 id="settings-title">Ваши настройки</h2>
+        <div className="modal-header">
+          <h2 id="settings-title">Ваши настройки</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
 
         <div className="settings-section">
-          <label className="field-label">Имя
-            <div className="inline-field">
+          <div className="profile-fields-row">
+            <label className="field-label">Имя
               <input value={name} maxLength={LIMITS.name} onChange={(event) => setName(event.target.value)} />
-              <button type="button" className="secondary-button" disabled={busy || !profileChanged} onClick={updateProfile}>Сохранить</button>
-            </div>
-          </label>
+            </label>
+            <label className="field-label">Ник <span className="optional-label">необязательно</span>
+              <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
+            </label>
+            <button
+              type="button"
+              className="profile-share-icon"
+              disabled={!user.nickname}
+              onClick={() => { void shareProfile(); }}
+              aria-label={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Укажите и сохраните ник, чтобы поделиться ссылкой"}
+              data-tooltip={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Сначала сохраните ник"}
+            >
+              <Glyph name="share" />
+            </button>
+            <button type="button" className="secondary-button" disabled={busy || !profileChanged} onClick={updateProfile}>Сохранить</button>
+          </div>
           <div className="field-label avatar-field">Изображение
             <div className="avatar-presets" role="group" aria-label="Готовые изображения профиля">
               {AVATAR_PRESETS.map((preset) => {
@@ -582,7 +803,7 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
                     className={selected ? "selected" : ""}
                     aria-pressed={selected}
                     aria-label={preset.name}
-                    title={preset.name}
+                    data-tooltip={preset.name}
                     onClick={() => setAvatarUrl(preset.url)}
                   >
                     <Avatar name={name || user.name} avatarUrl={preset.url || undefined} className="avatar avatar-preset" />
@@ -599,7 +820,7 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
           <label className="field-label">Ваш UUID
             <div className="copy-field">
               <code>{user.id}</code>
-              <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" title="Скопировать UUID"><Glyph name="copy" /></button>
+              <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" data-tooltip="Скопировать UUID"><Glyph name="copy" /></button>
             </div>
           </label>
         </div>
@@ -608,24 +829,36 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
           <label className="field-label">Секретный токен
             <div className="copy-field">
               <code>{showToken ? token : "•".repeat(Math.min(token.length, 20))}</code>
-              <button type="button" onClick={() => setShowToken((visible) => !visible)} aria-label={showToken ? "Скрыть токен" : "Показать токен"} title={showToken ? "Скрыть токен" : "Показать токен"}><Glyph name={showToken ? "eyeOff" : "eye"} /></button>
-              <button type="button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }} aria-label="Скопировать токен" title="Скопировать токен"><Glyph name="copy" /></button>
+              <button type="button" onClick={() => setShowToken((visible) => !visible)} aria-label={showToken ? "Скрыть токен" : "Показать токен"} data-tooltip={showToken ? "Скрыть токен" : "Показать токен"}><Glyph name={showToken ? "eyeOff" : "eye"} /></button>
+              <button type="button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }} aria-label="Скопировать токен" data-tooltip="Скопировать токен"><Glyph name="copy" /></button>
             </div>
           </label>
-          <p className="form-hint">Он работает как пароль и API-ключ. Никому не показывайте без необходимости.</p>
+          <p className="form-hint">Он работает как пароль и API-ключ. Сохраните его и никому не показывайте.</p>
 
           <div className="account-actions">
-            <button type="button" className="danger-link" onClick={() => setConfirmTokenReset(true)}>Сбросить токен</button>
-            <button type="button" className="danger-link" onClick={onLogout}>Выйти из этого браузера</button>
+            <button type="button" className="danger-link token-reset-link" onClick={() => { setConfirmLogout(false); setConfirmTokenReset(true); }}><Glyph name="refresh" /> Сбросить токен</button>
+            <button type="button" className="danger-link logout-link" onClick={() => { setConfirmTokenReset(false); setConfirmLogout(true); }}><Glyph name="logout" /> Выйти из этого браузера</button>
           </div>
 
           {confirmTokenReset ? (
-            <div className="token-reset-confirmation" role="alert">
+            <div className="account-confirmation" role="alert">
               <strong>Сбросить секретный токен?</strong>
               <p>Старый токен сразу перестанет работать. Устройство и другие браузеры потеряют доступ, пока вы не укажете им новый токен. В этом браузере новый токен сохранится автоматически.</p>
               <div>
                 <button type="button" className="cancel-button" disabled={busy} onClick={() => setConfirmTokenReset(false)}>Отмена</button>
                 <button type="button" className="danger-button" disabled={busy} onClick={resetToken}>{busy ? "Сбрасываем…" : "Да, сбросить"}</button>
+              </div>
+            </div>
+          ) : null}
+
+          {confirmLogout ? (
+            <div className="account-confirmation" role="alert">
+              <strong>Выйти из этого браузера?</strong>
+              <p>Секретный токен будет удалён из этого браузера. Чтобы снова открыть свои диалоги, потребуется ввести его заново. Перед выходом скопируйте и сохраните токен в надёжном месте.</p>
+              <div>
+                <button type="button" className="copy-token-button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }}><Glyph name="copy" /> Скопировать токен</button>
+                <button type="button" className="cancel-button" onClick={() => setConfirmLogout(false)}>Отмена</button>
+                <button type="button" className="danger-button" onClick={onLogout}>Выйти</button>
               </div>
             </div>
           ) : null}

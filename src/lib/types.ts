@@ -4,6 +4,7 @@ export type MessageStatus = "sent" | "delivered" | "read" | "answered";
 export interface UserRecord {
   id: string;
   name: string;
+  nickname?: string;
   avatarUrl?: string;
   tokenHash: string;
   createdAt: string;
@@ -50,6 +51,7 @@ export interface StoreData {
 export interface PublicUser {
   id: string;
   name: string;
+  nickname?: string;
   avatarUrl?: string;
   createdAt: string;
 }

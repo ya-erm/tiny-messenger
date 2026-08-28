@@ -21,12 +21,43 @@ assert.equal(health.status, "healthy");
 
 const alice = await api("/api/auth/register", {
   method: "POST",
-  body: JSON.stringify({ name: "Аня" }),
+  body: JSON.stringify({ name: "Аня", nickname: "anya" }),
 });
 const bob = await api("/api/auth/register", {
   method: "POST",
-  body: JSON.stringify({ name: "Боря" }),
+  body: JSON.stringify({ name: "Боря", nickname: "borya" }),
 });
+const bobTeam = await api("/api/auth/register", {
+  method: "POST",
+  body: JSON.stringify({ name: "Команда Бори", nickname: "team.borya" }),
+});
+assert.equal(alice.user.nickname, "anya");
+assert.equal(bob.user.nickname, "borya");
+
+const duplicateNickname = await fetch(`${baseUrl}/api/auth/register`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "Другой Боря", nickname: "borya" }),
+});
+assert.equal(duplicateNickname.status, 409);
+
+const invalidNickname = await fetch(`${baseUrl}/api/auth/register`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "Некорректный", nickname: "Bad Nick" }),
+});
+assert.equal(invalidNickname.status, 422);
+
+const foundBob = await api("/api/users?nickname=borya", { token: alice.token });
+assert.equal(foundBob.user.id, bob.user.id);
+
+const matchingUsers = await api("/api/users?query=bor", { token: alice.token });
+assert.deepEqual(
+  matchingUsers.users.map((user) => user.id),
+  [bob.user.id, bobTeam.user.id],
+);
+const selfSearch = await api("/api/users?query=anya", { token: alice.token });
+assert.deepEqual(selfSearch.users, []);
 
 const avatarUrl = "https://example.com/bob-avatar.jpg";
 const updatedBob = await api("/api/me", {
@@ -80,18 +111,43 @@ assert.equal(answered.message.answer.label, "Нет");
 const contact = await api("/api/contacts", {
   token: alice.token,
   method: "POST",
-  body: JSON.stringify({ userId: bob.user.id }),
+  body: JSON.stringify({ identifier: "@borya" }),
 });
 assert.equal(contact.contact.user.name, "Боря");
 assert.equal(contact.contact.user.avatarUrl, avatarUrl);
 
+const legacyContact = await api("/api/contacts", {
+  token: alice.token,
+  method: "POST",
+  body: JSON.stringify({ userId: bob.user.id }),
+});
+assert.equal(legacyContact.contact.user.id, bob.user.id);
+
+const occupiedNicknameUpdate = await fetch(`${baseUrl}/api/me`, {
+  method: "PATCH",
+  headers: {
+    Authorization: `Bearer ${bob.token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ name: "Боря", nickname: "anya", avatarUrl }),
+});
+assert.equal(occupiedNicknameUpdate.status, 409);
+
 await api("/api/me", {
   token: bob.token,
   method: "PATCH",
-  body: JSON.stringify({ name: "Борис", avatarUrl }),
+  body: JSON.stringify({ name: "Борис", nickname: "boris", avatarUrl }),
 });
 const refreshedContacts = await api("/api/contacts", { token: alice.token });
 assert.equal(refreshedContacts.contacts[0].user.name, "Борис");
+assert.equal(refreshedContacts.contacts[0].user.nickname, "boris");
+
+const oldNickname = await fetch(`${baseUrl}/api/users?nickname=borya`, {
+  headers: { Authorization: `Bearer ${alice.token}` },
+});
+assert.equal(oldNickname.status, 404);
+const renamedBob = await api("/api/users?nickname=boris", { token: alice.token });
+assert.equal(renamedBob.user.id, bob.user.id);
 
 const syncMessage = await api("/api/messages", {
   token: bob.token,
@@ -128,5 +184,6 @@ assert.equal(oldTokenResponse.status, 401);
 
 const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
+assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → messaging → contacts → sync → token reset");
+console.log("API smoke test passed: profile → nickname search → messaging → contacts → sync → token reset");

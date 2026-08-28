@@ -73,8 +73,13 @@ socket.send(JSON.stringify({
 }));
 const dashboard = await dashboardSnapshotPromise;
 assert.equal(dashboard.ok, true);
+assert.equal(Number.isFinite(dashboard.weather.temperature), true);
+assert.equal(Number.isFinite(dashboard.weather.apparent), true);
 assert.equal(Array.isArray(dashboard.weather.minTemp), true);
 assert.equal(dashboard.weather.minTemp.length, 4);
+assert.equal(dashboard.weather.maxTemp.length, 4);
+assert.equal(dashboard.weather.dailyCode.length, 4);
+assert.equal(dashboard.weather.rainChance.length, 4);
 assert.equal(Number.isFinite(dashboard.rates.eurRsd), true);
 assert.equal((await dashboardAckPromise).ok, true);
 

@@ -2,6 +2,7 @@ export const LIMITS = {
   // 80x160 display: roughly 12-13 compact glyphs per line. Two choice
   // captions share the 80 px width, so each one deliberately stays tiny.
   name: 14,
+  nickname: 32,
   avatarUrl: 500,
   message: 96,
   option: 8,
