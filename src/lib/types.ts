@@ -6,6 +6,7 @@ export interface UserRecord {
   name: string;
   nickname?: string;
   avatarUrl?: string;
+  avatarBackground?: string;
   tokenHash: string;
   createdAt: string;
   updatedAt: string;
@@ -53,6 +54,7 @@ export interface PublicUser {
   name: string;
   nickname?: string;
   avatarUrl?: string;
+  avatarBackground?: string;
   createdAt: string;
 }
 

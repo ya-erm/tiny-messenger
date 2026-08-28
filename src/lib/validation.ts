@@ -48,3 +48,7 @@ export function validHttpUrl(value: string) {
     return false;
   }
 }
+
+export function validAvatarBackground(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}

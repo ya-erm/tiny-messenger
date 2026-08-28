@@ -20,5 +20,5 @@ export default async function SharedProfilePage({ params }: SharedProfilePagePro
     notFound();
   }
 
-  return <MessengerApp sharedNickname={nickname} />;
+  return <MessengerApp sharedIdentifier={`@${nickname}`} sharedLabel={`@${nickname}`} />;
 }

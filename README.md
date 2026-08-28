@@ -89,7 +89,7 @@ X-API-Key: msg_ваш_токен
 | `POST /api/auth/register` | Создать профиль, тело `{ "name": "Аня" }`; токен возвращается только здесь |
 | `POST /api/auth/session` | Восстановить профиль, тело `{ "token": "msg_..." }` |
 | `GET /api/me` | Текущий пользователь |
-| `PATCH /api/me` | Поменять имя и аватарку, тело `{ "name": "Аня", "avatarUrl": "https://example.com/avatar.jpg" }`; пустой `avatarUrl` удаляет аватарку |
+| `PATCH /api/me` | Поменять имя и аватарку, тело `{ "name": "Аня", "avatarUrl": "https://example.com/avatar.jpg", "avatarBackground": "#DCEBFA" }`; пустые `avatarUrl` и `avatarBackground` удаляют изображение и выбранный фон |
 | `POST /api/me/token` | Сбросить токен и получить новый сгенерированный сервером; старый сразу перестаёт работать |
 | `GET /api/users/:uuid` | Найти публичное имя и аватарку пользователя |
 

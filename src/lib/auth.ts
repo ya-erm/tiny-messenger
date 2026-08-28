@@ -19,6 +19,7 @@ export function publicUser(user: UserRecord): PublicUser {
     name: user.name,
     ...(user.nickname ? { nickname: user.nickname } : {}),
     ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+    ...(user.avatarBackground ? { avatarBackground: user.avatarBackground } : {}),
     createdAt: user.createdAt,
   };
 }

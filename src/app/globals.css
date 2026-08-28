@@ -49,11 +49,9 @@ button { color: inherit; }
 .profile-details { min-width: 0; flex: 1; }
 .profile-details > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .profile-nickname { display: block; margin-top: 4px; overflow: hidden; color: rgba(255,255,255,.82); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.profile-id-row { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
-.profile-id-row code { min-width: 0; flex: 1; color: rgba(255,255,255,.72); font-size: 8px; line-height: 1.3; overflow-wrap: anywhere; }
-.profile-id-row button { width: 23px; height: 23px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; color: rgba(255,255,255,.78); background: rgba(255,255,255,.12); border: 0; border-radius: 7px; cursor: pointer; }
-.profile-id-row button:hover { color: #fff; background: rgba(255,255,255,.2); }
-.profile-id-row .glyph { width: 13px; height: 13px; }
+.profile-strip-share { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; margin-left: auto; padding: 0; color: rgba(255,255,255,.82); background: rgba(255,255,255,.12); border: 0; border-radius: 9px; cursor: pointer; }
+.profile-strip-share:hover { color: #fff; background: rgba(255,255,255,.2); }
+.profile-strip-share .glyph { width: 15px; height: 15px; }
 .contacts-title { display: flex; align-items: center; justify-content: space-between; padding: 15px 22px 8px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .small-icon-button { width: 28px; height: 28px; border-radius: 9px; }
 .small-icon-button .glyph { width: 17px; }
@@ -69,8 +67,6 @@ button { color: inherit; }
 .contact-copy small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .contact-identity { min-width: 0; display: flex; align-items: baseline; gap: 0; margin-top: 3px; white-space: nowrap; }
 .contact-copy .contact-nickname { max-width: 100px; flex: 0 1 auto; margin-top: 0; color: var(--green); font-size: 9px; }
-.contact-identity-separator { color: var(--muted); font-size: 8px; }
-.contact-id { display: block; flex: 0 0 auto; color: var(--muted); font-size: 8px; line-height: 1.35; white-space: nowrap; }
 .contact-copy .contact-preview { margin-top: 5px; }
 .unread-badge { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; color: #fff; background: var(--orange); border-radius: 10px; font-size: 10px; font-weight: 800; }
 .empty-sidebar { padding: 40px 32px; text-align: center; color: var(--muted); }
@@ -190,9 +186,13 @@ button { color: inherit; }
 .fatal-card p { color: var(--muted); font-size: 12px; line-height: 1.6; }
 
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(24,33,28,.6); backdrop-filter: blur(5px); }
-.modal-card { width: min(440px, 100%); max-height: calc(100vh - 40px); position: relative; overflow-y: auto; padding: 32px; background: var(--card); border-radius: 22px; box-shadow: var(--shadow); }
+.modal-card { width: min(440px, 100%); max-height: calc(100vh - 40px); position: relative; overflow-y: auto; padding: 22px; background: var(--card); border-radius: 22px; box-shadow: var(--shadow); }
 .modal-header { min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .modal-header h2 { margin: 0; padding: 0; }
+.modal-title-row { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.modal-back { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; padding: 0; color: var(--green); background: var(--green-soft); border: 0; border-radius: 10px; cursor: pointer; }
+.modal-back:hover { color: #fff; background: var(--green); }
+.modal-back .glyph { width: 17px; height: 17px; }
 .modal-close { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; padding: 0; color: var(--muted); background: #eee9df; border: 0; border-radius: 10px; cursor: pointer; }
 .modal-close .glyph { width: 17px; height: 17px; }
 .contact-card { height: 440px; min-height: 440px; display: flex; flex-direction: column; }
@@ -235,9 +235,19 @@ button { color: inherit; }
 .settings-card { width: min(580px, 100%); }
 .settings-section { margin: 22px 0; padding: 18px; background: #f6f2ea; border-radius: 14px; }
 .settings-section .field-label:first-child { margin-top: 0; }
-.profile-fields-row { display: grid; grid-template-columns: minmax(105px, .85fr) minmax(145px, 1fr) 42px auto; align-items: end; gap: 10px; }
-.profile-fields-row .field-label { min-width: 0; margin-top: 0; }
-.profile-fields-row .secondary-button { height: 42px; }
+.settings-profile-card { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: start; gap: 20px; }
+.settings-avatar-column { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.settings-profile-avatar { width: 88px; height: 88px; background: var(--green-soft); font-size: 24px; }
+.avatar-edit-button { width: 88px; padding: 7px 8px; color: var(--green); background: #fff; border: 1px solid #cad8cf; border-radius: 8px; font-size: 9px; font-weight: 800; cursor: pointer; }
+.avatar-edit-button:hover { color: #fff; background: var(--green); border-color: var(--green); }
+.profile-identity-fields { min-width: 0; }
+.profile-identity-fields .field-label { margin-top: 0; }
+.profile-identity-fields .field-label + .field-label { margin-top: 12px; }
+.profile-field-label-row { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.profile-field-label-row > span { flex: 0 0 auto; }
+.profile-inline-uuid { min-width: 0; overflow: hidden; color: var(--muted); font-size: 7px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.profile-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.profile-save-button { width: 100px; height: 42px; flex: 0 0 100px; }
 .profile-share-icon { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; color: var(--green); background: var(--green-soft); border: 0; border-radius: 9px; cursor: pointer; }
 .profile-share-icon:hover { color: #fff; background: var(--green); }
 .profile-share-icon:disabled { opacity: .45; cursor: default; }
@@ -247,16 +257,28 @@ button { color: inherit; }
 .inline-field input { min-width: 0; flex: 1; }
 .inline-field input, .inline-field > .secondary-button { height: 42px; }
 .secondary-button { align-self: flex-end; padding: 11px 12px; color: var(--green); background: var(--green-soft); border-radius: 9px; font-size: 9px; }
+.avatar-editor-section { margin-bottom: 0; }
+.avatar-editor-current { display: flex; align-items: center; gap: 13px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
+.avatar-editor-preview { width: 64px; height: 64px; background: var(--green-soft); font-size: 18px; }
+.avatar-editor-current > div > strong, .avatar-editor-current > div > span { display: block; }
+.avatar-editor-current > div > strong { font-size: 13px; }
+.avatar-editor-current > div > span { margin-top: 4px; color: var(--muted); font-size: 9px; }
 .avatar-field { margin-top: 15px; }
 .avatar-presets { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
-.avatar-presets button { min-width: 0; aspect-ratio: 1; position: relative; padding: 3px; overflow: visible; background: #fff; border: 1px solid var(--line); border-radius: 50%; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.avatar-presets button { min-width: 0; aspect-ratio: 1; position: relative; padding: 1px; overflow: visible; background: transparent; border: 1px solid var(--line); border-radius: 50%; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .avatar-presets button:hover { transform: translateY(-1px); border-color: #91ad9f; }
 .avatar-presets button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .avatar-presets button.selected { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(235,112,64,.2); }
 .avatar-preset { width: 100%; height: 100%; background: var(--green-soft); }
+.avatar-no-image { background: linear-gradient(135deg, #fff 0 43%, #bdc9c0 44% 56%, #fff 57%); }
 .avatar-custom-label { display: block; margin-top: 12px; color: var(--muted); font-size: 8px; }
+.avatar-background-presets { display: flex; flex-wrap: nowrap; gap: 5px; margin-top: 7px; padding: 2px; overflow: visible; }
+.avatar-background-presets button { width: 25px; height: 25px; flex: 0 0 25px; padding: 0; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
+.avatar-background-presets button:hover { transform: translateY(-1px); }
+.avatar-background-presets button.selected { box-shadow: 0 0 0 2px var(--orange); }
+.avatar-background-presets button.default { background: linear-gradient(135deg, #ecf2e8 0 45%, #bdc9c0 46% 54%, #fff 55%); }
 .avatar-url-field { align-items: flex-end; margin-top: 0; }
-.avatar-preview { width: 42px; height: 42px; flex: 0 0 42px; background: var(--green-soft); }
+.primary-button.avatar-editor-done { margin-top: 24px; }
 .copy-field { margin-top: 7px; }
 .copy-field code { min-width: 0; flex: 1; overflow: hidden; padding: 11px; color: #425047; background: #fff; border: 1px solid var(--line); border-radius: 9px; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .copy-field button { display: grid; place-items: center; padding: 0 10px; color: var(--green); background: var(--green-soft); border: 0; border-radius: 9px; font-size: 9px; cursor: pointer; }
@@ -302,12 +324,15 @@ button { color: inherit; }
 @media (max-width: 480px) {
   .welcome-card { width: calc(100% - 24px); padding: 25px 20px; }
   .welcome-card h2, .modal-card h2 { font-size: 20px; }
-  .modal-card { padding: 27px 20px; }
-  .profile-fields-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .modal-card { padding: 18px 14px; }
+  .settings-profile-card { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
+  .settings-profile-avatar { width: 68px; height: 68px; font-size: 19px; }
+  .avatar-edit-button { width: 68px; padding-left: 4px; padding-right: 4px; }
   .profile-share-icon { justify-self: end; }
-  .profile-fields-row .secondary-button { width: 100%; }
+  .profile-save-button { flex: 1; }
   .composer { padding-left: 12px; padding-right: 12px; }
   .avatar-presets { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .avatar-background-presets { flex-wrap: wrap; overflow-x: visible; }
 }
 
 @media (prefers-reduced-motion: reduce) {

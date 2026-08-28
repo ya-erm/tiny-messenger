@@ -14,8 +14,27 @@ const AVATAR_PRESETS = [
   ...animalAvatars,
 ];
 
+const AVATAR_BACKGROUND_PRESETS = [
+  { name: "По умолчанию", value: "" },
+  { name: "Роза", value: "#F8DDE7" },
+  { name: "Коралл", value: "#F6C8BC" },
+  { name: "Абрикос", value: "#F9D7B5" },
+  { name: "Персик", value: "#F8E1D4" },
+  { name: "Солнце", value: "#FFF1B8" },
+  { name: "Лайм", value: "#E9F2C7" },
+  { name: "Шалфей", value: "#DCE9DF" },
+  { name: "Мята", value: "#D8F0EA" },
+  { name: "Бирюза", value: "#D5EEF1" },
+  { name: "Небо", value: "#DCEBFA" },
+  { name: "Лаванда", value: "#E9DDF8" },
+  { name: "Сирень", value: "#E4D2F1" },
+  { name: "Пудра", value: "#F2D6D9" },
+  { name: "Песок", value: "#E8E1D9" },
+  { name: "Дым", value: "#DDE2E4" },
+] as const;
+
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
-type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; saved: boolean };
+type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; avatarBackground?: string; saved: boolean };
 
 async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
   const response = await fetch(path, {
@@ -29,6 +48,22 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
   const payload = (await response.json()) as ApiEnvelope<T>;
   if (!payload.ok) throw new Error(payload.error.message);
   return payload.data;
+}
+
+async function shareProfileLink(user: PublicUser) {
+  const url = user.nickname
+    ? `${window.location.origin}/@${user.nickname}`
+    : `${window.location.origin}/id/${user.id}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ url });
+      return false;
+    } catch (error) {
+      if ((error as DOMException).name === "AbortError") return false;
+    }
+  }
+  await navigator.clipboard.writeText(url);
+  return true;
 }
 
 function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" }) {
@@ -57,9 +92,9 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function Avatar({ name, avatarUrl, className }: { name: string; avatarUrl?: string; className: string }) {
+function Avatar({ name, avatarUrl, avatarBackground, className }: { name: string; avatarUrl?: string; avatarBackground?: string; className: string }) {
   return (
-    <span className={className} aria-hidden="true">
+    <span className={className} style={avatarBackground ? { backgroundColor: avatarBackground } : undefined} aria-hidden="true">
       <span>{name.slice(0, 1).toUpperCase()}</span>
       {avatarUrl ? (
         <Image
@@ -150,7 +185,7 @@ function AnswerBubble({ message, currentUserId, currentUserName, peerName }: { m
   );
 }
 
-export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string }) {
+export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { sharedIdentifier?: string; sharedLabel?: string }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "welcome" | "ready">("loading");
@@ -212,14 +247,14 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
   }, [phase, token, refreshState]);
 
   useEffect(() => {
-    if (phase !== "ready" || !user || !sharedNickname || sharedContactHandled) return;
+    if (phase !== "ready" || !user || !sharedIdentifier || sharedContactHandled) return;
     setSharedContactHandled(true);
-    if (user.nickname === sharedNickname) {
+    if (user.id === sharedIdentifier || (user.nickname && `@${user.nickname}` === sharedIdentifier)) {
       setNotice("Это ваша ссылка на профиль");
       return;
     }
-    void addContact(`@${sharedNickname}`);
-  }, [phase, user, sharedNickname, sharedContactHandled]);
+    void addContact(sharedIdentifier);
+  }, [phase, user, sharedIdentifier, sharedContactHandled]);
 
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
@@ -228,6 +263,7 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
       name: contact.user.name,
       nickname: contact.user.nickname,
       avatarUrl: contact.user.avatarUrl,
+      avatarBackground: contact.user.avatarBackground,
       saved: true,
     });
     for (const message of messages) {
@@ -305,6 +341,16 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
     setPhase("welcome");
   }
 
+  async function shareOwnProfile() {
+    if (!user) return;
+    try {
+      const copied = await shareProfileLink(user);
+      if (copied) setNotice("Ссылка на профиль скопирована");
+    } catch (error) {
+      setNotice((error as Error).message);
+    }
+  }
+
   async function addContact(identifier: string) {
     setBusy(true);
     try {
@@ -374,7 +420,7 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
 
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "welcome" || !user) {
-    return <WelcomeScreen busy={busy} notice={notice} sharedNickname={sharedNickname} onRegister={register} onLogin={login} />;
+    return <WelcomeScreen busy={busy} notice={notice} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
   }
 
   return (
@@ -386,15 +432,12 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
             <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки" data-tooltip-position="bottom"><Glyph name="settings" /></button>
           </header>
           <div className="profile-strip">
-            <Avatar name={user.name} avatarUrl={user.avatarUrl} className="avatar" />
+            <Avatar name={user.name} avatarUrl={user.avatarUrl} avatarBackground={user.avatarBackground} className="avatar" />
             <div className="profile-details">
               <strong>{user.name}</strong>
               {user.nickname ? <span className="profile-nickname">@{user.nickname}</span> : null}
-              <div className="profile-id-row">
-                <code>{user.id}</code>
-                <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" data-tooltip="Скопировать UUID"><Glyph name="copy" /></button>
-              </div>
             </div>
+            <button type="button" className="profile-strip-share" onClick={() => { void shareOwnProfile(); }} aria-label="Поделиться своим профилем" data-tooltip="Поделиться"><Glyph name="share" /></button>
           </div>
           <div className="contacts-title"><span>Диалоги</span><button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт" data-tooltip="Добавить контакт" data-tooltip-position="bottom"><Glyph name="plus" /></button></div>
           <div className="contact-list">
@@ -402,13 +445,10 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
               const last = [...messages].reverse().find((message) => message.fromUserId === peer.id || message.toUserId === peer.id);
               const unread = messages.filter((message) => message.fromUserId === peer.id && message.toUserId === user.id && !message.readAt).length;
               return <button key={peer.id} className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => setSelectedId(peer.id)}>
-                <Avatar name={peer.name} avatarUrl={peer.avatarUrl} className="contact-avatar" />
+                <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
                 <span className="contact-copy">
                   <strong>{peer.name}</strong>
-                  <span className="contact-identity">
-                    {peer.nickname ? <small className="contact-nickname">@{peer.nickname}<span className="contact-identity-separator"> · </span></small> : null}
-                    <code className="contact-id">{peer.id}</code>
-                  </span>
+                  {peer.nickname ? <span className="contact-identity"><small className="contact-nickname">@{peer.nickname}</small></span> : null}
                   {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
                 </span>
                 {unread > 0 && <span className="unread-badge">{unread}</span>}
@@ -422,7 +462,7 @@ export function MessengerApp({ sharedNickname = "" }: { sharedNickname?: string 
           {selectedPeer ? <>
             <header className="conversation-header">
               <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
-              <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} className="contact-avatar large" />
+              <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} avatarBackground={selectedPeer.avatarBackground} className="contact-avatar large" />
               <div className="conversation-title"><strong>{selectedPeer.name}</strong><span>{selectedPeer.nickname ? `@${selectedPeer.nickname} · ` : ""}{selectedPeer.id}</span></div>
               {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
             </header>
@@ -460,7 +500,7 @@ function LoadingScreen() {
   return <main className="loading-screen"><span className="brand-mark big pulse">tm</span><p>Открываем канал…</p></main>;
 }
 
-function WelcomeScreen({ busy, notice, sharedNickname, onRegister, onLogin }: { busy: boolean; notice: string; sharedNickname: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {
+function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { busy: boolean; notice: string; sharedLabel: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {
   const [mode, setMode] = useState<"new" | "login">("new");
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
@@ -481,7 +521,7 @@ function WelcomeScreen({ busy, notice, sharedNickname, onRegister, onLogin }: { 
     <section className="welcome-copy"><div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div><div><span className="eyebrow">80 × 160 пикселей</span><h1>Маленький экран.<br />Важные сообщения.</h1><p>Личный мессенджер для браузера и устройства с тремя кнопками. Без регистрации и публичных профилей.</p></div><div className="feature-line"><span>✓</span> Ник или UUID для личных диалогов</div></section>
     <section className="welcome-card">
       <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>У меня есть токен</button></div>
-      {sharedNickname ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>@{sharedNickname}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
+      {sharedLabel ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>{sharedLabel}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
       {mode === "new" ? (
         <form onSubmit={(event) => { event.preventDefault(); void onRegister(name.trim() || suggestion, nickname); }}>
           <span className="step-label">Ваше имя на устройстве</span>
@@ -666,7 +706,7 @@ function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaul
               {searchError ? <p className="contact-search-status error">{searchError}</p> : null}
               {!searching && results.map((candidate) => (
                 <button key={candidate.id} type="button" className="contact-search-result" disabled={busy} onClick={() => { if (candidate.nickname) void onSubmit(`@${candidate.nickname}`); }}>
-                  <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} className="contact-search-avatar" />
+                  <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} avatarBackground={candidate.avatarBackground} className="contact-search-avatar" />
                   <span><strong>{candidate.name}</strong><small>@{candidate.nickname}</small></span>
                   <span className="contact-add-label">Добавить</span>
                 </button>
@@ -684,7 +724,7 @@ function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaul
               {uuidIsValid && !searching && searchError ? <p className="contact-search-status error">{searchError}</p> : null}
               {uuidCandidate && !searching ? (
                 <div className="uuid-user-card">
-                  <Avatar name={uuidCandidate.name} avatarUrl={uuidCandidate.avatarUrl} className="contact-search-avatar" />
+                  <Avatar name={uuidCandidate.name} avatarUrl={uuidCandidate.avatarUrl} avatarBackground={uuidCandidate.avatarBackground} className="contact-search-avatar" />
                   <span>
                     <strong>{uuidCandidate.name}</strong>
                     {uuidCandidate.nickname ? <small>@{uuidCandidate.nickname}</small> : null}
@@ -705,6 +745,8 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
   const [name, setName] = useState(user.name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
+  const [avatarBackground, setAvatarBackground] = useState(user.avatarBackground ?? "");
+  const [view, setView] = useState<"profile" | "avatar">("profile");
   const [showToken, setShowToken] = useState(false);
   const [confirmTokenReset, setConfirmTokenReset] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -715,11 +757,12 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
     try {
       const data = await request<{ user: PublicUser }>("/api/me", {
         method: "PATCH",
-        body: JSON.stringify({ name, nickname, avatarUrl }),
+        body: JSON.stringify({ name, nickname, avatarUrl, avatarBackground }),
       });
       onUser(data.user);
       setNickname(data.user.nickname ?? "");
       setAvatarUrl(data.user.avatarUrl ?? "");
+      setAvatarBackground(data.user.avatarBackground ?? "");
       setNotice("Профиль обновлён");
     } catch (error) {
       setNotice((error as Error).message);
@@ -744,51 +787,89 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
   }
 
   async function shareProfile() {
-    if (!user.nickname) return;
-    const url = `${window.location.origin}/@${user.nickname}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: `${user.name} в Tiny Messenger`, text: `Напишите мне в Tiny Messenger: @${user.nickname}`, url });
-        return;
-      } catch (error) {
-        if ((error as DOMException).name === "AbortError") return;
-      }
+    try {
+      const copied = await shareProfileLink(user);
+      if (copied) setNotice("Ссылка на профиль скопирована");
+    } catch (error) {
+      setNotice((error as Error).message);
     }
-    await navigator.clipboard.writeText(url);
-    setNotice("Ссылка на профиль скопирована");
   }
 
-  const profileChanged = name.trim() !== user.name || nickname.trim() !== (user.nickname ?? "") || avatarUrl.trim() !== (user.avatarUrl ?? "");
+  const profileChanged = name.trim() !== user.name
+    || nickname.trim() !== (user.nickname ?? "")
+    || avatarUrl.trim() !== (user.avatarUrl ?? "")
+    || avatarBackground !== (user.avatarBackground ?? "");
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="modal-header">
-          <h2 id="settings-title">Ваши настройки</h2>
+          <div className="modal-title-row">
+            {view === "avatar" ? (
+              <button type="button" className="modal-back" onClick={() => setView("profile")} aria-label="Назад к настройкам" data-tooltip="Назад" data-tooltip-position="bottom">
+                <Glyph name="back" />
+              </button>
+            ) : null}
+            <h2 id="settings-title">{view === "avatar" ? "Выберите аватарку" : "Ваши настройки"}</h2>
+          </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
         </div>
 
-        <div className="settings-section">
-          <div className="profile-fields-row">
-            <label className="field-label">Имя
-              <input value={name} maxLength={LIMITS.name} onChange={(event) => setName(event.target.value)} />
-            </label>
-            <label className="field-label">Ник <span className="optional-label">необязательно</span>
-              <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
-            </label>
-            <button
-              type="button"
-              className="profile-share-icon"
-              disabled={!user.nickname}
-              onClick={() => { void shareProfile(); }}
-              aria-label={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Укажите и сохраните ник, чтобы поделиться ссылкой"}
-              data-tooltip={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Сначала сохраните ник"}
-            >
-              <Glyph name="share" />
-            </button>
-            <button type="button" className="secondary-button" disabled={busy || !profileChanged} onClick={updateProfile}>Сохранить</button>
-          </div>
-          <div className="field-label avatar-field">Изображение
+        {view === "profile" ? (
+          <form
+            className="settings-section profile-settings-section"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!busy && profileChanged) void updateProfile();
+            }}
+          >
+            <div className="settings-profile-card">
+              <div className="settings-avatar-column">
+                <Avatar name={name || user.name} avatarUrl={avatarUrl.trim() || undefined} avatarBackground={avatarBackground || undefined} className="avatar settings-profile-avatar" />
+                <button type="button" className="avatar-edit-button" onClick={() => setView("avatar")}>Изменить</button>
+              </div>
+              <div className="profile-identity-fields">
+                <label className="field-label">Имя
+                  <input value={name} maxLength={LIMITS.name} onChange={(event) => setName(event.target.value)} />
+                </label>
+                <label className="field-label">
+                  <span className="profile-field-label-row">
+                    <span>Ник <span className="optional-label">необязательно</span></span>
+                    <code className="profile-inline-uuid" title={`UUID: ${user.id}`}>UUID: {user.id}</code>
+                  </span>
+                  <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
+                </label>
+                <div className="profile-form-actions">
+                  <button
+                    type="button"
+                    className="profile-share-icon"
+                    onClick={() => { void shareProfile(); }}
+                    aria-label={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Поделиться ссылкой по UUID"}
+                    data-tooltip={user.nickname ? `Поделиться ссылкой на @${user.nickname}` : "Поделиться по UUID"}
+                  >
+                    <Glyph name="share" />
+                  </button>
+                  <button
+                    type="submit"
+                    className={`${!busy && profileChanged ? "primary-button" : "secondary-button"} profile-save-button`}
+                    disabled={busy || !profileChanged}
+                  >
+                    Сохранить
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <div className="settings-section avatar-editor-section">
+            <div className="avatar-editor-current">
+              <Avatar name={name || user.name} avatarUrl={avatarUrl.trim() || undefined} avatarBackground={avatarBackground || undefined} className="avatar avatar-editor-preview" />
+              <div>
+                <strong>{name || user.name}</strong>
+                <span>Выберите изображение и фон</span>
+              </div>
+            </div>
+            <div className="field-label avatar-field">Изображение
             <div className="avatar-presets" role="group" aria-label="Готовые изображения профиля">
               {AVATAR_PRESETS.map((preset) => {
                 const selected = avatarUrl.trim() === preset.url;
@@ -796,32 +877,49 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
                   <button
                     key={preset.name}
                     type="button"
-                    className={selected ? "selected" : ""}
+                    className={`${selected ? "selected" : ""} ${preset.url ? "" : "no-image"}`}
                     aria-pressed={selected}
                     aria-label={preset.name}
                     data-tooltip={preset.name}
                     onClick={() => setAvatarUrl(preset.url)}
                   >
-                    <Avatar name={name || user.name} avatarUrl={preset.url || undefined} className="avatar avatar-preset" />
+                    {preset.url ? (
+                      <Avatar name={name || user.name} avatarUrl={preset.url} avatarBackground={avatarBackground || undefined} className="avatar avatar-preset" />
+                    ) : (
+                      <span className="avatar avatar-preset avatar-no-image" aria-hidden="true" />
+                    )}
                   </button>
+                );
+              })}
+            </div>
+            <span className="avatar-custom-label">Фон</span>
+            <div className="avatar-background-presets" role="group" aria-label="Цвет фона аватарки">
+              {AVATAR_BACKGROUND_PRESETS.map((preset) => {
+                const selected = avatarBackground === preset.value;
+                return (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    className={`${selected ? "selected" : ""} ${preset.value ? "" : "default"}`}
+                    style={preset.value ? { backgroundColor: preset.value } : undefined}
+                    aria-pressed={selected}
+                    aria-label={preset.name}
+                    data-tooltip={preset.name}
+                    onClick={() => setAvatarBackground(preset.value)}
+                  />
                 );
               })}
             </div>
             <span className="avatar-custom-label">Своя ссылка</span>
             <div className="inline-field avatar-url-field">
-              <Avatar name={name || user.name} avatarUrl={avatarUrl.trim() || undefined} className="avatar avatar-preview" />
               <input aria-label="Ссылка на своё изображение" type="url" value={avatarUrl} maxLength={LIMITS.avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://example.com/avatar.jpg" />
             </div>
           </div>
-          <label className="field-label">Ваш UUID
-            <div className="copy-field">
-              <code>{user.id}</code>
-              <button type="button" onClick={() => { void navigator.clipboard.writeText(user.id); setNotice("UUID скопирован"); }} aria-label="Скопировать UUID" data-tooltip="Скопировать UUID"><Glyph name="copy" /></button>
-            </div>
-          </label>
-        </div>
+            <button type="button" className="primary-button wide avatar-editor-done" onClick={() => setView("profile")}>Готово</button>
+          </div>
+        )}
 
-        <div className="settings-section token-section">
+        {view === "profile" ? <div className="settings-section token-section">
           <label className="field-label">Секретный токен
             <div className="copy-field">
               <code>{showToken ? token : "•".repeat(Math.min(token.length, 20))}</code>
@@ -858,7 +956,7 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
               </div>
             </div>
           ) : null}
-        </div>
+        </div> : null}
       </section>
     </div>
   );

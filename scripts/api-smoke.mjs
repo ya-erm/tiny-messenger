@@ -60,12 +60,14 @@ const selfSearch = await api("/api/users?query=anya", { token: alice.token });
 assert.deepEqual(selfSearch.users, []);
 
 const avatarUrl = "https://example.com/bob-avatar.jpg";
+const avatarBackground = "#DCEBFA";
 const updatedBob = await api("/api/me", {
   token: bob.token,
   method: "PATCH",
-  body: JSON.stringify({ name: "Боря", avatarUrl }),
+  body: JSON.stringify({ name: "Боря", avatarUrl, avatarBackground }),
 });
 assert.equal(updatedBob.user.avatarUrl, avatarUrl);
+assert.equal(updatedBob.user.avatarBackground, avatarBackground);
 
 const created = await api("/api/messages", {
   token: alice.token,
@@ -115,6 +117,7 @@ const contact = await api("/api/contacts", {
 });
 assert.equal(contact.contact.user.name, "Боря");
 assert.equal(contact.contact.user.avatarUrl, avatarUrl);
+assert.equal(contact.contact.user.avatarBackground, avatarBackground);
 
 const legacyContact = await api("/api/contacts", {
   token: alice.token,
@@ -141,6 +144,7 @@ await api("/api/me", {
 const refreshedContacts = await api("/api/contacts", { token: alice.token });
 assert.equal(refreshedContacts.contacts[0].user.name, "Борис");
 assert.equal(refreshedContacts.contacts[0].user.nickname, "boris");
+assert.equal(refreshedContacts.contacts[0].user.avatarBackground, avatarBackground);
 
 const oldNickname = await fetch(`${baseUrl}/api/users?nickname=borya`, {
   headers: { Authorization: `Bearer ${alice.token}` },
