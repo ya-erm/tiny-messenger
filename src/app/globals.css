@@ -175,7 +175,6 @@ button { color: inherit; }
 .primary-button:disabled, .secondary-button:disabled { opacity: .45; cursor: default; }
 .primary-button.wide { width: 100%; margin-top: 3px; }
 .primary-button.login-button { margin-top: 18px; }
-.primary-button.contact-submit-button { margin-top: 18px; }
 .inline-error { margin: 14px 0 0; padding: 9px 11px; color: #9c452c; background: #ffebe3; border-radius: 8px; font-size: 10px; }
 .loading-screen, .fatal-error { min-height: 100vh; display: grid; place-items: center; align-content: center; gap: 15px; background: var(--paper); }
 .loading-screen p { color: var(--muted); font-size: 11px; }
@@ -195,12 +194,8 @@ button { color: inherit; }
 .modal-back .glyph { width: 17px; height: 17px; }
 .modal-close { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; padding: 0; color: var(--muted); background: #eee9df; border: 0; border-radius: 10px; cursor: pointer; }
 .modal-close .glyph { width: 17px; height: 17px; }
-.contact-card { height: 440px; min-height: 440px; display: flex; flex-direction: column; }
-.contact-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 18px 0 4px; padding: 4px; background: #eee9df; border-radius: 10px; }
-.contact-mode-switch button { padding: 8px 10px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; font-size: 9px; font-weight: 800; cursor: pointer; }
-.contact-mode-switch button.active { color: var(--ink); background: #fff; box-shadow: 0 2px 7px rgba(44,55,47,.08); }
-.contact-mode-hint { margin: 16px 0 0; }
-.contact-mode-panel { min-height: 0; display: flex; flex: 1; flex-direction: column; }
+.contact-card { height: 390px; min-height: 390px; display: flex; flex-direction: column; }
+.contact-search-panel { min-height: 0; display: flex; flex: 1; flex-direction: column; }
 .contact-search-results { height: 176px; display: grid; align-content: start; gap: 7px; margin-top: 12px; overflow-y: auto; }
 .contact-search-placeholder { height: 176px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; }
 .contact-search-placeholder svg { width: 112px; height: 68px; margin-bottom: 5px; overflow: visible; }
@@ -223,15 +218,6 @@ button { color: inherit; }
 .contact-search-result strong { font-size: 11px; }
 .contact-search-result small { margin-top: 3px; color: var(--muted); font-size: 9px; }
 .contact-add-label { color: var(--green); font-size: 9px; font-weight: 800; }
-.uuid-result-slot { min-height: 68px; display: grid; place-items: center; margin-top: 12px; padding: 8px 10px; background: #f8f5ef; border: 1px dashed var(--line); border-radius: 11px; }
-.uuid-result-slot.found { place-items: stretch; background: #f6f2ea; border-style: solid; border-color: #cddbd3; }
-.uuid-result-slot .contact-search-status { margin: 0; }
-.uuid-user-card { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 10px; }
-.uuid-user-card strong, .uuid-user-card small, .uuid-user-card code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.uuid-user-card strong { color: var(--ink); font-size: 11px; }
-.uuid-user-card small { margin-top: 2px; color: var(--green); font-size: 9px; }
-.uuid-user-card code { margin-top: 3px; color: var(--muted); font-size: 8px; }
-.contact-card .contact-submit-button { margin-top: auto; }
 .settings-card { width: min(580px, 100%); }
 .settings-section { margin: 22px 0; padding: 18px; background: #f6f2ea; border-radius: 14px; }
 .settings-section .field-label:first-child { margin-top: 0; }

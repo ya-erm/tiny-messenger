@@ -7,8 +7,6 @@ import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const AVATAR_PRESETS = [
   { name: "Без изображения", url: "" },
   ...animalAvatars,
@@ -578,30 +576,19 @@ function Composer({ busy, onSend }: { busy: boolean; onSend: (input: { text: str
 }
 
 function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaultId: string; busy: boolean; request: <T>(path: string, init?: RequestInit) => Promise<T>; onClose: () => void; onSubmit: (id: string) => void }) {
-  const [mode, setMode] = useState<"nickname" | "uuid">(defaultId ? "uuid" : "nickname");
   const [value, setValue] = useState(defaultId);
   const [results, setResults] = useState<PublicUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
-  const nicknameQuery = value.trim().replace(/^@/, "").toLowerCase();
-  const uuidQuery = value.trim().toLowerCase();
-  const uuidIsValid = UUID_PATTERN.test(uuidQuery);
-  const uuidCandidate = mode === "uuid" ? results[0] : undefined;
+  const query = value.trim();
 
   useEffect(() => {
-    if (mode !== "nickname" || !nicknameQuery || !/^[a-z0-9_.-]+$/.test(nicknameQuery)) {
-      setResults([]);
-      setSearching(false);
-      setSearchError("");
-      return;
-    }
-
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       setSearching(true);
       setSearchError("");
       void request<{ users: PublicUser[] }>(
-        `/api/users?query=${encodeURIComponent(nicknameQuery)}`,
+        `/api/users?query=${encodeURIComponent(query)}`,
         { signal: controller.signal },
       )
         .then((data) => setResults(data.users))
@@ -614,128 +601,57 @@ function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaul
         .finally(() => {
           if (!controller.signal.aborted) setSearching(false);
         });
-    }, 300);
+    }, query ? 300 : 0);
 
     return () => {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [mode, nicknameQuery, request]);
-
-  useEffect(() => {
-    if (mode !== "uuid" || !uuidIsValid) {
-      if (mode === "uuid") {
-        setResults([]);
-        setSearching(false);
-        setSearchError("");
-      }
-      return;
-    }
-
-    const controller = new AbortController();
-    setResults([]);
-    setSearching(true);
-    setSearchError("");
-    const timeout = window.setTimeout(() => {
-      void request<{ user: PublicUser }>(
-        `/api/users/${encodeURIComponent(uuidQuery)}`,
-        { signal: controller.signal },
-      )
-        .then((data) => setResults([data.user]))
-        .catch((error: Error) => {
-          if (error.name !== "AbortError") {
-            setResults([]);
-            setSearchError(error.message);
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setSearching(false);
-        });
-    }, 300);
-
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [mode, request, uuidIsValid, uuidQuery]);
-
-  function switchMode(nextMode: "nickname" | "uuid") {
-    setMode(nextMode);
-    setValue("");
-    setResults([]);
-    setSearching(false);
-    setSearchError("");
-  }
+  }, [query, request]);
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="modal-card contact-card" onSubmit={(event) => { event.preventDefault(); if (mode === "uuid" && uuidCandidate) void onSubmit(uuidCandidate.id); }}>
+      <form className="modal-card contact-card" onSubmit={(event) => event.preventDefault()}>
         <div className="modal-header">
           <h2>Добавить контакт</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
         </div>
-        <div className="contact-mode-switch" role="group" aria-label="Способ поиска">
-          <button type="button" className={mode === "nickname" ? "active" : ""} onClick={() => switchMode("nickname")}>По нику</button>
-          <button type="button" className={mode === "uuid" ? "active" : ""} onClick={() => switchMode("uuid")}>По UUID</button>
+        <div className="contact-search-panel">
+          <label className="field-label">Поиск
+            <input autoFocus value={value} maxLength={36} autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value)} placeholder="Имя, @ник или UUID" />
+          </label>
+          <div className="contact-search-results" aria-live="polite">
+            {!searching && !query && !searchError && results.length === 0 ? (
+              <div className="contact-search-placeholder">
+                <svg viewBox="0 0 120 72" aria-hidden="true">
+                  <rect className="contact-placeholder-card back" x="15" y="14" width="48" height="42" rx="13" />
+                  <circle className="contact-placeholder-avatar back" cx="39" cy="29" r="8" />
+                  <path className="contact-placeholder-person back" d="M26 48c2-8 8-12 13-12s11 4 13 12" />
+                  <rect className="contact-placeholder-card front" x="48" y="8" width="48" height="42" rx="13" />
+                  <circle className="contact-placeholder-avatar front" cx="72" cy="23" r="8" />
+                  <path className="contact-placeholder-person front" d="M59 42c2-8 8-12 13-12s11 4 13 12" />
+                  <circle className="contact-placeholder-search" cx="91" cy="48" r="14" />
+                  <path className="contact-placeholder-handle" d="m101 58 10 10" />
+                </svg>
+                <strong>Пока некого показать</strong>
+                <span>Здесь появятся пользователи с ником</span>
+              </div>
+            ) : null}
+            {searching ? <p className="contact-search-status">{query ? "Ищем пользователей…" : "Подбираем пользователей…"}</p> : null}
+            {!searching && query && !searchError && results.length === 0 ? <p className="contact-search-status">Никого не нашли</p> : null}
+            {searchError ? <p className="contact-search-status error">{searchError}</p> : null}
+            {!searching && results.map((candidate) => (
+              <button key={candidate.id} type="button" className="contact-search-result" disabled={busy} onClick={() => void onSubmit(candidate.id)}>
+                <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} avatarBackground={candidate.avatarBackground} className="contact-search-avatar" />
+                <span>
+                  <strong>{candidate.name}</strong>
+                  <small>{candidate.nickname ? `@${candidate.nickname} · ` : ""}{candidate.id}</small>
+                </span>
+                <span className="contact-add-label">Добавить</span>
+              </button>
+            ))}
+          </div>
         </div>
-
-        {mode === "nickname" ? (
-          <div className="contact-mode-panel nickname-panel">
-            <label className="field-label">Ник
-              <input autoFocus value={value} maxLength={LIMITS.nickname + 1} autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value.toLowerCase())} placeholder="Начните вводить ник" />
-            </label>
-            <div className="contact-search-results" aria-live="polite">
-              {!searching && !nicknameQuery && !searchError && results.length === 0 ? (
-                <div className="contact-search-placeholder">
-                  <svg viewBox="0 0 120 72" aria-hidden="true">
-                    <rect className="contact-placeholder-card back" x="15" y="14" width="48" height="42" rx="13" />
-                    <circle className="contact-placeholder-avatar back" cx="39" cy="29" r="8" />
-                    <path className="contact-placeholder-person back" d="M26 48c2-8 8-12 13-12s11 4 13 12" />
-                    <rect className="contact-placeholder-card front" x="48" y="8" width="48" height="42" rx="13" />
-                    <circle className="contact-placeholder-avatar front" cx="72" cy="23" r="8" />
-                    <path className="contact-placeholder-person front" d="M59 42c2-8 8-12 13-12s11 4 13 12" />
-                    <circle className="contact-placeholder-search" cx="91" cy="48" r="14" />
-                    <path className="contact-placeholder-handle" d="m101 58 10 10" />
-                  </svg>
-                  <strong>Найдите друга</strong>
-                  <span>Введите несколько символов ника</span>
-                </div>
-              ) : null}
-              {searching ? <p className="contact-search-status">Ищем пользователей…</p> : null}
-              {!searching && nicknameQuery && !searchError && results.length === 0 ? <p className="contact-search-status">Никого не нашли</p> : null}
-              {searchError ? <p className="contact-search-status error">{searchError}</p> : null}
-              {!searching && results.map((candidate) => (
-                <button key={candidate.id} type="button" className="contact-search-result" disabled={busy} onClick={() => { if (candidate.nickname) void onSubmit(`@${candidate.nickname}`); }}>
-                  <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} avatarBackground={candidate.avatarBackground} className="contact-search-avatar" />
-                  <span><strong>{candidate.name}</strong><small>@{candidate.nickname}</small></span>
-                  <span className="contact-add-label">Добавить</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="contact-mode-panel uuid-panel">
-            <p className="form-hint contact-mode-hint">Введите UUID пользователя.<br />Имя и изображение загрузятся из профиля автоматически.</p>
-            <label className="field-label">UUID<input autoFocus required value={value} maxLength={36} autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value.toLowerCase())} placeholder="xxxxxxxx-xxxx-…" /></label>
-            <div className={`uuid-result-slot ${uuidCandidate ? "found" : ""}`} aria-live="polite">
-              {!value.trim() ? <p className="contact-search-status">Здесь появится найденный пользователь</p> : null}
-              {value.trim() && !uuidIsValid ? <p className="contact-search-status">{value.trim().length >= 36 ? "Пользователь не найден" : "Введите UUID полностью"}</p> : null}
-              {uuidIsValid && searching ? <p className="contact-search-status">Ищем пользователя…</p> : null}
-              {uuidIsValid && !searching && searchError ? <p className="contact-search-status error">{searchError}</p> : null}
-              {uuidCandidate && !searching ? (
-                <div className="uuid-user-card">
-                  <Avatar name={uuidCandidate.name} avatarUrl={uuidCandidate.avatarUrl} avatarBackground={uuidCandidate.avatarBackground} className="contact-search-avatar" />
-                  <span>
-                    <strong>{uuidCandidate.name}</strong>
-                    {uuidCandidate.nickname ? <small>@{uuidCandidate.nickname}</small> : null}
-                    <code>{uuidCandidate.id}</code>
-                  </span>
-                </div>
-              ) : null}
-            </div>
-            <button className="primary-button wide contact-submit-button" disabled={busy || searching || !uuidCandidate}>{busy ? "Добавляем…" : "Добавить"}</button>
-          </div>
-        )}
       </form>
     </div>
   );

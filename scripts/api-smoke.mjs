@@ -34,6 +34,10 @@ const bobTeam = await api("/api/auth/register", {
 assert.equal(alice.user.nickname, "anya");
 assert.equal(bob.user.nickname, "borya");
 
+const suggestedUsers = await api("/api/users?query=", { token: alice.token });
+assert.equal(suggestedUsers.users.length, 2);
+assert.ok(suggestedUsers.users.every((user) => user.id !== alice.user.id && user.nickname));
+
 const duplicateNickname = await fetch(`${baseUrl}/api/auth/register`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -56,6 +60,10 @@ assert.deepEqual(
   matchingUsers.users.map((user) => user.id),
   [bob.user.id, bobTeam.user.id],
 );
+const matchingByName = await api("/api/users?query=%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%B0", { token: alice.token });
+assert.deepEqual(matchingByName.users.map((user) => user.id), [bobTeam.user.id]);
+const matchingByUuid = await api(`/api/users?query=${bob.user.id}`, { token: alice.token });
+assert.deepEqual(matchingByUuid.users.map((user) => user.id), [bob.user.id]);
 const selfSearch = await api("/api/users?query=anya", { token: alice.token });
 assert.deepEqual(selfSearch.users, []);
 
@@ -190,4 +198,4 @@ const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
 assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → nickname search → messaging → contacts → sync → token reset");
+console.log("API smoke test passed: profile → user search → messaging → contacts → sync → token reset");
