@@ -1,7 +1,7 @@
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { publicMessage } from "@/lib/domain";
+import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 
@@ -21,6 +21,7 @@ export const POST = route(async (request) => {
       .filter(
         (message) =>
           message.toUserId === authenticated.id &&
+          isMessageVisibleTo(message, authenticated.id) &&
           !message.readAt &&
           !message.answer &&
           (includeDeliveredUnread || !message.deliveredAt),

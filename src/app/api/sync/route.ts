@@ -1,7 +1,7 @@
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { publicMessage } from "@/lib/domain";
+import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import type { PublicContact, StoreData } from "@/lib/types";
@@ -19,7 +19,8 @@ export const POST = route(async (request) => {
   const selectMessages = (store: StoreData) => store.messages
     .filter(
       (message) =>
-        message.fromUserId === authenticated.id || message.toUserId === authenticated.id,
+        (message.fromUserId === authenticated.id || message.toUserId === authenticated.id)
+        && isMessageVisibleTo(message, authenticated.id),
     )
     .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
     .slice(0, limit)
@@ -37,6 +38,9 @@ export const POST = route(async (request) => {
     return {
       contacts,
       messages: selectMessages(store).map(publicMessage),
+      hiddenPeerIds: store.hiddenConversations
+        .filter((item) => item.ownerId === authenticated.id)
+        .map((item) => item.peerId),
       syncedAt: now,
     };
   };

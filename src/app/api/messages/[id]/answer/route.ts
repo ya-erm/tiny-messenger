@@ -1,6 +1,6 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { publicMessage } from "@/lib/domain";
+import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
@@ -20,7 +20,7 @@ export const POST = route<Context>(async (request, { params }) => {
   const now = new Date().toISOString();
   const message = await updateStore((store) => {
     const item = store.messages.find((candidate) => candidate.id === id);
-    if (!item || item.toUserId !== authenticated.id) {
+    if (!item || item.toUserId !== authenticated.id || !isMessageVisibleTo(item, authenticated.id)) {
       throw new ApiError(404, "message_not_found", "Входящее сообщение не найдено");
     }
     if (item.kind !== "choice" || !item.options) {

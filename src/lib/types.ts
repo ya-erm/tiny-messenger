@@ -40,6 +40,13 @@ export interface MessageRecord {
     label: string;
     answeredAt: string;
   };
+  deletedForUserIds?: string[];
+}
+
+export interface HiddenConversationRecord {
+  ownerId: string;
+  peerId: string;
+  hiddenAt: string;
 }
 
 export interface StoreData {
@@ -47,6 +54,7 @@ export interface StoreData {
   users: UserRecord[];
   contacts: ContactRecord[];
   messages: MessageRecord[];
+  hiddenConversations: HiddenConversationRecord[];
 }
 
 export interface PublicUser {
@@ -65,6 +73,6 @@ export interface PublicContact {
   updatedAt: string;
 }
 
-export interface PublicMessage extends MessageRecord {
+export interface PublicMessage extends Omit<MessageRecord, "deletedForUserIds"> {
   status: MessageStatus;
 }

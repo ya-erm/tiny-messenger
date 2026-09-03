@@ -1,6 +1,7 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { assertRateLimit } from "@/lib/rate-limit";
+import { showConversationForUser } from "@/lib/domain";
 import { readStore, updateStore } from "@/lib/store";
 import type { PublicContact } from "@/lib/types";
 import { cleanNickname, cleanString, isUuid, validNickname } from "@/lib/validation";
@@ -47,10 +48,12 @@ export const POST = route(async (request) => {
     const now = new Date().toISOString();
     if (existing) {
       existing.updatedAt = now;
+      showConversationForUser(store.hiddenConversations, authenticated.id, target.id);
       return { ...existing, user: publicUser(target) };
     }
     const item = { ownerId: authenticated.id, userId: target.id, createdAt: now, updatedAt: now };
     store.contacts.push(item);
+    showConversationForUser(store.hiddenConversations, authenticated.id, target.id);
     return { ...item, user: publicUser(target) };
   });
   return ok({ contact }, { status: 201 });

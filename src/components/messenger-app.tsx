@@ -1,7 +1,10 @@
 "use client";
 
-import Image from "next/image";
+import Image, { type StaticImageData } from "next/image";
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import deleteDialogIllustration from "../../public/delete-dialog.png";
+import deleteHistoryIllustration from "../../public/delete-history.png";
+import deleteMessagesIllustration from "../../public/delete-messages.png";
 import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
@@ -93,7 +96,9 @@ async function shareProfileLink(user: PublicUser) {
   return true;
 }
 
-function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" }) {
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive";
+
+function Glyph({ name }: { name: GlyphName }) {
   const paths = {
     plus: <path d="M12 5v14M5 12h14" />,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.37.72.66 1 .3.29.69.43 1.1.4h.1v4h-.1c-.41-.03-.8.11-1.1.4-.29.28-.51.62-.66 1Z" /></>,
@@ -107,6 +112,10 @@ function Glyph({ name }: { name: "plus" | "settings" | "copy" | "back" | "send" 
     logout: <><path d="M10 17l5-5-5-5" /><path d="M15 12H3" /><path d="M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /></>,
     close: <path d="m6 6 12 12M18 6 6 18" />,
     share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.7 10.7 6.6-4.4M8.7 13.3l6.6 4.4" /></>,
+    trash: <><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13" /><path d="M10 11v5M14 11v5" /></>,
+    select: <><rect x="3" y="3" width="18" height="18" rx="5" /><path d="m8 12 2.7 2.7L16.5 9" /></>,
+    more: <><circle cx="12" cy="5" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="19" r="1.75" fill="currentColor" stroke="none" /></>,
+    archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M9 12h6" /></>,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -162,14 +171,16 @@ function StatusTicks({ message }: { message: PublicMessage }) {
 function QuestionOptions({
   message,
   outgoing,
+  selectionMode,
   onAnswer,
 }: {
   message: PublicMessage;
   outgoing: boolean;
+  selectionMode: boolean;
   onAnswer: (messageId: string, optionId: string) => void;
 }) {
   if (message.kind !== "choice" || !message.options) return null;
-  const canAnswer = !outgoing && !message.answer;
+  const canAnswer = !outgoing && !message.answer && !selectionMode;
 
   return (
     <div className={`question-options ${canAnswer ? "interactive" : "readonly"}`}>
@@ -189,17 +200,43 @@ function QuestionOptions({
   );
 }
 
-function AnswerBubble({ message, currentUserId, currentUserName, peerName }: { message: PublicMessage; currentUserId: string; currentUserName: string; peerName: string }) {
+function AnswerBubble({
+  message,
+  currentUserId,
+  currentUserName,
+  peerName,
+  selectionMode,
+  selected,
+  onToggle,
+}: {
+  message: PublicMessage;
+  currentUserId: string;
+  currentUserName: string;
+  peerName: string;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   if (!message.answer) return null;
   const outgoing = message.toUserId === currentUserId;
   const answererName = outgoing ? currentUserName : peerName;
 
   return (
     <article
-      className={`message-row answer-message ${outgoing ? "outgoing" : "incoming"}`}
+      className={`message-row answer-message ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
       aria-label={`Ответ: ${message.answer.label}`}
+      role={selectionMode ? "button" : undefined}
+      tabIndex={selectionMode ? 0 : undefined}
+      onClick={selectionMode ? onToggle : undefined}
+      onKeyDown={selectionMode ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onToggle();
+        }
+      } : undefined}
     >
       <div className="message-bubble">
+        {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
         <span className="answer-sender">{answererName}</span>
         <div className="reply-preview">
           <strong>{message.senderName}</strong>
@@ -209,6 +246,84 @@ function AnswerBubble({ message, currentUserId, currentUserName, peerName }: { m
         <footer><time>{formatTime(message.answer.answeredAt)}</time></footer>
       </div>
     </article>
+  );
+}
+
+type DialogAction = {
+  label: string;
+  kind?: "danger" | "danger-outline" | "secondary";
+  icon?: GlyphName;
+  onClick: () => void;
+};
+
+function ActionDialog({
+  title,
+  description,
+  actions,
+  busy,
+  illustration,
+  illustrationAlt,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  actions: DialogAction[];
+  busy: boolean;
+  illustration: StaticImageData;
+  illustrationAlt: string;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+
+  const closeDialog = () => dialogRef.current?.close();
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="action-dialog"
+      aria-labelledby="action-dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) closeDialog();
+      }}
+      onClose={onClose}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) closeDialog();
+      }}
+    >
+      <section className="modal-card action-dialog-card">
+        <div className="modal-header">
+          <h2 id="action-dialog-title">{title}</h2>
+          <button type="button" className="modal-close" onClick={closeDialog} disabled={busy} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
+        <Image className="action-dialog-illustration" src={illustration} alt={illustrationAlt} sizes="280px" />
+        <p>{description}</p>
+        <div className="action-dialog-buttons">
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className={action.kind === "secondary"
+                ? "secondary-button"
+                : action.kind === "danger-outline"
+                  ? "danger-outline-button"
+                  : "danger-button"}
+              disabled={busy}
+              onClick={action.onClick}
+            >
+              <Glyph name={action.icon ?? "trash"} />
+              {action.label}
+            </button>
+          ))}
+          <button type="button" className="cancel-button" disabled={busy} onClick={closeDialog} autoFocus>Отмена</button>
+        </div>
+      </section>
+    </dialog>
   );
 }
 
@@ -286,6 +401,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [phase, setPhase] = useState<"loading" | "welcome" | "ready">("loading");
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
+  const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
@@ -294,6 +410,13 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [sharedContactHandled, setSharedContactHandled] = useState(false);
   const [showRateLimit, setShowRateLimit] = useState(false);
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[] | null>(null);
+  const [messageDeleteIds, setMessageDeleteIds] = useState<string[] | null>(null);
+  const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
+  const [showConversationActions, setShowConversationActions] = useState(false);
+  const [sidebarActionsPeerId, setSidebarActionsPeerId] = useState<string | null>(null);
+  const conversationActionsRef = useRef<HTMLDivElement>(null);
+  const sidebarActionsRef = useRef<HTMLDivElement>(null);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -346,12 +469,13 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   const refreshState = useCallback(async () => {
     if (!token) return;
-    const data = await request<{ contacts: PublicContact[]; messages: PublicMessage[] }>("/api/sync", {
+    const data = await request<{ contacts: PublicContact[]; messages: PublicMessage[]; hiddenPeerIds: string[] }>("/api/sync", {
       method: "POST",
       body: JSON.stringify({ limit: 100 }),
     });
     setContacts(data.contacts);
     setMessages(data.messages);
+    setHiddenPeerIds(data.hiddenPeerIds);
   }, [request, token]);
 
   useEffect(() => {
@@ -395,12 +519,60 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         });
       }
     }
-    return Array.from(result.values()).sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [contacts, messages, user?.id]);
+    const hidden = new Set(hiddenPeerIds);
+    return Array.from(result.values())
+      .filter((peer) => !hidden.has(peer.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  }, [contacts, hiddenPeerIds, messages, user?.id]);
 
   useEffect(() => {
     if (!selectedId && peers.length) setSelectedId(peers[0].id);
   }, [peers, selectedId]);
+
+  useEffect(() => {
+    if (selectedId === null) setSelectedMessageIds(null);
+    setShowConversationActions(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!showConversationActions) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!conversationActionsRef.current?.contains(event.target as Node)) {
+        setShowConversationActions(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowConversationActions(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [showConversationActions]);
+
+  useEffect(() => {
+    if (!sidebarActionsPeerId) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!sidebarActionsRef.current?.contains(event.target as Node)) {
+        setSidebarActionsPeerId(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarActionsPeerId(null);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [sidebarActionsPeerId]);
 
   const selectedPeer = peers.find((peer) => peer.id === selectedId) || null;
   const conversation = messages.filter(
@@ -455,6 +627,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     setUser(null);
     setContacts([]);
     setMessages([]);
+    setHiddenPeerIds([]);
     setSelectedId(null);
     setShowSettings(false);
     setPhase("welcome");
@@ -478,6 +651,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         body: JSON.stringify({ identifier: identifier.trim() }),
       });
       await refreshState();
+      setSelectedMessageIds(null);
       setSelectedId(data.contact.userId);
       setContactFormDefaultId(null);
       setNotice("Контакт добавлен");
@@ -537,6 +711,54 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
+  function toggleMessageSelection(messageId: string) {
+    setSelectedMessageIds((current) => {
+      if (current === null) return current;
+      return current.includes(messageId)
+        ? current.filter((id) => id !== messageId)
+        : [...current, messageId];
+    });
+  }
+
+  async function deleteMessages(scope: "me" | "everyone") {
+    if (!messageDeleteIds?.length) return;
+    setBusy(true);
+    try {
+      await request("/api/messages", {
+        method: "DELETE",
+        body: JSON.stringify({ ids: messageDeleteIds, scope }),
+      });
+      setMessageDeleteIds(null);
+      setSelectedMessageIds(null);
+      await refreshState();
+      setNotice(messageDeleteIds.length === 1 ? "Сообщение удалено" : "Сообщения удалены");
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteConversation(mode: "hide" | "delete_history", scope?: "me" | "everyone") {
+    if (!selectedId) return;
+    setBusy(true);
+    try {
+      await request(`/api/conversations/${selectedId}`, {
+        method: "DELETE",
+        body: JSON.stringify({ mode, ...(scope ? { scope } : {}) }),
+      });
+      setDialogDeleteStage(null);
+      setSelectedMessageIds(null);
+      setSelectedId(null);
+      await refreshState();
+      setNotice(mode === "hide" ? "Диалог скрыт" : "История удалена");
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "welcome" || !user) {
     return <WelcomeScreen busy={busy} notice={notice} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
@@ -563,15 +785,59 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
             {peers.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по нику или UUID, чтобы написать первым.</p></div> : peers.map((peer) => {
               const last = [...messages].reverse().find((message) => message.fromUserId === peer.id || message.toUserId === peer.id);
               const unread = messages.filter((message) => message.fromUserId === peer.id && message.toUserId === user.id && !message.readAt).length;
-              return <button key={peer.id} className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => setSelectedId(peer.id)}>
-                <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
-                <span className="contact-copy">
-                  <strong>{peer.name}</strong>
-                  {peer.nickname ? <span className="contact-identity"><small className="contact-nickname">@{peer.nickname}</small></span> : null}
-                  {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
-                </span>
-                {unread > 0 && <span className="unread-badge">{unread}</span>}
-              </button>;
+              const sidebarMenuOpen = sidebarActionsPeerId === peer.id;
+              return <div key={peer.id} className={`contact-row-shell ${sidebarMenuOpen ? "menu-open" : ""}`} ref={sidebarMenuOpen ? sidebarActionsRef : undefined}>
+                <button className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => {
+                  setSidebarActionsPeerId(null);
+                  setSelectedMessageIds(null);
+                  setSelectedId(peer.id);
+                }}>
+                  <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
+                  <span className="contact-copy">
+                    <strong>{peer.name}</strong>
+                    {peer.nickname ? <span className="contact-identity"><small className="contact-nickname">@{peer.nickname}</small></span> : null}
+                    {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
+                  </span>
+                  {unread > 0 && <span className="unread-badge">{unread}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="contact-row-actions-button"
+                  onClick={() => {
+                    setSelectedMessageIds(null);
+                    setShowConversationActions(false);
+                    setSelectedId(peer.id);
+                    setSidebarActionsPeerId((current) => current === peer.id ? null : peer.id);
+                  }}
+                  aria-label={`Действия с диалогом ${peer.name}`}
+                  aria-haspopup="menu"
+                  aria-expanded={sidebarMenuOpen}
+                  data-tooltip="Действия"
+                  data-tooltip-position="bottom"
+                  data-tooltip-align="right"
+                >
+                  <Glyph name="more" />
+                </button>
+                {sidebarMenuOpen ? <div className="conversation-actions-popover contact-row-actions-popover" role="menu">
+                  <button type="button" role="menuitem" disabled={!last} onClick={() => {
+                    setSidebarActionsPeerId(null);
+                    setSelectedId(peer.id);
+                    setSelectedMessageIds([]);
+                  }}>
+                    <Glyph name="select" />
+                    Выбрать сообщения
+                  </button>
+                  <button type="button" role="menuitem" className="danger" onClick={() => {
+                    setSidebarActionsPeerId(null);
+                    setSelectedMessageIds(null);
+                    setSelectedId(peer.id);
+                    setDialogDeleteStage("choice");
+                  }}>
+                    <Glyph name="trash" />
+                    Удалить диалог
+                  </button>
+                </div> : null}
+              </div>;
             })}
           </div>
           <button className="add-contact-button" onClick={() => setContactFormDefaultId("")}><Glyph name="plus" /> Новый контакт</button>
@@ -583,23 +849,88 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
               <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} avatarBackground={selectedPeer.avatarBackground} className="contact-avatar large" />
               <div className="conversation-title"><strong>{selectedPeer.name}</strong><span>{selectedPeer.nickname ? `@${selectedPeer.nickname} · ` : ""}{selectedPeer.id}</span></div>
-              {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
+              {selectedMessageIds !== null ? (
+                <div className="selection-toolbar">
+                  <strong>Выбрано: {selectedMessageIds.length}</strong>
+                  <button type="button" className="text-button" onClick={() => setSelectedMessageIds(null)}>Отмена</button>
+                  <button type="button" className="danger-icon-button" disabled={selectedMessageIds.length === 0} onClick={() => setMessageDeleteIds(selectedMessageIds)} aria-label="Удалить выбранные сообщения" data-tooltip="Удалить выбранные" data-tooltip-position="bottom" data-tooltip-align="right"><Glyph name="trash" /></button>
+                </div>
+              ) : (
+                <div className="conversation-actions">
+                  {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
+                  <div className="conversation-actions-menu" ref={conversationActionsRef}>
+                    <button
+                      type="button"
+                      className="header-icon-button"
+                      onClick={() => setShowConversationActions((current) => !current)}
+                      aria-label="Действия с диалогом"
+                      aria-haspopup="menu"
+                      aria-expanded={showConversationActions}
+                      data-tooltip="Действия"
+                      data-tooltip-position="bottom"
+                    >
+                      <Glyph name="more" />
+                    </button>
+                    {showConversationActions ? <div className="conversation-actions-popover" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={conversation.length === 0}
+                        onClick={() => {
+                          setShowConversationActions(false);
+                          setSelectedMessageIds([]);
+                        }}
+                      >
+                        <Glyph name="select" />
+                        Выбрать сообщения
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => {
+                          setShowConversationActions(false);
+                          setDialogDeleteStage("choice");
+                        }}
+                      >
+                        <Glyph name="trash" />
+                        Удалить диалог
+                      </button>
+                    </div> : null}
+                  </div>
+                </div>
+              )}
             </header>
             <div className="message-stream">
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните с короткого</h2><p>Сообщение должно удобно читаться на небольшом экране.</p></div>}
               {conversation.map((message) => {
                 const outgoing = message.fromUserId === user.id;
+                const selected = selectedMessageIds?.includes(message.id) ?? false;
+                const selectionMode = selectedMessageIds !== null;
+                const toggleSelection = () => toggleMessageSelection(message.id);
                 return <Fragment key={message.id}>
-                  <article className={`message-row ${outgoing ? "outgoing" : "incoming"}`}>
+                  <article
+                    className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
+                    role={selectionMode ? "button" : undefined}
+                    tabIndex={selectionMode ? 0 : undefined}
+                    onClick={selectionMode ? toggleSelection : undefined}
+                    onKeyDown={selectionMode ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleSelection();
+                      }
+                    } : undefined}
+                  >
                     <div className="message-bubble">
+                      {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
                       <p>{message.text}{message.kind === "text" ? <span className="inline-message-meta"><time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</span> : null}</p>
-                      <QuestionOptions message={message} outgoing={outgoing} onAnswer={answer} />
-                      {!outgoing && !message.readAt && message.kind === "text" && <button className="read-button" onClick={() => markRead(message.id)}>Отметить прочитанным</button>}
+                      <QuestionOptions message={message} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} />
+                      {!selectionMode && !outgoing && !message.readAt && message.kind === "text" && <button className="read-button" onClick={() => markRead(message.id)}>Отметить прочитанным</button>}
                       {message.kind === "choice" ? <footer><time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</footer> : null}
                     </div>
                   </article>
-                  <AnswerBubble message={message} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} />
+                  <AnswerBubble message={message} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} />
                 </Fragment>;
               })}
             </div>
@@ -611,6 +942,44 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
       {showSettings && <SettingsDialog user={user} token={token} request={request} onUser={setUser} onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }} onLogout={logout} onClose={() => setShowSettings(false)} setNotice={setNotice} />}
       {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
+      {messageDeleteIds && <ActionDialog
+        title={messageDeleteIds.length === 1 ? "Удалить сообщение" : "Удалить сообщения"}
+        description={`${messageDeleteIds.length === 1
+          ? "Выберите, у кого исчезнет выбранное сообщение."
+          : "Выберите, у кого исчезнут выбранные сообщения."}\nЭто действие нельзя будет отменить.`}
+        actions={[
+          { label: "Удалить только у меня", kind: "danger-outline", onClick: () => { void deleteMessages("me"); } },
+          { label: "Удалить у меня и у собеседника", kind: "danger-outline", onClick: () => { void deleteMessages("everyone"); } },
+        ]}
+        busy={busy}
+        illustration={deleteMessagesIllustration}
+        illustrationAlt="Лис удаляет выбранные сообщения"
+        onClose={() => setMessageDeleteIds(null)}
+      />}
+      {dialogDeleteStage === "choice" && <ActionDialog
+        title="Удалить диалог?"
+        description="Можно убрать диалог из списка, сохранив сообщения, или перейти к удалению всей истории."
+        actions={[
+          { label: "Отправить в архив", kind: "secondary", icon: "archive", onClick: () => { void deleteConversation("hide"); } },
+          { label: "Удалить историю", kind: "danger-outline", onClick: () => setDialogDeleteStage("history") },
+        ]}
+        busy={busy}
+        illustration={deleteDialogIllustration}
+        illustrationAlt="Ёжик убирает диалог в архив"
+        onClose={() => setDialogDeleteStage(null)}
+      />}
+      {dialogDeleteStage === "history" && <ActionDialog
+        title="Удалить историю?"
+        description={"Все сообщения в этом диалоге исчезнут. Выберите, удалить их только у вас или у обоих участников чата.\nЭто действие нельзя будет отменить."}
+        actions={[
+          { label: "Удалить только у меня", kind: "danger-outline", onClick: () => { void deleteConversation("delete_history", "me"); } },
+          { label: "Удалить у меня и у собеседника", kind: "danger-outline", onClick: () => { void deleteConversation("delete_history", "everyone"); } },
+        ]}
+        busy={busy}
+        illustration={deleteHistoryIllustration}
+        illustrationAlt="Слон удаляет историю сообщений"
+        onClose={() => setDialogDeleteStage(null)}
+      />}
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<span>×</span></button>}
     </main>
   );

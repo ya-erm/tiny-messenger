@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { publicMessage } from "@/lib/domain";
+import { isMessageVisibleTo, publicMessage, showConversation } from "@/lib/domain";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import type { ChoiceOption, MessageRecord } from "@/lib/types";
@@ -29,6 +29,7 @@ export const GET = route(async (request) => {
     .filter((message) => {
       const inbox = message.toUserId === authenticated.id;
       const sent = message.fromUserId === authenticated.id;
+      if (!isMessageVisibleTo(message, authenticated.id)) return false;
       if (box === "inbox" && !inbox) return false;
       if (box === "sent" && !sent) return false;
       if (box === "all" && !inbox && !sent) return false;
@@ -111,7 +112,58 @@ export const POST = route(async (request) => {
       sentAt: new Date().toISOString(),
     };
     store.messages.push(item);
+    showConversation(store.hiddenConversations, authenticated.id, toUserId);
     return item;
   });
   return ok({ message: publicMessage(message) }, { status: 201 });
+});
+
+export const DELETE = route(async (request) => {
+  assertRateLimit(request, true);
+  const authenticated = await authenticate(request);
+  const body = await readJson(request);
+  const ids = Array.isArray(body.ids) ? body.ids : [];
+  const scope = body.scope;
+
+  if (
+    ids.length < 1
+    || ids.length > LIMITS.pageSize
+    || ids.some((id) => typeof id !== "string" || !isUuid(id))
+  ) {
+    throw new ApiError(
+      422,
+      "invalid_message_ids",
+      `ids должен содержать от 1 до ${LIMITS.pageSize} UUID сообщений`,
+    );
+  }
+  if (scope !== "me" && scope !== "everyone") {
+    throw new ApiError(422, "invalid_delete_scope", "scope должен быть me или everyone");
+  }
+
+  const uniqueIds = [...new Set(ids as string[])];
+  const deletedIds = await updateStore((store) => {
+    const requested = new Set(uniqueIds);
+    const accessible = store.messages.filter(
+      (message) => requested.has(message.id) && (
+        message.fromUserId === authenticated.id || message.toUserId === authenticated.id
+      ),
+    );
+    if (accessible.length !== uniqueIds.length) {
+      throw new ApiError(404, "message_not_found", "Одно или несколько сообщений не найдены");
+    }
+
+    if (scope === "everyone") {
+      store.messages = store.messages.filter((message) => !requested.has(message.id));
+    } else {
+      for (const message of accessible) {
+        message.deletedForUserIds ||= [];
+        if (!message.deletedForUserIds.includes(authenticated.id)) {
+          message.deletedForUserIds.push(authenticated.id);
+        }
+      }
+    }
+    return uniqueIds;
+  });
+
+  return ok({ deletedIds, scope });
 });

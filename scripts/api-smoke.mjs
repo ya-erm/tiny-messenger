@@ -181,6 +181,163 @@ assert.equal(
   "delivered",
 );
 
+const deletionOwner = await api("/api/auth/register", {
+  method: "POST",
+  body: JSON.stringify({ name: "Удалятор", nickname: "deleter" }),
+});
+const deletionPeer = await api("/api/auth/register", {
+  method: "POST",
+  body: JSON.stringify({ name: "Собеседник", nickname: "delete-peer" }),
+});
+const deletionMessages = [];
+for (const text of ["Первое", "Второе", "Третье", "Четвёрто"]) {
+  const result = await api("/api/messages", {
+    token: deletionOwner.token,
+    method: "POST",
+    body: JSON.stringify({ toUserId: deletionPeer.user.id, text, kind: "text" }),
+  });
+  deletionMessages.push(result.message);
+}
+
+await api(`/api/conversations/${deletionPeer.user.id}`, {
+  token: deletionOwner.token,
+  method: "DELETE",
+  body: JSON.stringify({ mode: "hide" }),
+});
+const hiddenConversation = await api("/api/sync", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(hiddenConversation.hiddenPeerIds.includes(deletionPeer.user.id));
+assert.ok(hiddenConversation.messages.some((message) => message.id === deletionMessages[0].id));
+
+await api("/api/messages", {
+  token: deletionPeer.token,
+  method: "POST",
+  body: JSON.stringify({ toUserId: deletionOwner.user.id, text: "Диалог вернулся", kind: "text" }),
+});
+const restoredConversation = await api("/api/sync", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(!restoredConversation.hiddenPeerIds.includes(deletionPeer.user.id));
+
+await api(`/api/messages/${deletionMessages[0].id}`, {
+  token: deletionOwner.token,
+  method: "DELETE",
+  body: JSON.stringify({ scope: "me" }),
+});
+const deletedOnlyForOwner = await fetch(`${baseUrl}/api/messages/${deletionMessages[0].id}`, {
+  headers: { Authorization: `Bearer ${deletionOwner.token}` },
+});
+assert.equal(deletedOnlyForOwner.status, 404);
+const stillVisibleForPeer = await api(`/api/messages/${deletionMessages[0].id}`, {
+  token: deletionPeer.token,
+});
+assert.equal(stillVisibleForPeer.message.id, deletionMessages[0].id);
+
+await api(`/api/messages/${deletionMessages[1].id}`, {
+  token: deletionPeer.token,
+  method: "DELETE",
+  body: JSON.stringify({ scope: "everyone" }),
+});
+for (const participantToken of [deletionOwner.token, deletionPeer.token]) {
+  const deletedForEveryone = await fetch(`${baseUrl}/api/messages/${deletionMessages[1].id}`, {
+    headers: { Authorization: `Bearer ${participantToken}` },
+  });
+  assert.equal(deletedForEveryone.status, 404);
+}
+
+await api("/api/messages", {
+  token: deletionPeer.token,
+  method: "DELETE",
+  body: JSON.stringify({
+    ids: [deletionMessages[2].id, deletionMessages[3].id],
+    scope: "me",
+  }),
+});
+const peerAfterBulkDelete = await api("/api/sync", {
+  token: deletionPeer.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(!peerAfterBulkDelete.messages.some((message) =>
+  [deletionMessages[2].id, deletionMessages[3].id].includes(message.id)));
+const ownerAfterBulkDelete = await api("/api/sync", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(ownerAfterBulkDelete.messages.some((message) => message.id === deletionMessages[2].id));
+
+await api(`/api/conversations/${deletionPeer.user.id}`, {
+  token: deletionOwner.token,
+  method: "DELETE",
+  body: JSON.stringify({ mode: "delete_history", scope: "me" }),
+});
+const ownerWithoutHistory = await api("/api/sync", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(ownerWithoutHistory.hiddenPeerIds.includes(deletionPeer.user.id));
+assert.ok(!ownerWithoutHistory.messages.some((message) =>
+  message.fromUserId === deletionPeer.user.id || message.toUserId === deletionPeer.user.id));
+const peerKeepsHistory = await api("/api/sync", {
+  token: deletionPeer.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(peerKeepsHistory.messages.some((message) => message.id === deletionMessages[0].id));
+
+await api("/api/messages", {
+  token: deletionPeer.token,
+  method: "POST",
+  body: JSON.stringify({ toUserId: deletionOwner.user.id, text: "Снова привет", kind: "text" }),
+});
+await api("/api/messages", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ toUserId: deletionPeer.user.id, text: "Удалим всё", kind: "text" }),
+});
+await api(`/api/conversations/${deletionPeer.user.id}`, {
+  token: deletionOwner.token,
+  method: "DELETE",
+  body: JSON.stringify({ mode: "delete_history", scope: "everyone" }),
+});
+for (const [participant, counterpart] of [
+  [deletionOwner, deletionPeer],
+  [deletionPeer, deletionOwner],
+]) {
+  const afterDeleteForEveryone = await api("/api/sync", {
+    token: participant.token,
+    method: "POST",
+    body: JSON.stringify({ limit: 100 }),
+  });
+  assert.ok(afterDeleteForEveryone.hiddenPeerIds.includes(counterpart.user.id));
+  assert.ok(!afterDeleteForEveryone.messages.some((message) =>
+    message.fromUserId === counterpart.user.id || message.toUserId === counterpart.user.id));
+}
+await api("/api/contacts", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ identifier: deletionPeer.user.id }),
+});
+const reopenedByOwner = await api("/api/sync", {
+  token: deletionOwner.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+const stillHiddenForPeer = await api("/api/sync", {
+  token: deletionPeer.token,
+  method: "POST",
+  body: JSON.stringify({ limit: 100 }),
+});
+assert.ok(!reopenedByOwner.hiddenPeerIds.includes(deletionPeer.user.id));
+assert.ok(stillHiddenForPeer.hiddenPeerIds.includes(deletionOwner.user.id));
+
 const speedy = await api("/api/auth/register", {
   method: "POST",
   body: JSON.stringify({ name: "Торопыга", nickname: "speedy" }),
@@ -231,4 +388,4 @@ const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
 assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → user search → messaging → contacts → sync → message rate limit → token reset");
+console.log("API smoke test passed: profile → user search → messaging → contacts → sync → deletion → message rate limit → token reset");
