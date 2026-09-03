@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
@@ -31,8 +32,28 @@ const AVATAR_BACKGROUND_PRESETS = [
   { name: "Дым", value: "#DDE2E4" },
 ] as const;
 
-type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
+type ApiEnvelope<T> = { ok: true; data: T } | {
+  ok: false;
+  error: { code?: string; message: string };
+};
 type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; avatarBackground?: string; saved: boolean };
+
+class ApiClientError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code = "request_failed",
+    public retryAfterSeconds?: number,
+  ) {
+    super(message);
+  }
+}
+
+function isMessageRateLimitError(error: unknown): error is ApiClientError {
+  return error instanceof Error
+    && "code" in error
+    && error.code === "message_rate_limited";
+}
 
 async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
   const response = await fetch(path, {
@@ -44,7 +65,15 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
     },
   });
   const payload = (await response.json()) as ApiEnvelope<T>;
-  if (!payload.ok) throw new Error(payload.error.message);
+  if (!payload.ok) {
+    const retryAfter = Number(response.headers.get("Retry-After"));
+    throw new ApiClientError(
+      payload.error.message,
+      response.status,
+      payload.error.code,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : undefined,
+    );
+  }
   return payload.data;
 }
 
@@ -183,6 +212,74 @@ function AnswerBubble({ message, currentUserId, currentUserName, peerName }: { m
   );
 }
 
+const RATE_LIMIT_ACKNOWLEDGE_DELAY_SECONDS = 5;
+
+function RateLimitDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [secondsLeft, setSecondsLeft] = useState(RATE_LIMIT_ACKNOWLEDGE_DELAY_SECONDS);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (!dialog.open) dialog.showModal();
+    dialog.focus();
+  }, []);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+
+    const countdown = window.setTimeout(() => {
+      setSecondsLeft((currentSeconds) => Math.max(0, currentSeconds - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(countdown);
+  }, [secondsLeft]);
+
+  const closeDialog = () => dialogRef.current?.close();
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="rate-limit-dialog"
+      aria-labelledby="rate-limit-title"
+      tabIndex={-1}
+      onCancel={(event) => {
+        event.preventDefault();
+        closeDialog();
+      }}
+      onClose={onClose}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeDialog();
+      }}
+    >
+      <section className="modal-card rate-limit-card">
+        <div className="modal-header">
+          <h2 id="rate-limit-title">Превышен лимит запросов</h2>
+          <button type="button" className="modal-close" onClick={closeDialog} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
+        <Image
+          className="rate-limit-illustration"
+          src={rateLimitSpeeding}
+          alt="Ленивца на красном карте останавливает зайчиха-полицейская"
+          width={724}
+          height={543}
+          sizes="(max-width: 520px) calc(100vw - 68px), 396px"
+        />
+        <p className="rate-limit-lead">Вы отправляете сообщения слишком быстро. Притормозите - ленивец уже получил предупреждение.</p>
+        <button
+          type="button"
+          className="primary-button wide"
+          disabled={secondsLeft > 0}
+          onClick={closeDialog}
+        >
+          {secondsLeft > 0 ? `Понятно · ${secondsLeft} с` : "Понятно"}
+        </button>
+      </section>
+    </dialog>
+  );
+}
+
 export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { sharedIdentifier?: string; sharedLabel?: string }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
@@ -195,11 +292,35 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [sharedContactHandled, setSharedContactHandled] = useState(false);
+  const [showRateLimit, setShowRateLimit] = useState(false);
+  const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
-    return fetchApi<T>(path, init, currentToken);
+    try {
+      return await fetchApi<T>(path, init, currentToken);
+    } catch (error) {
+      if (isMessageRateLimitError(error)) {
+        setNotice("");
+        setSendCooldownSeconds(Math.max(
+          RATE_LIMIT_ACKNOWLEDGE_DELAY_SECONDS,
+          error.retryAfterSeconds ?? 0,
+        ));
+        setShowRateLimit(true);
+      }
+      throw error;
+    }
   }, [token]);
+
+  useEffect(() => {
+    if (sendCooldownSeconds <= 0) return;
+
+    const countdown = window.setTimeout(() => {
+      setSendCooldownSeconds((currentSeconds) => Math.max(0, currentSeconds - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(countdown);
+  }, [sendCooldownSeconds]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -385,7 +506,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       });
       await refreshState();
     } catch (error) {
-      setNotice((error as Error).message);
+      if (!isMessageRateLimitError(error)) setNotice((error as Error).message);
       throw error;
     } finally {
       setBusy(false);
@@ -482,13 +603,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 </Fragment>;
               })}
             </div>
-            <Composer busy={busy} onSend={sendMessage} />
+            <Composer busy={busy} sendCooldownSeconds={sendCooldownSeconds} onSend={sendMessage} />
           </> : <div className="no-conversation"><span className="brand-mark big">tm</span><h2>Ваши короткие сообщения</h2><p>Выберите диалог или добавьте контакт.</p></div>}
         </section>
       </div>
 
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
       {showSettings && <SettingsDialog user={user} token={token} request={request} onUser={setUser} onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }} onLogout={logout} onClose={() => setShowSettings(false)} setNotice={setNotice} />}
+      {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<span>×</span></button>}
     </main>
   );
@@ -555,14 +677,14 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
   </main>;
 }
 
-function Composer({ busy, onSend }: { busy: boolean; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void> }) {
+function Composer({ busy, sendCooldownSeconds, onSend }: { busy: boolean; sendCooldownSeconds: number; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void> }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<"text" | "choice">("text");
   const [left, setLeft] = useState("Да");
   const [right, setRight] = useState("Нет");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || !text.trim()) return;
+    if (busy || sendCooldownSeconds > 0 || !text.trim()) return;
     try {
       await onSend({ text, kind, left, right });
       setText("");
@@ -570,7 +692,7 @@ function Composer({ busy, onSend }: { busy: boolean; onSend: (input: { text: str
   }
   return <form className="composer" onSubmit={submit}>
     <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button><button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button><span>{Array.from(text).length}/{LIMITS.message}</span></div>
-    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className="send-button" disabled={busy || !text.trim()} aria-label="Отправить" data-tooltip="Отправить"><Glyph name="send" /></button></div>
+    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${sendCooldownSeconds > 0 ? "cooldown" : ""}`} disabled={busy || sendCooldownSeconds > 0 || !text.trim()} aria-label={sendCooldownSeconds > 0 ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={sendCooldownSeconds > 0 ? "Слишком быстро" : "Отправить"}>{sendCooldownSeconds > 0 ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
     {kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;
 }

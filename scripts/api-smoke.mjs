@@ -181,6 +181,39 @@ assert.equal(
   "delivered",
 );
 
+const speedy = await api("/api/auth/register", {
+  method: "POST",
+  body: JSON.stringify({ name: "Торопыга", nickname: "speedy" }),
+});
+for (let index = 1; index <= 6; index += 1) {
+  const rapidMessage = await api("/api/messages", {
+    token: speedy.token,
+    method: "POST",
+    body: JSON.stringify({
+      toUserId: bob.user.id,
+      text: String(index),
+      kind: "text",
+    }),
+  });
+  assert.equal(rapidMessage.message.status, "sent");
+}
+const limitedMessage = await fetch(`${baseUrl}/api/messages`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${speedy.token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    toUserId: bob.user.id,
+    text: "7",
+    kind: "text",
+  }),
+});
+const limitedPayload = await limitedMessage.json();
+assert.equal(limitedMessage.status, 429);
+assert.equal(limitedPayload.error.code, "message_rate_limited");
+assert.ok(Number(limitedMessage.headers.get("Retry-After")) >= 1);
+
 const reset = await api("/api/me/token", {
   token: alice.token,
   method: "POST",
@@ -198,4 +231,4 @@ const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
 assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → user search → messaging → contacts → sync → token reset");
+console.log("API smoke test passed: profile → user search → messaging → contacts → sync → message rate limit → token reset");

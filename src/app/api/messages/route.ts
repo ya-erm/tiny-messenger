@@ -3,7 +3,7 @@ import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
 import { publicMessage } from "@/lib/domain";
-import { assertRateLimit } from "@/lib/rate-limit";
+import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import type { ChoiceOption, MessageRecord } from "@/lib/types";
 import { cleanString, isMessageKind, isUuid, validLength } from "@/lib/validation";
@@ -44,6 +44,7 @@ export const GET = route(async (request) => {
 export const POST = route(async (request) => {
   assertRateLimit(request, true);
   const authenticated = await authenticate(request);
+  assertMessageRateLimit(request, authenticated.id);
   const body = await readJson(request);
   const toUserId = cleanString(body.toUserId);
   const text = cleanString(body.text);
