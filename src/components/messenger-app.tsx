@@ -1034,13 +1034,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
-  // Правка возможна ровно для одного выбранного своего текстового сообщения:
-  // чужое менять нельзя, а у вопроса есть варианты, на которые уже мог быть ответ.
-  const editableSelection = (() => {
-    if (selectedMessageIds?.length !== 1) return null;
-    const target = messages.find((message) => message.id === selectedMessageIds[0]);
-    if (!target || target.fromUserId !== user?.id || target.kind !== "text" || target.answer) return null;
-    return target;
+  // Editing needs exactly one of your own text messages. The button names the
+  // reason it is off rather than one catch-all sentence, which read as wrong
+  // whenever the selection was in fact yours and merely too large.
+  const editTarget = (() => {
+    const ids = selectedMessageIds ?? [];
+    const target = ids.length === 1 ? messages.find((message) => message.id === ids[0]) : undefined;
+    if (!target) return { message: null, hint: "Выберите одно сообщение" };
+    if (target.fromUserId !== user?.id) return { message: null, hint: "Менять можно только своё сообщение" };
+    if (target.kind !== "text") return { message: null, hint: "Вопрос изменить нельзя" };
+    return { message: target, hint: "Изменить" };
   })();
 
   async function editMessage(text: string) {
@@ -1199,14 +1202,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   <button
                     type="button"
                     className="header-icon-button"
-                    disabled={!editableSelection}
+                    disabled={!editTarget.message}
                     onClick={() => {
-                      if (!editableSelection) return;
+                      if (!editTarget.message) return;
                       setSelectedMessageIds(null);
-                      setEditingMessageId(editableSelection.id);
+                      setEditingMessageId(editTarget.message.id);
                     }}
                     aria-label="Изменить сообщение"
-                    data-tooltip={editableSelection ? "Изменить" : "Менять можно только своё текстовое сообщение"}
+                    data-tooltip={editTarget.hint}
                     data-tooltip-position="bottom"
                     data-tooltip-align="right"
                   ><Glyph name="edit" /></button>
