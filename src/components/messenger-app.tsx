@@ -1236,8 +1236,66 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   );
 }
 
+async function readServiceWorkerVersion() {
+  if (!("serviceWorker" in navigator)) return "не поддерживается";
+  const registration = await navigator.serviceWorker.getRegistration();
+  const worker = navigator.serviceWorker.controller || registration?.active;
+  if (!worker) return "не активен";
+
+  const channel = new MessageChannel();
+  const answered = new Promise<string>((resolve) => {
+    channel.port1.onmessage = (event) => resolve(String(event.data?.version || "неизвестна"));
+  });
+  worker.postMessage({ type: "version" }, [channel.port2]);
+  return Promise.race([
+    answered,
+    new Promise<string>((resolve) => { window.setTimeout(() => resolve("не отвечает"), 1500); }),
+  ]);
+}
+
 function LoadingScreen() {
-  return <main className="loading-screen"><span className="brand-mark big pulse">tm</span><p>Открываем чаты...</p></main>;
+  const [swVersion, setSwVersion] = useState("проверяем...");
+  const [resetting, setResetting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    readServiceWorkerVersion()
+      .then((version) => { if (active) setSwVersion(version); })
+      .catch(() => { if (active) setSwVersion("ошибка проверки"); });
+    return () => { active = false; };
+  }, []);
+
+  const resetServiceWorker = async () => {
+    setResetting(true);
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } finally {
+      window.location.reload();
+    }
+  };
+
+  return (
+    <main className="loading-screen">
+      <span className="brand-mark big pulse">tm</span>
+      <p>Загрузка...</p>
+      <footer className="loading-footer">
+        <div className="loading-diagnostics">
+          <span>Версия: <span className="loading-mono loading-version">{process.env.NEXT_PUBLIC_APP_VERSION || "неизвестна"}</span></span>
+          <span className="loading-mono">{swVersion}</span>
+        </div>
+        <button type="button" className="loading-reset" disabled={resetting} onClick={() => { void resetServiceWorker(); }}>
+          {resetting ? "Обновляем..." : "Обновить service worker"}
+        </button>
+      </footer>
+    </main>
+  );
 }
 
 function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { busy: boolean; notice: string; sharedLabel: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {

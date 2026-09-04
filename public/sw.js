@@ -17,6 +17,14 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Lets the loading screen show which worker is actually in control: a stale
+// worker keeps serving cached assets, so its version is the first thing worth
+// checking when the app looks out of date.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "version") return;
+  event.ports[0]?.postMessage({ version: CACHE_NAME });
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
