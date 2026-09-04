@@ -20,12 +20,22 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f4efe6",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4efe6" },
+    { media: "(prefers-color-scheme: dark)", color: "#101512" },
+  ],
 };
+
+// Runs before first paint: React would only resolve the theme after hydration,
+// which is a full flash of the wrong palette on every load.
+const applyStoredTheme = `(function(){try{var p=localStorage.getItem("tiny-messenger:v1:theme")||"system";var d=p==="dark"||(p==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.dataset.theme=d?"dark":"light";}catch(e){}})()`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: applyStoredTheme }} />
+      </head>
       <body>{children}</body>
     </html>
   );

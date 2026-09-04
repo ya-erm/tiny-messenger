@@ -12,6 +12,48 @@ import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
+const THEME_KEY = "tiny-messenger:v1:theme";
+
+type ThemePreference = "system" | "light" | "dark";
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "Системная" },
+  { value: "light", label: "Светлая" },
+  { value: "dark", label: "Тёмная" },
+];
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function useThemePreference() {
+  const [preference, setPreference] = useState<ThemePreference>(() => {
+    if (typeof window === "undefined") return "system";
+    const saved = window.localStorage.getItem(THEME_KEY);
+    return isThemePreference(saved) ? saved : "system";
+  });
+
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const resolved = preference === "system" ? (query.matches ? "dark" : "light") : preference;
+      document.documentElement.dataset.theme = resolved;
+      document.querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", resolved === "dark" ? "#101512" : "#f4efe6");
+    };
+    apply();
+    if (preference !== "system") return;
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, [preference]);
+
+  const chooseTheme = useCallback((next: ThemePreference) => {
+    setPreference(next);
+    window.localStorage.setItem(THEME_KEY, next);
+  }, []);
+
+  return { preference, chooseTheme };
+}
 const AVATAR_PRESETS = [
   { name: "Без изображения", url: "" },
   ...animalAvatars,
@@ -437,6 +479,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const { preference: themePreference, chooseTheme } = useThemePreference();
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1201,6 +1244,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         appInstalled={appInstalled}
         canInstall={Boolean(installPrompt)}
         onInstall={installApplication}
+        theme={themePreference}
+        onTheme={chooseTheme}
       />}
       {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
       {messageDeleteIds && <ActionDialog
@@ -1495,6 +1540,8 @@ function SettingsDialog({
   appInstalled,
   canInstall,
   onInstall,
+  theme,
+  onTheme,
 }: {
   user: PublicUser;
   token: string;
@@ -1511,6 +1558,8 @@ function SettingsDialog({
   appInstalled: boolean;
   canInstall: boolean;
   onInstall: () => Promise<void>;
+  theme: ThemePreference;
+  onTheme: (theme: ThemePreference) => void;
 }) {
   const [name, setName] = useState(user.name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
@@ -1697,6 +1746,24 @@ function SettingsDialog({
             <button type="button" className="primary-button wide avatar-editor-done" onClick={() => setView("profile")}>Готово</button>
           </div>
         )}
+
+        {view === "profile" ? <div className="settings-section theme-section">
+          <span className="field-label">Оформление</span>
+          <div className="theme-switch" role="radiogroup" aria-label="Оформление">
+            {THEME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={theme === option.value}
+                className={theme === option.value ? "active" : ""}
+                onClick={() => onTheme(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div> : null}
 
         {view === "profile" ? <div className="settings-section capability-section">
           <div className="capability-row">
