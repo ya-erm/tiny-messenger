@@ -582,8 +582,14 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .voice-dock .voice-leave { color: #fff; background: var(--danger); }
 
 @media (max-width: 800px) {
-  input, textarea { font-size: 16px; }
-  .app-shell { padding: 0; }
+  /* iOS zooms the page when a focused field is under 16px. The element-level
+     rule lost to these class selectors, so the fields it mattered for kept 12px
+     and every focus enlarged the interface. */
+  input, textarea, .composer textarea, .field-label input, .option-fields input { font-size: 16px; }
+  /* iOS resolves 100vh against the large viewport, taller than what is actually
+     visible, so the shell overflowed and the whole document scrolled. */
+  .app-shell { padding: 0; min-height: 100dvh; }
+  body { overscroll-behavior-y: none; }
   .messenger { width: 100%; height: 100vh; height: 100dvh; min-height: 520px; grid-template-columns: 1fr; border: 0; border-radius: 0; }
   .conversation-panel { display: none; }
   .messenger.has-conversation .sidebar { display: none; }

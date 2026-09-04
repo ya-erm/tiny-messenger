@@ -23,6 +23,9 @@ export const viewport: Viewport = {
   // Without this the layout stops at the safe area and every
   // env(safe-area-inset-*) in the stylesheet resolves to zero.
   viewportFit: "cover",
+  // Ask the browser to shrink the layout viewport for the on-screen keyboard
+  // instead of only the visual one, so the composer is not left behind it.
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f4efe6" },
     { media: "(prefers-color-scheme: dark)", color: "#101512" },
