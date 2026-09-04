@@ -20,6 +20,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Without this the layout stops at the safe area and every
+  // env(safe-area-inset-*) in the stylesheet resolves to zero.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f4efe6" },
     { media: "(prefers-color-scheme: dark)", color: "#101512" },
