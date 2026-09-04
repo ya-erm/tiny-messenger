@@ -49,12 +49,25 @@ export interface HiddenConversationRecord {
   hiddenAt: string;
 }
 
+export interface PushSubscriptionRecord {
+  userId: string;
+  endpoint: string;
+  expirationTime?: number;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StoreData {
   version: 1;
   users: UserRecord[];
   contacts: ContactRecord[];
   messages: MessageRecord[];
   hiddenConversations: HiddenConversationRecord[];
+  pushSubscriptions: PushSubscriptionRecord[];
 }
 
 export interface PublicUser {

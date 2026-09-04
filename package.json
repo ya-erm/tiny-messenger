@@ -11,18 +11,21 @@
     "typecheck": "tsc --noEmit",
     "test:api": "node scripts/api-smoke.mjs",
     "test:ws": "node scripts/ws-smoke.mjs",
+    "push:keys": "web-push generate-vapid-keys",
     "migrate:choice-options": "node scripts/migrate-choice-options.mjs"
   },
   "dependencies": {
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "web-push": "^3.6.7",
     "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "typescript": "^5.9.0"
   },
   "engines": {

@@ -40,6 +40,13 @@ type ApiEnvelope<T> = { ok: true; data: T } | {
   error: { code?: string; message: string };
 };
 type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; avatarBackground?: string; saved: boolean };
+type PushState = "checking" | "disabled" | "enabled" | "denied" | "unsupported" | "unconfigured" | "error";
+type PushConfiguration = { configured: boolean; publicKey: string; subscriptionCount: number };
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
 
 class ApiClientError extends Error {
   constructor(
@@ -96,7 +103,28 @@ async function shareProfileLink(user: PublicUser) {
   return true;
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive";
+function applicationServerKey(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = window.atob(base64);
+  return Uint8Array.from(bytes, (character) => character.charCodeAt(0));
+}
+
+function subscriptionUsesKey(subscription: PushSubscription, publicKey: string) {
+  const currentKey = subscription.options.applicationServerKey;
+  if (!currentKey) return false;
+  const current = new Uint8Array(currentKey);
+  const expected = applicationServerKey(publicKey);
+  return current.length === expected.length
+    && current.every((byte, index) => byte === expected[index]);
+}
+
+function isStandaloneApp() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+}
+
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -116,6 +144,9 @@ function Glyph({ name }: { name: GlyphName }) {
     select: <><rect x="3" y="3" width="18" height="18" rx="5" /><path d="m8 12 2.7 2.7L16.5 9" /></>,
     more: <><circle cx="12" cy="5" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="19" r="1.75" fill="currentColor" stroke="none" /></>,
     archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M9 12h6" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
+    bellOff: <><path d="m3 3 18 18" /><path d="M18 8a6 6 0 0 0-9.3-5M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 9h14M10 21h4" /></>,
+    install: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" /></>,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -415,8 +446,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
   const [showConversationActions, setShowConversationActions] = useState(false);
   const [sidebarActionsPeerId, setSidebarActionsPeerId] = useState<string | null>(null);
+  const [pushState, setPushState] = useState<PushState>("checking");
+  const [pushPublicKey, setPushPublicKey] = useState("");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [appInstalled, setAppInstalled] = useState(false);
   const conversationActionsRef = useRef<HTMLDivElement>(null);
   const sidebarActionsRef = useRef<HTMLDivElement>(null);
+  const initialPeerSelectionHandledRef = useRef(false);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -434,6 +471,30 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       throw error;
     }
   }, [token]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    void navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.error("Failed to register service worker", error);
+    });
+
+    setAppInstalled(isStandaloneApp());
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const markInstalled = () => {
+      setAppInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     if (sendCooldownSeconds <= 0) return;
@@ -478,6 +539,44 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     setHiddenPeerIds(data.hiddenPeerIds);
   }, [request, token]);
 
+  const refreshPushState = useCallback(async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushState("unsupported");
+      return;
+    }
+
+    try {
+      const configuration = await request<PushConfiguration>("/api/push");
+      if (!configuration.configured) {
+        setPushPublicKey("");
+        setPushState("unconfigured");
+        return;
+      }
+      setPushPublicKey(configuration.publicKey);
+      if (Notification.permission === "denied") {
+        setPushState("denied");
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription && !subscriptionUsesKey(subscription, configuration.publicKey)) {
+        await subscription.unsubscribe();
+        setPushState("disabled");
+        return;
+      }
+      if (subscription) {
+        await request("/api/push", {
+          method: "POST",
+          body: JSON.stringify({ subscription: subscription.toJSON() }),
+        });
+      }
+      setPushState(subscription ? "enabled" : "disabled");
+    } catch (error) {
+      console.error("Failed to inspect push subscription", error);
+      setPushState("error");
+    }
+  }, [request]);
+
   useEffect(() => {
     if (phase !== "ready" || !token) return;
     void refreshState().catch((error: Error) => setNotice(error.message));
@@ -488,6 +587,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }, 5000);
     return () => window.clearInterval(interval);
   }, [phase, token, refreshState]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !token) return;
+    setPushState("checking");
+    void refreshPushState();
+  }, [phase, token, refreshPushState]);
 
   useEffect(() => {
     if (phase !== "ready" || !user || !sharedIdentifier || sharedContactHandled) return;
@@ -526,7 +631,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }, [contacts, hiddenPeerIds, messages, user?.id]);
 
   useEffect(() => {
-    if (!selectedId && peers.length) setSelectedId(peers[0].id);
+    if (initialPeerSelectionHandledRef.current || peers.length === 0) return;
+    initialPeerSelectionHandledRef.current = true;
+
+    if (!selectedId && !window.matchMedia("(max-width: 800px)").matches) {
+      setSelectedId(peers[0].id);
+    }
   }, [peers, selectedId]);
 
   useEffect(() => {
@@ -583,6 +693,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   );
 
   function saveSession(nextUser: PublicUser, nextToken: string) {
+    initialPeerSelectionHandledRef.current = false;
     window.localStorage.setItem(TOKEN_KEY, nextToken);
     setToken(nextToken);
     setUser(nextUser);
@@ -621,7 +732,71 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
-  function logout() {
+  async function enablePushNotifications() {
+    if (!pushPublicKey || !("Notification" in window) || !("serviceWorker" in navigator)) return;
+    setPushBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushState("denied");
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey(pushPublicKey),
+      });
+      await request("/api/push", {
+        method: "POST",
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
+      setPushState("enabled");
+      setNotice("Уведомления включены");
+    } catch (error) {
+      setPushState(Notification.permission === "denied" ? "denied" : "error");
+      setNotice((error as Error).message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function disablePushNotifications(silent = false) {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    setPushBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = await registration?.pushManager.getSubscription();
+      if (subscription) {
+        await request("/api/push", {
+          method: "DELETE",
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+      setPushState("disabled");
+      if (!silent) setNotice("Уведомления отключены");
+    } catch (error) {
+      if (!silent) setNotice((error as Error).message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function installApplication() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === "accepted") {
+      setAppInstalled(true);
+      setNotice("Tiny Messenger установлен");
+    }
+  }
+
+  async function logout() {
+    await disablePushNotifications(true);
+    initialPeerSelectionHandledRef.current = false;
     window.localStorage.removeItem(TOKEN_KEY);
     setToken("");
     setUser(null);
@@ -940,7 +1115,23 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       </div>
 
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
-      {showSettings && <SettingsDialog user={user} token={token} request={request} onUser={setUser} onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }} onLogout={logout} onClose={() => setShowSettings(false)} setNotice={setNotice} />}
+      {showSettings && <SettingsDialog
+        user={user}
+        token={token}
+        request={request}
+        onUser={setUser}
+        onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }}
+        onLogout={logout}
+        onClose={() => setShowSettings(false)}
+        setNotice={setNotice}
+        pushState={pushState}
+        pushBusy={pushBusy}
+        onEnablePush={enablePushNotifications}
+        onDisablePush={() => disablePushNotifications()}
+        appInstalled={appInstalled}
+        canInstall={Boolean(installPrompt)}
+        onInstall={installApplication}
+      />}
       {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
       {messageDeleteIds && <ActionDialog
         title={messageDeleteIds.length === 1 ? "Удалить сообщение" : "Удалить сообщения"}
@@ -1148,7 +1339,39 @@ function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaul
   );
 }
 
-function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClose, setNotice }: { user: PublicUser; token: string; request: <T>(path: string, init?: RequestInit) => Promise<T>; onUser: (user: PublicUser) => void; onToken: (token: string) => void; onLogout: () => void; onClose: () => void; setNotice: (message: string) => void }) {
+function SettingsDialog({
+  user,
+  token,
+  request,
+  onUser,
+  onToken,
+  onLogout,
+  onClose,
+  setNotice,
+  pushState,
+  pushBusy,
+  onEnablePush,
+  onDisablePush,
+  appInstalled,
+  canInstall,
+  onInstall,
+}: {
+  user: PublicUser;
+  token: string;
+  request: <T>(path: string, init?: RequestInit) => Promise<T>;
+  onUser: (user: PublicUser) => void;
+  onToken: (token: string) => void;
+  onLogout: () => Promise<void>;
+  onClose: () => void;
+  setNotice: (message: string) => void;
+  pushState: PushState;
+  pushBusy: boolean;
+  onEnablePush: () => Promise<void>;
+  onDisablePush: () => Promise<void>;
+  appInstalled: boolean;
+  canInstall: boolean;
+  onInstall: () => Promise<void>;
+}) {
   const [name, setName] = useState(user.name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
@@ -1206,6 +1429,15 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
     || nickname.trim() !== (user.nickname ?? "")
     || avatarUrl.trim() !== (user.avatarUrl ?? "")
     || avatarBackground !== (user.avatarBackground ?? "");
+  const pushCopy: Record<PushState, string> = {
+    checking: "Проверяем поддержку браузера…",
+    disabled: "Включите уведомления, чтобы не пропускать новые сообщения и ответы.",
+    enabled: "Новые сообщения и ответы будут приходить, даже когда вкладка закрыта.",
+    denied: "Браузер заблокировал уведомления. Разрешите их в настройках сайта.",
+    unsupported: "Этот браузер не поддерживает push-уведомления.",
+    unconfigured: "Push-уведомления пока не настроены на сервере.",
+    error: "Не удалось проверить подписку. Попробуйте ещё раз позже.",
+  };
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -1326,6 +1558,29 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
           </div>
         )}
 
+        {view === "profile" ? <div className="settings-section capability-section">
+          <div className="capability-row">
+            <span className={`capability-icon ${pushState === "enabled" ? "active" : ""}`}><Glyph name={pushState === "denied" ? "bellOff" : "bell"} /></span>
+            <div className="capability-copy">
+              <strong>Уведомления</strong>
+              <p>{pushCopy[pushState]}</p>
+            </div>
+            {pushState === "enabled" ? (
+              <button type="button" className="secondary-button capability-button" disabled={pushBusy} onClick={() => { void onDisablePush(); }}>Отключить</button>
+            ) : (
+              <button type="button" className="primary-button capability-button" disabled={pushBusy || !["disabled", "error"].includes(pushState)} onClick={() => { void onEnablePush(); }}>Включить</button>
+            )}
+          </div>
+          <div className="capability-row install-row">
+            <span className={`capability-icon ${appInstalled ? "active" : ""}`}><Glyph name="install" /></span>
+            <div className="capability-copy">
+              <strong>Приложение</strong>
+              <p>{appInstalled ? "Tiny Messenger установлен на этом устройстве." : canInstall ? "Установите Tiny Messenger, чтобы открывать его как отдельное приложение." : "Установить приложение можно через меню браузера."}</p>
+            </div>
+            {canInstall && !appInstalled ? <button type="button" className="secondary-button capability-button" onClick={() => { void onInstall(); }}>Установить</button> : null}
+          </div>
+        </div> : null}
+
         {view === "profile" ? <div className="settings-section token-section">
           <label className="field-label">Секретный токен
             <div className="copy-field">
@@ -1359,7 +1614,7 @@ function SettingsDialog({ user, token, request, onUser, onToken, onLogout, onClo
               <div>
                 <button type="button" className="copy-token-button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }}><Glyph name="copy" /> Скопировать токен</button>
                 <button type="button" className="cancel-button" onClick={() => setConfirmLogout(false)}>Отмена</button>
-                <button type="button" className="danger-button" onClick={onLogout}>Выйти</button>
+                <button type="button" className="danger-button" onClick={() => { void onLogout(); }}>Выйти</button>
               </div>
             </div>
           ) : null}

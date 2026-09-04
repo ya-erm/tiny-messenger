@@ -34,6 +34,32 @@ const bobTeam = await api("/api/auth/register", {
 assert.equal(alice.user.nickname, "anya");
 assert.equal(bob.user.nickname, "borya");
 
+const pushConfiguration = await api("/api/push", { token: alice.token });
+assert.equal(typeof pushConfiguration.configured, "boolean");
+assert.equal(typeof pushConfiguration.publicKey, "string");
+assert.equal(pushConfiguration.subscriptionCount, 0);
+if (pushConfiguration.configured) {
+  const testSubscription = {
+    endpoint: "https://push.example.test/subscriptions/api-smoke",
+    expirationTime: null,
+    keys: { p256dh: "test-p256dh", auth: "test-auth" },
+  };
+  const subscribed = await api("/api/push", {
+    token: alice.token,
+    method: "POST",
+    body: JSON.stringify({ subscription: testSubscription }),
+  });
+  assert.equal(subscribed.subscribed, true);
+  const pushConfigurationAfterSubscribe = await api("/api/push", { token: alice.token });
+  assert.equal(pushConfigurationAfterSubscribe.subscriptionCount, 1);
+  const unsubscribed = await api("/api/push", {
+    token: alice.token,
+    method: "DELETE",
+    body: JSON.stringify({ endpoint: testSubscription.endpoint }),
+  });
+  assert.equal(unsubscribed.subscribed, false);
+}
+
 const suggestedUsers = await api("/api/users?query=", { token: alice.token });
 assert.equal(suggestedUsers.users.length, 2);
 assert.ok(suggestedUsers.users.every((user) => user.id !== alice.user.id && user.nickname));
@@ -388,4 +414,4 @@ const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
 assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → user search → messaging → contacts → sync → deletion → message rate limit → token reset");
+console.log("API smoke test passed: profile → push config → user search → messaging → contacts → sync → deletion → message rate limit → token reset");

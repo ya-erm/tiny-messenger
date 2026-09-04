@@ -11,6 +11,7 @@ const initialStore: StoreData = {
   contacts: [],
   messages: [],
   hiddenConversations: [],
+  pushSubscriptions: [],
 };
 
 let writeQueue: Promise<void> = Promise.resolve();
@@ -46,7 +47,9 @@ function validateStore(value: unknown): StoreData {
     !Array.isArray((value as StoreData).contacts) ||
     !Array.isArray((value as StoreData).messages) ||
     ("hiddenConversations" in value
-      && !Array.isArray((value as StoreData).hiddenConversations))
+      && !Array.isArray((value as StoreData).hiddenConversations)) ||
+    ("pushSubscriptions" in value
+      && !Array.isArray((value as StoreData).pushSubscriptions))
   ) {
     throw new Error("Messenger data file has an unsupported format");
   }
@@ -55,6 +58,7 @@ function validateStore(value: unknown): StoreData {
   // Added after the initial JSON format shipped. Existing stores are upgraded
   // in memory and persisted by the next mutation.
   store.hiddenConversations ||= [];
+  store.pushSubscriptions ||= [];
   return store;
 }
 

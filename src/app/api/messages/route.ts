@@ -3,6 +3,7 @@ import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
 import { isMessageVisibleTo, publicMessage, showConversation } from "@/lib/domain";
+import { sendPushToUser } from "@/lib/push";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import type { ChoiceOption, MessageRecord } from "@/lib/types";
@@ -115,6 +116,14 @@ export const POST = route(async (request) => {
     showConversation(store.hiddenConversations, authenticated.id, toUserId);
     return item;
   });
+  await sendPushToUser(message.toUserId, {
+    title: message.senderName,
+    body: message.kind === "choice" && message.options
+      ? `${message.text} · ${message.options.map((option) => option.label).join(" / ")}`
+      : message.text,
+    tag: `message-${message.id}`,
+    url: `/id/${message.fromUserId}`,
+  }).catch((error) => console.error("Failed to notify message recipient", error));
   return ok({ message: publicMessage(message) }, { status: 201 });
 });
 

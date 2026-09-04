@@ -1,6 +1,8 @@
 node_modules
 .next
 .git
+.env*
+!.env.example
 data/store.json
 npm-debug.log*
 .DS_Store

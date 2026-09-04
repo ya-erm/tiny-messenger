@@ -1,6 +1,7 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { sendPushToUser } from "@/lib/push";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
@@ -18,7 +19,7 @@ export const POST = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_choice", "id должен быть непустым строковым идентификатором варианта");
   }
   const now = new Date().toISOString();
-  const message = await updateStore((store) => {
+  const result = await updateStore((store) => {
     const item = store.messages.find((candidate) => candidate.id === id);
     if (!item || item.toUserId !== authenticated.id || !isMessageVisibleTo(item, authenticated.id)) {
       throw new ApiError(404, "message_not_found", "Входящее сообщение не найдено");
@@ -33,8 +34,17 @@ export const POST = route<Context>(async (request, { params }) => {
     if (!option) throw new ApiError(422, "invalid_choice", "Такого варианта нет");
     item.deliveredAt ||= now;
     item.readAt ||= now;
+    const answeredNow = !item.answer;
     item.answer ||= { id: optionId, label: option.label, answeredAt: now };
-    return item;
+    return { message: item, answeredNow };
   });
-  return ok({ message: publicMessage(message) });
+  if (result.answeredNow && result.message.answer) {
+    await sendPushToUser(result.message.fromUserId, {
+      title: `${authenticated.name} ответил`,
+      body: `${result.message.text} — ${result.message.answer.label}`,
+      tag: `answer-${result.message.id}`,
+      url: `/id/${authenticated.id}`,
+    }).catch((error) => console.error("Failed to notify question sender", error));
+  }
+  return ok({ message: publicMessage(result.message) });
 });
