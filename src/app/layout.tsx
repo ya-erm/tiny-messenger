@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Tiny Messenger",
-  description: "Короткие сообщения для маленького экрана",
+  description: "Добавляйте друзей, пишите сообщения и оставайтесь на связи",
   applicationName: "Tiny Messenger",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

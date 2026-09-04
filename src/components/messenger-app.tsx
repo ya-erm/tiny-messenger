@@ -1198,18 +1198,23 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
   }
 
   return <main className="welcome-shell">
-    <section className="welcome-copy"><div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div><div><span className="eyebrow">80 × 160 пикселей</span><h1>Маленький экран.<br />Важные сообщения.</h1><p>Личный мессенджер для браузера и устройства с тремя кнопками. Без регистрации и публичных профилей.</p></div><div className="feature-line"><span>✓</span> Ник или UUID для личных диалогов</div></section>
+    <section className="welcome-copy">
+      <div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div>
+      <div className="welcome-hero">
+        <h1>Общение<br />начинается<br />здесь</h1>
+        <p>Добавляйте друзей, пишите сообщения и оставайтесь на связи.</p>
+      </div>
+    </section>
     <section className="welcome-card">
       <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>У меня есть токен</button></div>
       {sharedLabel ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>{sharedLabel}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
       {mode === "new" ? (
         <form onSubmit={(event) => { event.preventDefault(); void onRegister(name.trim() || suggestion, nickname); }}>
-          <span className="step-label">Ваше имя на устройстве</span>
-          <h2>Как вас показать?</h2>
-          <p className="form-hint">Если оставить пустым, имя придумаем сами.</p>
+          <h2>Как вас представить?</h2>
+          <p className="form-hint">Если имя оставить пустым, мы придумаем его сами</p>
           <div className="field-label">
             <div className="field-label-row">
-              <label htmlFor="welcome-name">Короткое имя</label>
+              <label htmlFor="welcome-name">Имя</label>
               <button className="generate-name-button" type="button" onClick={generateName}>
                 <Glyph name="refresh" /> Другое имя
               </button>
@@ -1220,14 +1225,13 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
           <label className="field-label">Ник <span className="optional-label">необязательно</span>
             <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
           </label>
-          <p className="input-hint">По нику вас смогут найти друзья. Только a–z, 0–9, точка, дефис и подчёркивание.</p>
-          <button className="primary-button wide" disabled={busy}>{busy ? "Создаём…" : "Создать мой канал"}</button>
+          <p className="input-hint">По нику вас будет проще найти</p>
+          <button className="primary-button wide" disabled={busy}>{busy ? "Начинаем…" : "Начать общаться"}</button>
         </form>
       ) : (
         <form onSubmit={(event) => { event.preventDefault(); void onLogin(loginToken); }}>
-          <span className="step-label">Вход без пароля</span>
-          <h2>Вернём ваши диалоги</h2>
-          <p className="form-hint">Введите секретный токен, сохранённый в другом браузере или на устройстве.</p>
+          <h2>Продолжите общение</h2>
+          <p className="form-hint">Введите ваш секретный токен.</p>
           <label className="field-label">Секретный токен<input autoFocus required value={loginToken} onChange={(event) => setLoginToken(event.target.value)} placeholder="msg_…" autoComplete="off" /></label>
           <button className="primary-button wide login-button" disabled={busy}>{busy ? "Проверяем…" : "Войти по токену"}</button>
         </form>
