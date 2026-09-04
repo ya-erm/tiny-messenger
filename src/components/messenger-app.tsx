@@ -1036,6 +1036,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   aria-label={`Действия с диалогом ${peer.name}`}
                   aria-haspopup="menu"
                   aria-expanded={sidebarMenuOpen}
+                  data-tooltip="Действия"
+                  data-tooltip-align="right"
                 >
                   <Glyph name="more" />
                 </button>

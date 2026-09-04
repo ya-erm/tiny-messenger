@@ -79,7 +79,7 @@ button { color: inherit; }
 .contact-row-shell:hover .contact-time,
 .contact-row-shell:focus-within .contact-time,
 .contact-row-shell.menu-open .contact-time { opacity: 0; }
-.contact-row-actions-popover { top: 47px; right: 8px; }
+.conversation-actions-popover.contact-row-actions-popover { top: 41px; right: 10px; }
 .contact-avatar { width: 42px; height: 42px; color: var(--green-dark); background: #e2e1d6; font-size: 14px; }
 .contact-avatar-shell { position: relative; flex: 0 0 42px; }
 .presence-dot { width: 11px; height: 11px; position: absolute; right: -1px; bottom: -1px; background: #37a46f; border: 2px solid #f9f6ef; border-radius: 50%; }
