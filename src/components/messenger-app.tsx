@@ -1037,9 +1037,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   aria-haspopup="menu"
                   aria-expanded={sidebarMenuOpen}
                   data-tooltip="Действия"
-                  data-tooltip-align="right"
+                  data-tooltip-position="left"
                 >
-                  <Glyph name="more" />
+                  <span className="contact-row-actions-chip"><Glyph name="more" /></span>
                 </button>
                 {sidebarMenuOpen ? <div className="conversation-actions-popover contact-row-actions-popover" role="menu">
                   <button type="button" role="menuitem" disabled={!last} onClick={() => {

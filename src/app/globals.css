@@ -28,6 +28,14 @@ button { color: inherit; }
 [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: .06s; }
 [data-tooltip-position="bottom"]::after { top: calc(100% + 8px); bottom: auto; }
 [data-tooltip-position="bottom"]::before { top: calc(100% + 4px); bottom: auto; border-top-color: transparent; border-bottom-color: #26342c; }
+/* Sideways placement stays inside the row, so a scrolling list cannot clip it
+   the way an upward tooltip is clipped on the topmost visible row. */
+[data-tooltip-position="left"]::after { top: 50%; right: calc(100% + 8px); bottom: auto; left: auto; transform: translate(4px, -50%); }
+[data-tooltip-position="left"]::before { top: 50%; right: calc(100% + 4px); bottom: auto; left: auto; border-color: transparent transparent transparent #26342c; transform: translate(4px, -50%); }
+[data-tooltip-position="left"]:hover::before,
+[data-tooltip-position="left"]:hover::after,
+[data-tooltip-position="left"]:focus-visible::before,
+[data-tooltip-position="left"]:focus-visible::after { transform: translate(0, -50%); }
 [data-tooltip-align="right"]::after { right: 0; left: auto; transform: translateY(4px); }
 [data-tooltip-align="right"]::before { right: 12px; left: auto; transform: translateY(4px); }
 [data-tooltip-align="right"]:hover::before,
@@ -70,12 +78,15 @@ button { color: inherit; }
 .contact-row:hover { background: #f0ebe1; }
 .contact-row.selected { background: var(--green-soft); }
 .contact-row-actions-button { width: 38px; height: 38px; position: absolute; z-index: 2; top: 1px; right: 4px; display: grid; place-items: center; padding: 0; color: var(--green); background: transparent; border: 0; opacity: 0; cursor: pointer; transition: opacity .1s ease; }
-.contact-row-actions-button::before { width: 26px; height: 26px; content: ""; grid-area: 1 / 1; background: rgba(47,111,87,.08); border-radius: 9px; transition: background .1s ease; }
+/* The chip lives on a child, not ::before: the tooltip owns both pseudo-elements
+   of anything carrying data-tooltip, and sharing ::before painted the arrow and
+   the chip on top of each other. */
+.contact-row-actions-chip { width: 26px; height: 26px; display: grid; place-items: center; background: rgba(47,111,87,.08); border-radius: 9px; transition: background .1s ease; }
 .contact-row-shell:hover .contact-row-actions-button,
 .contact-row-shell:focus-within .contact-row-actions-button,
 .contact-row-shell.menu-open .contact-row-actions-button { opacity: 1; }
-.contact-row-actions-button:hover::before { background: rgba(47,111,87,.16); }
-.contact-row-actions-button .glyph { width: 15px; height: 15px; grid-area: 1 / 1; }
+.contact-row-actions-button:hover .contact-row-actions-chip { background: rgba(47,111,87,.16); }
+.contact-row-actions-button .glyph { width: 15px; height: 15px; }
 .contact-row-shell:hover .contact-time,
 .contact-row-shell:focus-within .contact-time,
 .contact-row-shell.menu-open .contact-time { opacity: 0; }
