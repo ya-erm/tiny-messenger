@@ -515,7 +515,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .avatar-preset { width: 100%; height: 100%; background: var(--green-soft); }
 .avatar-no-image { background: linear-gradient(135deg, var(--raised) 0 43%, var(--green-line-2) 44% 56%, var(--raised) 57%); }
 .avatar-custom-label { display: block; margin-top: 12px; color: var(--muted); font-size: 8px; }
-.avatar-background-presets { display: flex; flex-wrap: nowrap; gap: 5px; margin-top: 7px; padding: 2px; overflow: visible; }
+.avatar-background-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; padding: 2px; overflow: visible; }
 .avatar-background-presets button { width: 25px; height: 25px; flex: 0 0 25px; padding: 0; border: 2px solid var(--raised); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
 .avatar-background-presets button:hover { transform: translateY(-1px); }
 .avatar-background-presets button.selected { box-shadow: 0 0 0 2px var(--orange); }
@@ -548,9 +548,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 /* A popover joins the top layer, so this clears both the z-index: 200 modal
    backdrop and the native <dialog>s, which no z-index can beat. Reset the UA
    popover box: it ships inset: 0, auto margins, a border and its own colours. */
-.toast-stack { width: max-content; max-width: min(420px, calc(100vw - 24px)); position: fixed; z-index: 300; inset: auto; top: max(16px, env(safe-area-inset-top)); left: 50%; display: grid; gap: 8px; margin: 0; padding: 0; overflow: visible; background: transparent; border: 0; transform: translateX(-50%); }
+.toast-stack { width: max-content; max-width: min(420px, calc(100vw - 24px)); height: auto; position: fixed; z-index: 300; inset: auto; top: max(16px, env(safe-area-inset-top)); bottom: auto; left: 50%; display: grid; align-content: start; justify-items: center; gap: 8px; margin: 0; padding: 0; overflow: visible; background: transparent; border: 0; transform: translateX(-50%); }
 .toast-stack:not(:has(.toast)) { display: none; }
-.toast { display: flex; align-items: center; gap: 10px; padding: 11px 11px 11px 15px; color: #fff; background: var(--inverse); border-radius: 12px; box-shadow: 0 12px 30px rgba(20,30,24,.24); font-size: 11px; line-height: 1.45; animation: toast-in .16s ease-out; }
+.toast { width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 11px 11px 15px; color: #fff; background: var(--inverse); border-radius: 12px; box-shadow: 0 12px 30px rgba(20,30,24,.24); font-size: 11px; line-height: 1.45; animation: toast-in .16s ease-out; }
 .toast > span { min-width: 0; }
 .toast-close { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 24px; padding: 0; color: rgba(255,255,255,.62); background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
 .toast-close:hover { color: #fff; background: rgba(255,255,255,.14); }
@@ -657,7 +657,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .conversation-actions { gap: 4px; }
   .conversation-actions .text-button { display: none; }
   .avatar-presets { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .avatar-background-presets { flex-wrap: wrap; overflow-x: visible; }
 }
 
 @media (hover: none) {

@@ -510,6 +510,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const conversationActionsRef = useRef<HTMLDivElement>(null);
   const sidebarActionsRef = useRef<HTMLDivElement>(null);
   const initialPeerSelectionHandledRef = useRef(false);
+  const conversationHistoryRef = useRef(false);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -725,6 +726,33 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     if (selectedId === null) setSelectedMessageIds(null);
     setShowConversationActions(false);
   }, [selectedId]);
+
+  // On a phone the conversation replaces the list, so it is its own screen and
+  // deserves a history entry: that is what the iOS edge swipe and the Android
+  // back button act on. Switching between conversations reuses the one entry.
+  useEffect(() => {
+    if (selectedId && !conversationHistoryRef.current && window.matchMedia("(max-width: 800px)").matches) {
+      window.history.pushState({ conversationOpen: true }, "");
+      conversationHistoryRef.current = true;
+      return;
+    }
+    if (!selectedId && conversationHistoryRef.current) {
+      conversationHistoryRef.current = false;
+      // Closed from the header button rather than the gesture: drop our entry so
+      // the stack does not grow a dead step for every visit.
+      if (window.history.state?.conversationOpen) window.history.back();
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (!conversationHistoryRef.current) return;
+      conversationHistoryRef.current = false;
+      setSelectedId(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     if (!showConversationActions) return;
