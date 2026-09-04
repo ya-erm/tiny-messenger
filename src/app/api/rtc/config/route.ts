@@ -23,5 +23,5 @@ export const GET = route(async (request) => {
     iceServers.push({ urls: turnUrls, username, credential });
   }
 
-  return ok({ iceServers, iceCandidatePoolSize: 4 });
+  return ok({ iceServers, iceCandidatePoolSize: 1 });
 });

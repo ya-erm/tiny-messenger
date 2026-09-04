@@ -40,7 +40,7 @@ assert.equal(typeof pushConfiguration.publicKey, "string");
 assert.equal(pushConfiguration.subscriptionCount, 0);
 const rtcConfiguration = await api("/api/rtc/config", { token: alice.token });
 assert.equal(Array.isArray(rtcConfiguration.iceServers), true);
-assert.equal(rtcConfiguration.iceCandidatePoolSize, 4);
+assert.equal(rtcConfiguration.iceCandidatePoolSize, 1);
 if (pushConfiguration.configured) {
   const testSubscription = {
     endpoint: "https://push.example.test/subscriptions/api-smoke",
