@@ -477,9 +477,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
-    void navigator.serviceWorker.register("/sw.js").catch((error) => {
-      console.error("Failed to register service worker", error);
-    });
+    if (process.env.NODE_ENV === "production") {
+      void navigator.serviceWorker.register("/sw.js").catch((error) => {
+        console.error("Failed to register service worker", error);
+      });
+    } else {
+      // The worker caches /_next/static/ first-hit-wins, and Turbopack keeps dev
+      // chunk URLs stable across edits, so in development it pins the first
+      // bundle it ever saw and every later change silently stops arriving.
+      void tearDownServiceWorker().then((removed) => { if (removed) window.location.reload(); });
+    }
 
     setAppInstalled(isStandaloneApp());
     const captureInstallPrompt = (event: Event) => {
@@ -1238,6 +1245,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   );
 }
 
+async function tearDownServiceWorker() {
+  let removed = false;
+  if ("serviceWorker" in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    removed = registrations.length > 0;
+  }
+  if ("caches" in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+    removed = removed || keys.length > 0;
+  }
+  return removed;
+}
+
 async function readServiceWorkerVersion() {
   if (!("serviceWorker" in navigator)) return "не поддерживается";
   const registration = await navigator.serviceWorker.getRegistration();
@@ -1270,14 +1292,7 @@ function LoadingScreen() {
   const resetServiceWorker = async () => {
     setResetting(true);
     try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((key) => caches.delete(key)));
-      }
+      await tearDownServiceWorker();
     } finally {
       window.location.reload();
     }
