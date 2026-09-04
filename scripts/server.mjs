@@ -24,12 +24,16 @@ const realtime = new RealtimeService({ upstream });
 await app.prepare();
 
 const handle = app.getRequestHandler();
-const handleNextUpgrade = app.getUpgradeHandler();
+// app.getUpgradeHandler() resolves to the legacy server.handleUpgrade, which
+// does not route /_next/hmr: dev HMR then never connects, Turbopack never
+// delivers client modules and the page hangs unhydrated. app.upgradeHandler is
+// the handler Next installs on its own Upgrade listener, so use that one.
+const handleNextUpgrade = (request, socket, head) => app.upgradeHandler(request, socket, head);
 
 // Next.js 16.3 otherwise adds a second, unfiltered Upgrade listener on the
 // first HTTP request. This server owns Upgrade routing so /ws is handled once,
 // while framework-owned paths (notably dev HMR) are delegated back to Next.js.
-if (!("didWebSocketSetup" in app)) {
+if (!("didWebSocketSetup" in app) || typeof app.upgradeHandler !== "function") {
   throw new Error("Unsupported Next.js custom server: Upgrade setup changed");
 }
 app.didWebSocketSetup = true;
