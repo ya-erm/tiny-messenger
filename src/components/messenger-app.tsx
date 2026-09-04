@@ -481,7 +481,18 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const lastNoticeId = useRef(0);
+  // Kept as setNotice(text) so the 15 call sites stay untouched; "" clears all.
+  const setNotice = useCallback((text: string) => {
+    if (!text) { setNotices([]); return; }
+    lastNoticeId.current += 1;
+    const id = lastNoticeId.current;
+    setNotices((current) => [...current, { id, text }].slice(-3));
+  }, []);
+  const dismissNotice = useCallback((id: number) => {
+    setNotices((current) => current.filter((item) => item.id !== id));
+  }, []);
   const [busy, setBusy] = useState(false);
   const [sharedContactHandled, setSharedContactHandled] = useState(false);
   const [showRateLimit, setShowRateLimit] = useState(false);
@@ -1015,7 +1026,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "welcome" || !user) {
-    return <WelcomeScreen busy={busy} notice={notice} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
+    return <WelcomeScreen busy={busy} notice={notices.at(-1)?.text ?? ""} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
   }
 
   return (
@@ -1286,7 +1297,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         illustrationAlt="Слон удаляет историю сообщений"
         onClose={() => setDialogDeleteStage(null)}
       />}
-      {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<span>×</span></button>}
+      <ToastStack notices={notices} onDismiss={dismissNotice} />
     </main>
   );
 }
@@ -1321,6 +1332,55 @@ async function readServiceWorkerVersion() {
     answered,
     new Promise<string>((resolve) => { window.setTimeout(() => resolve("не отвечает"), 1500); }),
   ]);
+}
+
+type Notice = { id: number; text: string };
+
+const NOTICE_TIMEOUT_MS = 4500;
+
+function ToastStack({ notices, onDismiss }: { notices: Notice[]; onDismiss: (id: number) => void }) {
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [paused, setPaused] = useState(false);
+
+  // The delete dialogs are native <dialog>s opened with showModal(), so they sit
+  // in the top layer where no z-index can reach them. A popover joins that layer.
+  useEffect(() => {
+    const stack = stackRef.current;
+    if (!stack || typeof stack.showPopover !== "function") return;
+    const open = stack.matches(":popover-open");
+    if (notices.length && !open) stack.showPopover();
+    if (!notices.length && open) stack.hidePopover();
+  }, [notices.length]);
+
+  useEffect(() => {
+    if (paused || notices.length === 0) return;
+    const oldest = notices[0].id;
+    const timer = window.setTimeout(() => onDismiss(oldest), NOTICE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [paused, notices, onDismiss]);
+
+  return (
+    <div
+      ref={stackRef}
+      popover="manual"
+      className="toast-stack"
+      role="status"
+      aria-live="polite"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={() => setPaused(false)}
+    >
+      {notices.map((item) => (
+        <div key={item.id} className="toast">
+          <span>{item.text}</span>
+          <button type="button" className="toast-close" onClick={() => onDismiss(item.id)} aria-label="Закрыть уведомление">
+            <Glyph name="close" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function LoadingScreen() {
