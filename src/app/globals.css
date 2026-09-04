@@ -28,6 +28,9 @@
   --bubble-line: #e5dfd5;
   --shell-line: rgba(69,82,72,.14);
   /* Зелёный */
+  --on-green-bright: #d7f0df;
+  --on-green-dim: #a8dabb;
+  --green-line-warm: #b9c3bb;
   --green: #2f6f57;
   --green-ink: #2f6f57;
   --green-dark: #204f3e;
@@ -42,6 +45,7 @@
   --voice-live: #65d597;
   --on-green: #c3e7d0;
   /* Оранжевый */
+  --orange-ink-deep: #815039;
   --orange: #e47a45;
   --orange-tint: #fff4ec;
   --orange-t2: #f4e6d9;
@@ -50,6 +54,11 @@
   --amber: #e8a359;
   --orange-stroke: #d88a60;
   /* Опасность */
+  --danger-ink-deep: #713825;
+  --danger-ink-warm: #8b432d;
+  --danger-hover: #963923;
+  --danger-line-strong: #dfa997;
+  --danger-soft-2: #fff7f3;
   --danger: #b74b34;
   --danger-soft: #ffede6;
   --danger-line: #eec9bc;
@@ -59,23 +68,14 @@
   /* Отмена */
   --cancel-ink: #695951;
   --cancel-ink-hover: #4f4039;
-  --cancel-b: #d9b9aa;
-  --cancel-b-hover: #c99d89;
+  --cancel-b: #cfc8bd;
+  --cancel-b-hover: #b8b1a6;
   /* Тёмная фурнитура */
   --inverse: #26342c;
   --device: #26302b;
   --device-frame: #454c48;
   --device-screen: #c7decf;
   /* Тень */
-  --danger-ink-deep: #713825;
-  --danger-ink-warm: #8b432d;
-  --danger-hover: #963923;
-  --danger-line-strong: #dfa997;
-  --danger-soft-2: #fff7f3;
-  --orange-ink-deep: #815039;
-  --on-green-bright: #d7f0df;
-  --on-green-dim: #a8dabb;
-  --green-line-warm: #b9c3bb;
   --shadow: 0 24px 80px rgba(39, 51, 43, .13);
 }
 
@@ -109,6 +109,9 @@
   --bubble-line: #2b332e;
   --shell-line: rgba(255,255,255,.07);
   /* Зелёный */
+  --on-green-bright: #d7f0df;
+  --on-green-dim: #a8dabb;
+  --green-line-warm: #3a453e;
   --green: #2f6f57;
   --green-ink: #6dbb96;
   --green-dark: #1b4635;
@@ -123,6 +126,7 @@
   --voice-live: #65d597;
   --on-green: #c3e7d0;
   /* Оранжевый */
+  --orange-ink-deep: #e6b394;
   --orange: #e47a45;
   --orange-tint: #2e211a;
   --orange-t2: #33251c;
@@ -131,6 +135,11 @@
   --amber: #e8a359;
   --orange-stroke: #d88a60;
   /* Опасность */
+  --danger-ink-deep: #f0b7a4;
+  --danger-ink-warm: #eda98a;
+  --danger-hover: #cf5a3f;
+  --danger-line-strong: #6b4437;
+  --danger-soft-2: #241a16;
   --danger: #b74b34;
   --danger-soft: #3b2620;
   --danger-line: #4a2f26;
@@ -140,23 +149,14 @@
   /* Отмена */
   --cancel-ink: #bfb2aa;
   --cancel-ink-hover: #e2d8d1;
-  --cancel-b: #453931;
-  --cancel-b-hover: #5b4a40;
+  --cancel-b: #39413b;
+  --cancel-b-hover: #4b544d;
   /* Тёмная фурнитура */
   --inverse: #2f3a34;
   --device: #171d1a;
   --device-frame: #39413c;
   --device-screen: #9fc4ad;
   /* Тень */
-  --danger-ink-deep: #f0b7a4;
-  --danger-ink-warm: #eda98a;
-  --danger-hover: #cf5a3f;
-  --danger-line-strong: #6b4437;
-  --danger-soft-2: #241a16;
-  --orange-ink-deep: #e6b394;
-  --on-green-bright: #d7f0df;
-  --on-green-dim: #a8dabb;
-  --green-line-warm: #3a453e;
   --shadow: 0 24px 80px rgba(0, 0, 0, .55);
 }
 
@@ -184,6 +184,11 @@ button { color: inherit; }
 [data-tooltip-align="right"]:focus-visible::after { transform: translateY(0); }
 [data-tooltip][aria-expanded="true"]::before,
 [data-tooltip][aria-expanded="true"]::after { display: none; }
+/* A button keeps focus after a click, so its :focus-visible tooltip would stay
+   up while the pointer moves to a neighbour and opens a second one. Hover wins:
+   while any tooltip is hovered, every other one is suppressed. */
+body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::before,
+body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .glyph { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .app-shell { min-height: 100vh; padding: 22px; background: radial-gradient(circle at 8% 4%, var(--glow-warm) 0, transparent 30%), radial-gradient(circle at 92% 90%, var(--glow-cool) 0, transparent 32%), var(--paper); }

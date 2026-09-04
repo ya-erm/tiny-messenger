@@ -1748,8 +1748,8 @@ function SettingsDialog({
         )}
 
         {view === "profile" ? <div className="settings-section theme-section">
-          <span className="field-label">Оформление</span>
-          <div className="theme-switch" role="radiogroup" aria-label="Оформление">
+          <span className="field-label">Тема</span>
+          <div className="theme-switch" role="radiogroup" aria-label="Тема">
             {THEME_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -1789,13 +1789,15 @@ function SettingsDialog({
         </div> : null}
 
         {view === "profile" ? <div className="settings-section token-section">
-          <label className="field-label">Секретный токен
+          {/* Not a <label>: it wraps no input, so the first button became its
+              implicit labelled control and inherited :hover from the whole block. */}
+          <div className="field-label">Секретный токен
             <div className="copy-field">
               <code>{showToken ? token : "•".repeat(Math.min(token.length, 20))}</code>
               <button type="button" onClick={() => setShowToken((visible) => !visible)} aria-label={showToken ? "Скрыть токен" : "Показать токен"} data-tooltip={showToken ? "Скрыть токен" : "Показать токен"}><Glyph name={showToken ? "eyeOff" : "eye"} /></button>
               <button type="button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }} aria-label="Скопировать токен" data-tooltip="Скопировать токен"><Glyph name="copy" /></button>
             </div>
-          </label>
+          </div>
           <p className="form-hint">Он работает как пароль и API-ключ. Сохраните его и никому не показывайте.</p>
 
           <div className="account-actions">
