@@ -1,8 +1,5 @@
 import WebSocket, { WebSocketServer } from "ws";
 
-const host = process.env.WS_HOST || "0.0.0.0";
-const port = Number(process.env.WS_PORT || 3001);
-const upstream = process.env.WS_UPSTREAM || "http://127.0.0.1:3000";
 const inboxLimit = Math.min(Math.max(Number(process.env.WS_INBOX_LIMIT || 10), 1), 50);
 const pollIntervalMs = Math.max(Number(process.env.WS_POLL_INTERVAL_MS || 2000), 500);
 const weatherCacheTtlMs = 10 * 60_000;
@@ -20,7 +17,7 @@ function tokenFromUpgrade(request) {
   return "";
 }
 
-async function rest(token, path, init = {}) {
+async function requestRest(upstream, token, path, init = {}) {
   const response = await fetch(`${upstream}${path}`, {
     ...init,
     signal: AbortSignal.timeout(7000),
@@ -229,16 +226,12 @@ async function dashboardRates() {
   return data;
 }
 
-const sockets = new Set();
-const wss = new WebSocketServer({ host, port, path: "/ws", maxPayload: 16_384 });
-
-wss.on("connection", async (socket, request) => {
+async function handleDeviceConnection(socket, request, { rest }) {
   let timer;
   let state;
   socket.on("close", () => {
     if (state) state.closed = true;
     if (timer) clearInterval(timer);
-    sockets.delete(socket);
   });
 
   const token = tokenFromUpgrade(request);
@@ -256,8 +249,6 @@ wss.on("connection", async (socket, request) => {
     messagesInWindow: 0,
     windowStartedAt: Date.now(),
   };
-  sockets.add(socket);
-
   async function sendSnapshot() {
     const inbox = await rest(token, `/api/messages?box=inbox&limit=${inboxLimit}`);
     // The ESP8266 needs only the inbox presentation fields. REST keeps the
@@ -418,34 +409,73 @@ wss.on("connection", async (socket, request) => {
     }
   }
 
-});
-
-const heartbeat = setInterval(() => {
-  for (const socket of sockets) {
-    if (socket.isAlive === false) {
-      socket.terminate();
-      continue;
-    }
-    socket.isAlive = false;
-    socket.ping();
-  }
-}, 25_000);
-
-wss.on("connection", (socket) => {
-  socket.isAlive = true;
-  socket.on("pong", () => { socket.isAlive = true; });
-});
-
-wss.on("listening", () => {
-  console.log(`Tiny Messenger WebSocket gateway listening on ${host}:${port}/ws`);
-});
-
-function shutdown() {
-  clearInterval(heartbeat);
-  for (const socket of sockets) socket.close(1001, "server_shutdown");
-  wss.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000).unref();
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+export function attachWebSocketTransport(
+  server,
+  { upstream, onConnection, onUnhandledUpgrade } = {},
+) {
+  if (!upstream) throw new Error("WebSocket REST upstream is required");
+
+  const sockets = new Set();
+  const rest = (token, path, init) => requestRest(upstream, token, path, init);
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+
+  function handleUpgrade(request, socket, head) {
+    const pathname = new URL(request.url || "/", "http://localhost").pathname;
+    if (pathname !== "/ws") {
+      if (onUnhandledUpgrade) void onUnhandledUpgrade(request, socket, head);
+      else socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (websocket) => {
+      wss.emit("connection", websocket, request);
+    });
+  }
+
+  server.on("upgrade", handleUpgrade);
+
+  wss.on("connection", async (socket, request) => {
+    sockets.add(socket);
+    socket.isAlive = true;
+    socket.on("close", () => sockets.delete(socket));
+    socket.on("pong", () => { socket.isAlive = true; });
+
+    try {
+      if (await onConnection?.({ socket, request })) return;
+      await handleDeviceConnection(socket, request, { rest });
+    } catch (error) {
+      console.error("WebSocket connection adapter failed", error);
+      socket.close(1011, "connection_adapter_failed");
+    }
+  });
+
+  const heartbeat = setInterval(() => {
+    for (const socket of sockets) {
+      if (socket.isAlive === false) {
+        socket.terminate();
+        continue;
+      }
+      socket.isAlive = false;
+      socket.ping();
+    }
+  }, 25_000);
+
+  async function close() {
+    clearInterval(heartbeat);
+    server.off("upgrade", handleUpgrade);
+    for (const socket of sockets) socket.close(1001, "server_shutdown");
+    await new Promise((resolve) => {
+      const terminateTimer = setTimeout(() => {
+        for (const socket of sockets) socket.terminate();
+      }, 3000);
+      terminateTimer.unref();
+      wss.close(() => {
+        clearTimeout(terminateTimer);
+        resolve();
+      });
+    });
+  }
+
+  return { close };
+}

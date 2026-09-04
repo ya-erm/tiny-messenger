@@ -7,4 +7,6 @@ npm-debug.log*
 .DS_Store
 data/store.json
 data/store.*.tmp
+data/realtime.json
+data/realtime.*.tmp
 *.tsbuildinfo

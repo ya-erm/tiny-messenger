@@ -8,6 +8,9 @@ export interface PushPayload {
   body: string;
   tag: string;
   url: string;
+  kind?: "message" | "voice_invite";
+  sessionId?: string;
+  fromUserId?: string;
 }
 
 let configuredFor = "";

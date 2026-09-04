@@ -6,6 +6,7 @@ import deleteDialogIllustration from "../../public/delete-dialog.png";
 import deleteHistoryIllustration from "../../public/delete-history.png";
 import deleteMessagesIllustration from "../../public/delete-messages.png";
 import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
+import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
@@ -124,7 +125,7 @@ function isStandaloneApp() {
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -147,6 +148,7 @@ function Glyph({ name }: { name: GlyphName }) {
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     bellOff: <><path d="m3 3 18 18" /><path d="M18 8a6 6 0 0 0-9.3-5M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 9h14M10 21h4" /></>,
     install: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" /></>,
+    phone: <path d="M7.1 3.5 9.6 8l-2.1 2.1a16.2 16.2 0 0 0 6.4 6.4l2.1-2.1 4.5 2.5-.7 3.1a2 2 0 0 1-2 1.5C9.3 21.5 2.5 14.7 2.5 6.2a2 2 0 0 1 1.5-2Z" />,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -691,6 +693,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       ((message.fromUserId === user?.id && message.toUserId === selectedId) ||
         (message.toUserId === user?.id && message.fromUserId === selectedId)),
   );
+  const voicePeers = useMemo(() => peers.map((peer) => ({ id: peer.id, name: peer.name })), [peers]);
+  const voice = useVoiceExperience({
+    token,
+    userId: user?.id || "",
+    peers: voicePeers,
+    enabled: phase === "ready" && Boolean(user),
+    onNotice: setNotice,
+  });
 
   function saveSession(nextUser: PublicUser, nextToken: string) {
     initialPeerSelectionHandledRef.current = false;
@@ -967,10 +977,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   setSelectedMessageIds(null);
                   setSelectedId(peer.id);
                 }}>
-                  <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
+                  <span className="contact-avatar-shell">
+                    <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
+                    <span className={`presence-dot ${voice.presence.get(peer.id)?.online ? "online" : ""}`} aria-label={formatPresence(voice.presence.get(peer.id))} />
+                  </span>
                   <span className="contact-copy">
                     <strong>{peer.name}</strong>
-                    {peer.nickname ? <span className="contact-identity"><small className="contact-nickname">@{peer.nickname}</small></span> : null}
+                    <span className="contact-identity">
+                      {peer.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
+                      <small className="contact-presence">{formatPresence(voice.presence.get(peer.id))}</small>
+                    </span>
                     {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
                   </span>
                   {unread > 0 && <span className="unread-badge">{unread}</span>}
@@ -1023,7 +1039,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
             <header className="conversation-header">
               <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
               <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} avatarBackground={selectedPeer.avatarBackground} className="contact-avatar large" />
-              <div className="conversation-title"><strong>{selectedPeer.name}</strong><span>{selectedPeer.nickname ? `@${selectedPeer.nickname} · ` : ""}{selectedPeer.id}</span></div>
+              <div className="conversation-title" title={selectedPeer.id}><strong>{selectedPeer.name}</strong><span>{formatPresence(voice.presence.get(selectedPeer.id))}</span></div>
               {selectedMessageIds !== null ? (
                 <div className="selection-toolbar">
                   <strong>Выбрано: {selectedMessageIds.length}</strong>
@@ -1033,6 +1049,18 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               ) : (
                 <div className="conversation-actions">
                   {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
+                  <button
+                    type="button"
+                    className="header-icon-button voice-call-button"
+                    disabled={voice.setupBusy || Boolean(voice.session?.owner) || (Boolean(voice.session) && voice.session?.peerUserId !== selectedPeer.id)}
+                    onClick={() => {
+                      if (voice.session?.peerUserId === selectedPeer.id && !voice.session.owner) voice.requestJoin(voice.session.id);
+                      else if (!voice.session) voice.requestStart({ id: selectedPeer.id, name: selectedPeer.name });
+                    }}
+                    aria-label={voice.session?.owner ? "Голосовой чат активен" : voice.session?.peerUserId === selectedPeer.id ? "Вернуться в голосовой чат" : "Позвонить"}
+                    data-tooltip={voice.session?.owner ? "В голосовом чате" : voice.session?.peerUserId === selectedPeer.id ? "Вернуться" : "Позвонить"}
+                    data-tooltip-position="bottom"
+                  ><Glyph name="phone" /></button>
                   <div className="conversation-actions-menu" ref={conversationActionsRef}>
                     <button
                       type="button"
@@ -1113,6 +1141,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
           </> : <div className="no-conversation"><span className="brand-mark big">tm</span><h2>Ваши короткие сообщения</h2><p>Выберите диалог или добавьте контакт.</p></div>}
         </section>
       </div>
+
+      <VoiceExperienceUi voice={voice} />
 
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
       {showSettings && <SettingsDialog

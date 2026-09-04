@@ -69,7 +69,12 @@ self.addEventListener("push", (event) => {
     badge: "/icon-192.png",
     tag: payload.tag || "tiny-messenger",
     renotify: true,
-    data: { url: payload.url || "/" },
+    data: {
+      url: payload.url || "/",
+      kind: payload.kind,
+      sessionId: payload.sessionId,
+      fromUserId: payload.fromUserId,
+    },
   }));
 });
 
@@ -80,7 +85,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
     for (const client of clients) {
       if (new URL(client.url).origin === self.location.origin) {
-        await client.navigate(targetUrl);
+        client.postMessage({ type: "notification_open", ...event.notification.data });
         return client.focus();
       }
     }

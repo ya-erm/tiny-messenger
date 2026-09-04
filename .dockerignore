@@ -4,5 +4,8 @@ node_modules
 .env*
 !.env.example
 data/store.json
+data/store.*.tmp
+data/realtime.json
+data/realtime.*.tmp
 npm-debug.log*
 .DS_Store

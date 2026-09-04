@@ -4,13 +4,13 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node --watch scripts/server.mjs",
     "build": "next build",
-    "start": "next start",
-    "start:ws": "node scripts/ws-gateway.mjs",
+    "start": "NODE_ENV=production node scripts/server.mjs",
     "typecheck": "tsc --noEmit",
     "test:api": "node scripts/api-smoke.mjs",
     "test:ws": "node scripts/ws-smoke.mjs",
+    "test:realtime": "node scripts/realtime-smoke.mjs",
     "push:keys": "web-push generate-vapid-keys",
     "migrate:choice-options": "node scripts/migrate-choice-options.mjs"
   },

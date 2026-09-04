@@ -8,13 +8,16 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
+FROM base AS prod-deps
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
+
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
-RUN mkdir -p /tmp/runtime-node-modules \
-  && cp -R "$(readlink -f node_modules/ws)" /tmp/runtime-node-modules/ws
 
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -22,6 +25,7 @@ ENV NODE_ENV=production
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
 ENV MESSENGER_DATA_FILE="/app/data/store.json"
+ENV MESSENGER_REALTIME_FILE="/app/data/realtime.json"
 
 RUN apk add --no-cache su-exec \
   && addgroup --system --gid 1001 nodejs \
@@ -29,15 +33,17 @@ RUN apk add --no-cache su-exec \
   && mkdir -p /app/data \
   && chown nextjs:nodejs /app/data
 
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /tmp/runtime-node-modules/ws ./node_modules/ws
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./next.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/ws-gateway.mjs ./scripts/ws-gateway.mjs
-COPY --from=builder --chown=nextjs:nodejs /app/scripts/start-production.mjs ./scripts/start-production.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/realtime-service.mjs ./scripts/realtime-service.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/server.mjs ./scripts/server.mjs
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-EXPOSE 3000 3001
+EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["node", "scripts/start-production.mjs"]
+CMD ["node", "scripts/server.mjs"]

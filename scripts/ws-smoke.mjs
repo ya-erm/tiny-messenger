@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import WebSocket from "ws";
 
 const baseUrl = process.env.TEST_BASE_URL || "http://127.0.0.1:3107";
-const wsUrl = process.env.TEST_WS_URL || "ws://127.0.0.1:3108/ws";
+const wsUrl = process.env.TEST_WS_URL || "ws://127.0.0.1:3107/ws";
 
 async function api(path, { token, ...init } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {

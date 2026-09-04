@@ -4,9 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
-      - "127.0.0.1:3001:3001"
     environment:
       MESSENGER_DATA_FILE: /app/data/store.json
+      MESSENGER_REALTIME_FILE: /app/data/realtime.json
       RATE_LIMIT_PUBLIC: 120
       RATE_LIMIT_AUTH: 480
       RATE_LIMIT_MESSAGES_BURST: 6
@@ -15,12 +15,31 @@ services:
       WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-mailto:admin@example.com}
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
-      WS_UPSTREAM: http://127.0.0.1:3000
-      WS_PORT: 3001
+      RTC_STUN_URLS: "${RTC_STUN_URLS:-stun:stun.l.google.com:19302}"
+      RTC_TURN_URLS: ${RTC_TURN_URLS:-}
+      RTC_TURN_SECRET: ${RTC_TURN_SECRET:-}
     volumes:
       - ./data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  turn:
+    image: coturn/coturn:4.16.0-r0
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${RTC_TURN_SECRET:-}
+    volumes:
+      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_stunclient 127.0.0.1 -p 3478 >/dev/null 2>&1"]
       interval: 30s
       timeout: 5s
       retries: 3
