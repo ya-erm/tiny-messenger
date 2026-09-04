@@ -33,6 +33,7 @@ export interface MessageRecord {
   kind: MessageKind;
   options?: ChoiceOption[];
   sentAt: string;
+  editedAt?: string;
   deliveredAt?: string;
   readAt?: string;
   answer?: {

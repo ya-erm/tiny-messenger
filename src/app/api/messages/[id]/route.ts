@@ -1,9 +1,10 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { canAccessMessage, isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { canAccessMessage, canEditMessage, isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { LIMITS } from "@/lib/constants";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
-import { isUuid } from "@/lib/validation";
+import { cleanString, isUuid, validLength } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -17,6 +18,34 @@ export const GET = route<Context>(async (request, { params }) => {
   if (!message || !canAccessMessage(authenticated, message) || !isMessageVisibleTo(message, authenticated.id)) {
     throw new ApiError(404, "message_not_found", "Сообщение не найдено");
   }
+  return ok({ message: publicMessage(message) });
+});
+
+export const PATCH = route<Context>(async (request, { params }) => {
+  assertRateLimit(request, true);
+  const authenticated = await authenticate(request);
+  const { id } = await params;
+  if (!isUuid(id)) throw new ApiError(400, "invalid_message_id", "Некорректный UUID сообщения");
+  const body = await readJson(request);
+  const text = cleanString(body.text);
+  if (!validLength(text, 1, LIMITS.message)) {
+    throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
+  }
+
+  const message = await updateStore((store) => {
+    const found = store.messages.find((candidate) => candidate.id === id);
+    if (!found || !canAccessMessage(authenticated, found)) {
+      throw new ApiError(404, "message_not_found", "Сообщение не найдено");
+    }
+    if (!canEditMessage(authenticated, found)) {
+      throw new ApiError(403, "message_not_editable", "Можно менять только свои текстовые сообщения");
+    }
+    if (found.text === text) return found;
+    found.text = text;
+    found.editedAt = new Date().toISOString();
+    return found;
+  });
+
   return ok({ message: publicMessage(message) });
 });
 

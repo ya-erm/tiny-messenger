@@ -167,7 +167,7 @@ function isStandaloneApp() {
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -190,6 +190,7 @@ function Glyph({ name }: { name: GlyphName }) {
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     bellOff: <><path d="m3 3 18 18" /><path d="M18 8a6 6 0 0 0-9.3-5M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 9h14M10 21h4" /></>,
     install: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" /></>,
+    edit: <><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" /><path d="M13.5 6.5l4 4" /></>,
     phone: <path d="M7.1 3.5 9.6 8l-2.1 2.1a16.2 16.2 0 0 0 6.4 6.4l2.1-2.1 4.5 2.5-.7 3.1a2 2 0 0 1-2 1.5C9.3 21.5 2.5 14.7 2.5 6.2a2 2 0 0 1 1.5-2Z" />,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
@@ -498,6 +499,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [showRateLimit, setShowRateLimit] = useState(false);
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[] | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageDeleteIds, setMessageDeleteIds] = useState<string[] | null>(null);
   const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
   const [showConversationActions, setShowConversationActions] = useState(false);
@@ -1032,6 +1034,34 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
+  // Правка возможна ровно для одного выбранного своего текстового сообщения:
+  // чужое менять нельзя, а у вопроса есть варианты, на которые уже мог быть ответ.
+  const editableSelection = (() => {
+    if (selectedMessageIds?.length !== 1) return null;
+    const target = messages.find((message) => message.id === selectedMessageIds[0]);
+    if (!target || target.fromUserId !== user?.id || target.kind !== "text" || target.answer) return null;
+    return target;
+  })();
+
+  async function editMessage(text: string) {
+    if (!editingMessageId) return;
+    setBusy(true);
+    try {
+      await request(`/api/messages/${editingMessageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ text }),
+      });
+      setEditingMessageId(null);
+      await refreshState();
+      setNotice("Сообщение изменено");
+    } catch (error) {
+      setNotice((error as Error).message);
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteConversation(mode: "hide" | "delete_history", scope?: "me" | "everyone") {
     if (!selectedId) return;
     setBusy(true);
@@ -1166,6 +1196,19 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 <div className="selection-toolbar">
                   <strong>Выбрано: {selectedMessageIds.length}</strong>
                   <button type="button" className="text-button" onClick={() => setSelectedMessageIds(null)}>Отмена</button>
+                  <button
+                    type="button"
+                    className="header-icon-button"
+                    disabled={!editableSelection}
+                    onClick={() => {
+                      if (!editableSelection) return;
+                      setSelectedMessageIds(null);
+                      setEditingMessageId(editableSelection.id);
+                    }}
+                    aria-label="Изменить сообщение"
+                    data-tooltip={editableSelection ? "Изменить" : "Менять можно только своё текстовое сообщение"}
+                    data-tooltip-position="bottom"
+                  ><Glyph name="edit" /></button>
                   <button type="button" className="danger-icon-button" disabled={selectedMessageIds.length === 0} onClick={() => setMessageDeleteIds(selectedMessageIds)} aria-label="Удалить выбранные сообщения" data-tooltip="Удалить выбранные" data-tooltip-position="bottom" data-tooltip-align="right"><Glyph name="trash" /></button>
                 </div>
               ) : (
@@ -1249,17 +1292,24 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     <div className="message-bubble">
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
-                      <p>{message.text}{message.kind === "text" ? <span className="inline-message-meta"><time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</span> : null}</p>
+                      <p>{message.text}{message.kind === "text" ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</span> : null}</p>
                       <QuestionOptions message={message} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} />
                       {!selectionMode && !outgoing && !message.readAt && message.kind === "text" && <button className="read-button" onClick={() => markRead(message.id)}>Отметить прочитанным</button>}
-                      {message.kind === "choice" ? <footer><time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</footer> : null}
+                      {message.kind === "choice" ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</footer> : null}
                     </div>
                   </article>
                   <AnswerBubble message={message} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} />
                 </Fragment>;
               })}
             </div>
-            <Composer busy={busy} sendCooldownSeconds={sendCooldownSeconds} onSend={sendMessage} />
+            <Composer
+              busy={busy}
+              sendCooldownSeconds={sendCooldownSeconds}
+              onSend={sendMessage}
+              editing={editingMessageId ? messages.find((message) => message.id === editingMessageId) ?? null : null}
+              onEdit={editMessage}
+              onCancelEdit={() => setEditingMessageId(null)}
+            />
           </> : <div className="no-conversation"><span className="brand-mark big">tm</span><h2>Ваши короткие сообщения</h2><p>Выберите диалог или добавьте контакт.</p></div>}
         </section>
       </div>
@@ -1510,23 +1560,59 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
   </main>;
 }
 
-function Composer({ busy, sendCooldownSeconds, onSend }: { busy: boolean; sendCooldownSeconds: number; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void> }) {
+function Composer({ busy, sendCooldownSeconds, onSend, editing, onEdit, onCancelEdit }: { busy: boolean; sendCooldownSeconds: number; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void>; editing: PublicMessage | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<"text" | "choice">("text");
   const [left, setLeft] = useState("Да");
   const [right, setRight] = useState("Нет");
+  const draftRef = useRef("");
+  const latestTextRef = useRef(text);
+  // Not inside the setText updater: React calls updaters twice in development,
+  // and the second pass would park the message text as if it were the draft.
+  useEffect(() => { latestTextRef.current = text; }, [text]);
+
+  // Entering edit mode borrows the composer, so park the draft and hand it back
+  // when the edit is finished or dropped.
+  useEffect(() => {
+    if (editing) {
+      draftRef.current = latestTextRef.current;
+      setText(editing.text);
+      setKind("text");
+    } else {
+      setText(draftRef.current);
+      draftRef.current = "";
+    }
+  }, [editing]);
+
+  const unchanged = Boolean(editing) && text.trim() === editing?.text;
+  const cooling = !editing && sendCooldownSeconds > 0;
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || sendCooldownSeconds > 0 || !text.trim()) return;
+    if (busy || cooling || !text.trim()) return;
+    if (editing) {
+      if (unchanged) { onCancelEdit(); return; }
+      try { await onEdit(text); } catch { /* The parent displays the API error. */ }
+      return;
+    }
     try {
       await onSend({ text, kind, left, right });
       setText("");
     } catch { /* The parent displays the API error. */ }
   }
   return <form className="composer" onSubmit={submit}>
-    <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button><button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button><span>{Array.from(text).length}/{LIMITS.message}</span></div>
-    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${sendCooldownSeconds > 0 ? "cooldown" : ""}`} disabled={busy || sendCooldownSeconds > 0 || !text.trim()} aria-label={sendCooldownSeconds > 0 ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={sendCooldownSeconds > 0 ? "Слишком быстро" : "Отправить"}>{sendCooldownSeconds > 0 ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
-    {kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
+    {editing ? (
+      <div className="editing-banner">
+        <Glyph name="edit" />
+        <div className="editing-copy"><strong>Изменение сообщения</strong><small>{editing.text}</small></div>
+        <span className="editing-count">{Array.from(text).length}/{LIMITS.message}</span>
+        <button type="button" className="small-icon-button" onClick={onCancelEdit} aria-label="Отменить изменение" data-tooltip="Отменить"><Glyph name="close" /></button>
+      </div>
+    ) : (
+      <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button><button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button><span>{Array.from(text).length}/{LIMITS.message}</span></div>
+    )}
+    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || !text.trim()} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
+    {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;
 }
 

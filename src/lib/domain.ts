@@ -61,3 +61,10 @@ export function showConversationForUser(
 export function canAccessMessage(user: UserRecord, message: MessageRecord) {
   return message.fromUserId === user.id || message.toUserId === user.id;
 }
+
+// Only the author edits, and only plain text: a question carries the options the
+// recipient chose from, so rewriting one would leave an answer to a prompt that
+// no longer exists.
+export function canEditMessage(user: UserRecord, message: MessageRecord) {
+  return message.fromUserId === user.id && message.kind === "text" && !message.answer;
+}

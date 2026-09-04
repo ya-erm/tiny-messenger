@@ -675,3 +675,12 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .theme-switch button.active { color: var(--ink); background: var(--raised); box-shadow: 0 3px 12px rgba(41,47,43,.08); }
 
 .rate-limit-dialog, .action-dialog { color: var(--ink); }
+
+.editing-banner { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; padding: 7px 8px 7px 10px; background: var(--green-tint); border-left: 3px solid var(--green); border-radius: 8px; }
+.editing-banner > .glyph { width: 15px; height: 15px; flex: 0 0 15px; color: var(--green-ink); }
+.editing-copy { min-width: 0; flex: 1; }
+.editing-copy strong { display: block; color: var(--green-dark-ink); font-size: 9px; font-weight: 800; }
+.editing-copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.editing-count { flex: 0 0 auto; color: var(--muted); font-size: 9px; }
+.edited-mark { display: inline-flex; flex: 0 0 auto; opacity: .7; }
+.edited-mark .glyph { width: 11px; height: 11px; }
