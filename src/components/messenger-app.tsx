@@ -1208,6 +1208,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     aria-label="Изменить сообщение"
                     data-tooltip={editableSelection ? "Изменить" : "Менять можно только своё текстовое сообщение"}
                     data-tooltip-position="bottom"
+                    data-tooltip-align="right"
                   ><Glyph name="edit" /></button>
                   <button type="button" className="danger-icon-button" disabled={selectedMessageIds.length === 0} onClick={() => setMessageDeleteIds(selectedMessageIds)} aria-label="Удалить выбранные сообщения" data-tooltip="Удалить выбранные" data-tooltip-position="bottom" data-tooltip-align="right"><Glyph name="trash" /></button>
                 </div>

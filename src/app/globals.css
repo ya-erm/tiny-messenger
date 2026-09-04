@@ -682,5 +682,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .editing-copy strong { display: block; color: var(--green-dark-ink); font-size: 9px; font-weight: 800; }
 .editing-copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .editing-count { flex: 0 0 auto; color: var(--muted); font-size: 9px; }
-.edited-mark { display: inline-flex; flex: 0 0 auto; opacity: .7; }
-.edited-mark .glyph { width: 11px; height: 11px; }
+/* Not inline-flex: the meta box takes its baseline from the first flex item, and
+   a flex box wrapping an svg has none, so the whole group slid off the text
+   baseline. Blockified, this keeps a line box and with it a real baseline. */
+.edited-mark { display: inline; flex: 0 0 auto; opacity: .7; }
+/* The 11px icon would otherwise outgrow the 9px line box of the timestamp and
+   push the whole meta group a pixel down; the negative block margin keeps the
+   line box at strut height. */
+.edited-mark .glyph { width: 11px; height: 11px; margin-block: -2px; vertical-align: -1px; }
