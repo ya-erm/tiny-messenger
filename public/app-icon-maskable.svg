@@ -1,5 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#2f6f57"/>
-  <path d="M153 151c0-25 20-45 45-45h116c25 0 45 20 45 45v120c0 25-20 45-45 45h-68l-64 64 9-64c-21-4-38-22-38-45V151Z" fill="#e47a45"/>
-  <text x="256" y="258" fill="#fffdf8" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="700" text-anchor="middle">tm</text>
+  <rect width="512" height="512" fill="#f4efe6"/>
+  <path
+    fill="#e47a45"
+    d="M203 112h106c50.26 0 91 40.74 91 91v106c0 50.26-40.74 91-91 91H136a24 24 0 0 1-24-24V203c0-50.26 40.74-91 91-91Z"
+  />
+  <text
+    x="256"
+    y="314"
+    fill="#fffdf8"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="158"
+    font-weight="700"
+    text-anchor="middle"
+  >tm</text>
 </svg>

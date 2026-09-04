@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <path
+    fill="#e47a45"
+    d="M21 2h22c10.49 0 19 8.51 19 19v22c0 10.49-8.51 19-19 19H7a5 5 0 0 1-5-5V21C2 10.51 10.51 2 21 2Z"
+  />
+  <text
+    x="32"
+    y="44"
+    fill="#fffdf8"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="33"
+    font-weight="700"
+    text-anchor="middle"
+  >tm</text>
+</svg>

@@ -1177,7 +1177,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 }
 
 function LoadingScreen() {
-  return <main className="loading-screen"><span className="brand-mark big pulse">tm</span><p>Открываем канал…</p></main>;
+  return <main className="loading-screen"><span className="brand-mark big pulse">tm</span><p>Открываем чаты...</p></main>;
 }
 
 function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { busy: boolean; notice: string; sharedLabel: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {
