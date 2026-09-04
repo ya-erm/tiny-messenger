@@ -79,13 +79,17 @@ protocol 2. Устройство продолжает использовать p
 Один STUN не гарантирует установку связи в мобильных и корпоративных сетях.
 
 В production compose уже включён coturn на `3478/tcp+udp` с relay-диапазоном
-`49160-49200/tcp+udp`. Перед запуском создайте DNS `turn.tm.ya-erm.ru`, откройте
-эти порты у провайдера и задайте в `.env` один общий секрет и URL:
+`49160-49200/tcp+udp`. Перед запуском заведите DNS-запись для TURN, например
+`turn.example.com`, откройте эти порты у провайдера и задайте в `.env` один общий
+секрет и URL:
 
 ```dotenv
 RTC_TURN_SECRET=<случайный секрет длиной не менее 32 байт>
-RTC_TURN_URLS=turn:turn.tm.ya-erm.ru:3478?transport=udp,turn:turn.tm.ya-erm.ru:3478?transport=tcp
+RTC_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp
 ```
+
+Тот же домен укажите в `realm` внутри `deploy/turnserver.conf`: он участвует в
+HMAC-подписи временных credentials, поэтому значения по обе стороны должны совпадать.
 
 Конфигурация рассчитана на сервер с публичным IP непосредственно на сетевом
 интерфейсе: coturn сам выбирает relay-адрес. Если TURN окажется за NAT, явно
@@ -309,9 +313,9 @@ location /ws {
 ```
 
 TLS завершается на reverse proxy, поэтому устройство подключается к
-`wss://tm.ya-erm.ru/ws`, а приложение внутри VPS принимает обычный WebSocket. После
+`wss://example.com/ws`, а приложение внутри VPS принимает обычный WebSocket. После
 обновления выполните `docker compose up -d --build` и проверьте Upgrade через
-`pnpm test:ws`, указав `TEST_WS_URL=wss://tm.ya-erm.ru/ws`.
+`pnpm test:ws`, указав `TEST_WS_URL=wss://example.com/ws`.
 
 Настраиваемые переменные находятся в `.env.example`. Общие ограничения частоты хранятся в памяти и рассчитаны на один процесс: по умолчанию 120 публичных и 480 авторизованных запросов в минуту на комбинацию IP/токена. Для отправки сообщений действует отдельный лимит на пользователя: 6 сообщений за 10 секунд и 30 сообщений в минуту. При превышении `POST /api/messages` возвращает `429`, код `message_rate_limited` и заголовок `Retry-After`. Это защищает от случайного зажатого Enter, но не является DDoS-защитой.
 
