@@ -602,6 +602,21 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .welcome-copy p { margin: 0; font-size: 13px; line-height: 1.45; }
   .welcome-card { margin: -14px auto 20px; }
   .toast-stack { width: auto; max-width: none; right: 10px; left: 10px; transform: none; }
+  /* Full screen on mobile: a floating card wastes the little room there is, and
+     the settings sheet was taller than the viewport anyway. */
+  .modal-backdrop { padding: 0; place-items: stretch; }
+  .modal-card { width: 100%; max-width: none; min-height: 100dvh; max-height: none; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 0; }
+  .contact-card { height: auto; min-height: 100dvh; }
+  /* Confirmations carry little content, so they rise as a sheet instead: a full
+     screen for two buttons is too much, and the bottom edge is within thumb
+     reach. The top edge has to be released: a modal <dialog> ships inset: 0, and
+     with both block edges anchored the box stretches instead of hugging its
+     content. */
+  .rate-limit-dialog, .action-dialog { width: 100%; max-width: none; max-height: none; height: auto; inset: auto 0 0; margin: 0; animation: sheet-up .22s cubic-bezier(.32, .72, 0, 1); }
+  .rate-limit-dialog .modal-card, .action-dialog .modal-card { min-height: 0; max-height: 92dvh; overflow-y: auto; border-radius: 20px 20px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .action-dialog-illustration { height: auto; max-height: 170px; margin: 2px auto 6px; }
+  .action-dialog-buttons { padding-top: 4px; }
+  @keyframes sheet-up { from { transform: translateY(100%); } }
   .toast { font-size: 12px; }
   .voice-dock { min-width: 0; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); left: 10px; }
   .voice-dock button { min-height: 44px; }
@@ -616,7 +631,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .field-label input { margin-top: 6px; padding: 10px 11px; }
   .character-count { margin: 4px 2px 10px; }
   .input-hint { margin-bottom: 12px; }
-  .modal-card { padding: 18px 14px; }
+  .modal-card { padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)); }
   .settings-profile-card { grid-template-columns: 76px minmax(0, 1fr); gap: 14px; }
   .settings-profile-avatar { width: 68px; height: 68px; font-size: 19px; }
   .capability-row { grid-template-columns: 38px minmax(0, 1fr); gap: 10px; }
