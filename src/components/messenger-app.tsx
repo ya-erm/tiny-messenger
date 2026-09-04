@@ -606,6 +606,18 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     void addContact(sharedIdentifier);
   }, [phase, user, sharedIdentifier, sharedContactHandled]);
 
+  const conversationSummaries = useMemo(() => {
+    const result = new Map<string, { last: PublicMessage | undefined; unread: number }>();
+    for (const message of messages) {
+      const peerId = message.fromUserId === user?.id ? message.toUserId : message.fromUserId;
+      const summary = result.get(peerId) ?? { last: undefined, unread: 0 };
+      summary.last = message;
+      if (message.fromUserId === peerId && message.toUserId === user?.id && !message.readAt) summary.unread += 1;
+      result.set(peerId, summary);
+    }
+    return result;
+  }, [messages, user?.id]);
+
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
     for (const contact of contacts) result.set(contact.userId, {
@@ -629,8 +641,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     const hidden = new Set(hiddenPeerIds);
     return Array.from(result.values())
       .filter((peer) => !hidden.has(peer.id))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [contacts, hiddenPeerIds, messages, user?.id]);
+      .sort((a, b) => {
+        const aLast = conversationSummaries.get(a.id)?.last;
+        const bLast = conversationSummaries.get(b.id)?.last;
+        if (aLast && bLast) return bLast.sentAt.localeCompare(aLast.sentAt);
+        if (aLast) return -1;
+        if (bLast) return 1;
+        return a.name.localeCompare(b.name, "ru");
+      });
+  }, [contacts, conversationSummaries, hiddenPeerIds, messages, user?.id]);
 
   useEffect(() => {
     if (initialPeerSelectionHandledRef.current || peers.length === 0) return;
@@ -968,10 +987,20 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
           <div className="contacts-title"><span>Диалоги</span><button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт" data-tooltip="Добавить контакт" data-tooltip-position="bottom"><Glyph name="plus" /></button></div>
           <div className="contact-list">
             {peers.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по нику или UUID, чтобы написать первым.</p></div> : peers.map((peer) => {
-              const last = [...messages].reverse().find((message) => message.fromUserId === peer.id || message.toUserId === peer.id);
-              const unread = messages.filter((message) => message.fromUserId === peer.id && message.toUserId === user.id && !message.readAt).length;
+              const { last, unread } = conversationSummaries.get(peer.id) ?? { last: undefined, unread: 0 };
               const sidebarMenuOpen = sidebarActionsPeerId === peer.id;
-              return <div key={peer.id} className={`contact-row-shell ${sidebarMenuOpen ? "menu-open" : ""}`} ref={sidebarMenuOpen ? sidebarActionsRef : undefined}>
+              return <div
+                key={peer.id}
+                className={`contact-row-shell ${sidebarMenuOpen ? "menu-open" : ""}`}
+                ref={sidebarMenuOpen ? sidebarActionsRef : undefined}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setSelectedMessageIds(null);
+                  setShowConversationActions(false);
+                  setSelectedId(peer.id);
+                  setSidebarActionsPeerId(peer.id);
+                }}
+              >
                 <button className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => {
                   setSidebarActionsPeerId(null);
                   setSelectedMessageIds(null);
@@ -979,17 +1008,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 }}>
                   <span className="contact-avatar-shell">
                     <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
-                    <span className={`presence-dot ${voice.presence.get(peer.id)?.online ? "online" : ""}`} aria-label={formatPresence(voice.presence.get(peer.id))} />
+                    {voice.presence.get(peer.id)?.online ? <span className="presence-dot" aria-label={formatPresence(voice.presence.get(peer.id))} /> : null}
                   </span>
                   <span className="contact-copy">
                     <strong>{peer.name}</strong>
-                    <span className="contact-identity">
-                      {peer.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
-                      <small className="contact-presence">{formatPresence(voice.presence.get(peer.id))}</small>
-                    </span>
+                    {!last && peer.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
                     {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
                   </span>
-                  {unread > 0 && <span className="unread-badge">{unread}</span>}
+                  <span className="contact-meta">
+                    <time className="contact-time">{last ? formatTime(last.sentAt) : ""}</time>
+                    {unread > 0 && (
+                      <span className="unread-badge" aria-label={`${unread} непрочитанных`}>
+                        {unread > 99 ? "99+" : unread}
+                      </span>
+                    )}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1003,9 +1036,6 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   aria-label={`Действия с диалогом ${peer.name}`}
                   aria-haspopup="menu"
                   aria-expanded={sidebarMenuOpen}
-                  data-tooltip="Действия"
-                  data-tooltip-position="bottom"
-                  data-tooltip-align="right"
                 >
                   <Glyph name="more" />
                 </button>

@@ -66,33 +66,33 @@ button { color: inherit; }
 .contact-list { min-height: 0; flex: 1; overflow-y: auto; padding: 4px 10px; }
 .contact-row-shell { position: relative; }
 .contact-row-shell.menu-open { z-index: 30; }
-.contact-row { width: 100%; min-height: 64px; display: flex; align-items: flex-start; gap: 11px; padding: 11px 48px 11px 12px; text-align: left; background: transparent; border: 0; border-radius: 14px; cursor: pointer; }
+.contact-row { width: 100%; min-height: 64px; display: flex; align-items: flex-start; gap: 11px; padding: 11px 12px; text-align: left; background: transparent; border: 0; border-radius: 14px; cursor: pointer; }
 .contact-row:hover { background: #f0ebe1; }
 .contact-row.selected { background: var(--green-soft); }
-.contact-row-actions-button { width: 31px; height: 31px; position: absolute; z-index: 2; top: 10px; right: 10px; display: grid; place-items: center; padding: 0; color: var(--green); background: rgba(47,111,87,.08); border: 0; border-radius: 9px; opacity: 0; cursor: pointer; transition: opacity .1s ease, background .1s ease; }
+.contact-row-actions-button { width: 38px; height: 38px; position: absolute; z-index: 2; top: 1px; right: 4px; display: grid; place-items: center; padding: 0; color: var(--green); background: transparent; border: 0; opacity: 0; cursor: pointer; transition: opacity .1s ease; }
+.contact-row-actions-button::before { width: 26px; height: 26px; content: ""; grid-area: 1 / 1; background: rgba(47,111,87,.08); border-radius: 9px; transition: background .1s ease; }
 .contact-row-shell:hover .contact-row-actions-button,
 .contact-row-shell:focus-within .contact-row-actions-button,
 .contact-row-shell.menu-open .contact-row-actions-button { opacity: 1; }
-.contact-row-actions-button:hover { background: rgba(47,111,87,.16); }
-.contact-row-actions-button .glyph { width: 15px; height: 15px; }
-.contact-row-shell:hover .unread-badge,
-.contact-row-shell:focus-within .unread-badge,
-.contact-row-shell.menu-open .unread-badge { opacity: 0; }
+.contact-row-actions-button:hover::before { background: rgba(47,111,87,.16); }
+.contact-row-actions-button .glyph { width: 15px; height: 15px; grid-area: 1 / 1; }
+.contact-row-shell:hover .contact-time,
+.contact-row-shell:focus-within .contact-time,
+.contact-row-shell.menu-open .contact-time { opacity: 0; }
 .contact-row-actions-popover { top: 47px; right: 8px; }
 .contact-avatar { width: 42px; height: 42px; color: var(--green-dark); background: #e2e1d6; font-size: 14px; }
 .contact-avatar-shell { position: relative; flex: 0 0 42px; }
-.presence-dot { width: 11px; height: 11px; position: absolute; right: -1px; bottom: -1px; background: #a8afa9; border: 2px solid #f9f6ef; border-radius: 50%; }
-.presence-dot.online { background: #37a46f; }
+.presence-dot { width: 11px; height: 11px; position: absolute; right: -1px; bottom: -1px; background: #37a46f; border: 2px solid #f9f6ef; border-radius: 50%; }
 .contact-avatar.large { width: 43px; height: 43px; background: var(--green-soft); }
 .contact-copy { min-width: 0; flex: 1; }
 .contact-copy strong, .contact-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contact-copy strong { font-size: 13px; }
 .contact-copy small { margin-top: 3px; color: var(--muted); font-size: 10px; }
-.contact-identity { min-width: 0; display: flex; align-items: baseline; gap: 6px; margin-top: 3px; white-space: nowrap; }
-.contact-copy .contact-nickname { max-width: 100px; flex: 0 1 auto; margin-top: 0; color: var(--green); font-size: 9px; }
-.contact-copy .contact-presence { min-width: 0; margin-top: 0; font-size: 8px; }
+.contact-copy .contact-nickname { color: var(--green); font-size: 9px; }
 .contact-copy .contact-preview { margin-top: 5px; }
-.unread-badge { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; color: #fff; background: var(--orange); border-radius: 10px; font-size: 10px; font-weight: 800; }
+.contact-meta { width: 46px; height: 48px; display: flex; flex: 0 0 46px; flex-direction: column; align-items: flex-end; justify-content: space-between; }
+.contact-time { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1.4; white-space: nowrap; transition: opacity .1s ease; }
+.unread-badge { min-width: 20px; height: 20px; display: grid; flex: 0 0 auto; place-items: center; padding: 0 5px; color: #fff; background: var(--orange); border-radius: 10px; font-size: 10px; font-weight: 800; }
 .empty-sidebar { padding: 40px 32px; text-align: center; color: var(--muted); }
 .empty-sidebar .glyph { width: 28px; height: 28px; }
 .empty-sidebar p { font-size: 12px; line-height: 1.6; }
@@ -454,6 +454,8 @@ button { color: inherit; }
 
 @media (hover: none) {
   .contact-row-actions-button { opacity: 1; }
+  .contact-time { display: none; }
+  .contact-meta { justify-content: flex-end; }
 }
 
 @media (prefers-reduced-motion: reduce) {
