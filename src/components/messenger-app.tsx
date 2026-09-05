@@ -1,7 +1,7 @@
 "use client";
 
 import Image, { type StaticImageData } from "next/image";
-import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import deleteDialogIllustration from "../../public/delete-dialog.png";
 import deleteHistoryIllustration from "../../public/delete-history.png";
 import deleteMessagesIllustration from "../../public/delete-messages.png";
@@ -500,6 +500,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[] | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [messageMenu, setMessageMenu] = useState<{ id: string; style: CSSProperties; above: boolean } | null>(null);
+  const longPressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
   const [messageDeleteIds, setMessageDeleteIds] = useState<string[] | null>(null);
   const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
   const [showConversationActions, setShowConversationActions] = useState(false);
@@ -1034,6 +1036,46 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
+  useEffect(() => {
+    if (!messageMenu) return;
+    const close = () => setMessageMenu(null);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    // Anchored to a viewport position, so any scroll or resize invalidates it.
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    document.querySelector(".message-stream")?.addEventListener("scroll", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      document.querySelector(".message-stream")?.removeEventListener("scroll", close);
+    };
+  }, [messageMenu]);
+
+  // Fixed rather than absolute inside the row: the stream scrolls with
+  // overflow-y, which would clip a menu opened on the last message.
+  const openMessageMenu = (messageId: string, bubble: HTMLElement) => {
+    const rect = bubble.getBoundingClientRect();
+    const outgoing = messages.find((message) => message.id === messageId)?.fromUserId === user?.id;
+    const above = window.innerHeight - rect.bottom < 130;
+    setMessageMenu({
+      id: messageId,
+      above,
+      style: {
+        top: above ? undefined : rect.bottom + 6,
+        bottom: above ? window.innerHeight - rect.top + 6 : undefined,
+        ...(outgoing ? { right: Math.max(8, window.innerWidth - rect.right) } : { left: Math.max(8, rect.left) }),
+      },
+    });
+  };
+
+  const cancelLongPress = () => {
+    if (!longPressRef.current) return;
+    window.clearTimeout(longPressRef.current.timer);
+    longPressRef.current = null;
+  };
+
   // Editing needs exactly one of your own text messages. The button names the
   // reason it is off rather than one catch-all sentence, which read as wrong
   // whenever the selection was in fact yours and merely too large.
@@ -1286,6 +1328,28 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     role={selectionMode ? "button" : undefined}
                     tabIndex={selectionMode ? 0 : undefined}
                     onClick={selectionMode ? toggleSelection : undefined}
+                    onContextMenu={selectionMode ? undefined : (event) => {
+                      event.preventDefault();
+                      openMessageMenu(message.id, event.currentTarget.querySelector(".message-bubble") as HTMLElement);
+                    }}
+                    onPointerDown={selectionMode ? undefined : (event) => {
+                      if (event.pointerType === "mouse") return;
+                      const bubble = event.currentTarget.querySelector(".message-bubble") as HTMLElement;
+                      cancelLongPress();
+                      longPressRef.current = {
+                        x: event.clientX,
+                        y: event.clientY,
+                        timer: window.setTimeout(() => { longPressRef.current = null; openMessageMenu(message.id, bubble); }, 450),
+                      };
+                    }}
+                    onPointerMove={(event) => {
+                      const press = longPressRef.current;
+                      if (!press) return;
+                      // A scroll of the stream starts as a press; let it win.
+                      if (Math.abs(event.clientX - press.x) > 8 || Math.abs(event.clientY - press.y) > 8) cancelLongPress();
+                    }}
+                    onPointerUp={cancelLongPress}
+                    onPointerCancel={cancelLongPress}
                     onKeyDown={selectionMode ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -1306,6 +1370,30 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 </Fragment>;
               })}
             </div>
+            {messageMenu ? (() => {
+              const target = messages.find((message) => message.id === messageMenu.id);
+              if (!target) return null;
+              const editable = target.fromUserId === user.id && target.kind === "text";
+              return <div className="conversation-actions-popover message-menu" style={messageMenu.style} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+                <button type="button" role="menuitem" onClick={() => {
+                  setMessageMenu(null);
+                  void navigator.clipboard.writeText(target.text)
+                    .then(() => setNotice("Текст скопирован"))
+                    .catch(() => setNotice("Не удалось скопировать"));
+                }}>
+                  <Glyph name="copy" />
+                  Скопировать
+                </button>
+                {editable ? <button type="button" role="menuitem" onClick={() => { setMessageMenu(null); setSelectedMessageIds(null); setEditingMessageId(target.id); }}>
+                  <Glyph name="edit" />
+                  Изменить
+                </button> : null}
+                <button type="button" role="menuitem" className="danger" onClick={() => { setMessageMenu(null); setMessageDeleteIds([target.id]); }}>
+                  <Glyph name="trash" />
+                  Удалить
+                </button>
+              </div>;
+            })() : null}
             <Composer
               busy={busy}
               sendCooldownSeconds={sendCooldownSeconds}

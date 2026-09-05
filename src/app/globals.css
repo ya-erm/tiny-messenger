@@ -690,3 +690,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
    push the whole meta group a pixel down; the negative block margin keeps the
    line box at strut height. */
 .edited-mark .glyph { width: 11px; height: 11px; margin-block: -2px; vertical-align: -1px; }
+
+.message-menu { width: 168px; position: fixed; z-index: 120; top: auto; right: auto; }
+/* A long press would otherwise raise the native selection callout first. */
+@media (hover: none) {
+  .message-bubble { -webkit-touch-callout: none; user-select: none; }
+}
