@@ -266,7 +266,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .conversation-title { min-width: 0; flex: 1; }
 .conversation-title strong, .conversation-title span { display: block; }
 .conversation-title strong { font-size: 14px; }
-.conversation-title span { margin-top: 3px; overflow: hidden; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+/* The monospace suited the UUID this line used to show; it now carries the
+   presence phrase, which reads better in the interface face. */
+.conversation-title span { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .text-button { padding: 8px 11px; color: var(--green-ink); background: var(--green-soft); border: 0; border-radius: 9px; font-size: 11px; font-weight: 800; cursor: pointer; }
 .conversation-actions, .selection-toolbar { display: flex; align-items: center; gap: 7px; }
 .selection-toolbar > strong { color: var(--muted); font-size: 10px; white-space: nowrap; }
