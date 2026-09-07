@@ -1,9 +1,10 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { isGroupMember, publicGroup } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { publicGroup } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
+import { findGroupForMember, groupInclude, toGroupRecord } from "@/lib/store";
 import { cleanString, isUuid, validAvatarBackground, validHttpUrl, validLength } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
@@ -13,12 +14,9 @@ export const GET = route<Context>(async (request, { params }) => {
   const authenticated = await authenticate(request);
   const { id } = await params;
   if (!isUuid(id)) throw new ApiError(400, "invalid_group_id", "Некорректный UUID группы");
-  const store = await readStore();
-  const group = store.groups.find((candidate) => candidate.id === id);
-  if (!group || !isGroupMember(group, authenticated.id)) {
-    throw new ApiError(404, "group_not_found", "Группа не найдена");
-  }
-  return ok({ group: publicGroup(group, store.users) });
+  const group = await read((db) => findGroupForMember(db, id, authenticated.id));
+  if (!group) throw new ApiError(404, "group_not_found", "Группа не найдена");
+  return ok({ group: publicGroup(group) });
 });
 
 export const PATCH = route<Context>(async (request, { params }) => {
@@ -44,19 +42,23 @@ export const PATCH = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_avatar_background", "Фон аватарки должен быть цветом в формате #RRGGBB");
   }
 
-  const group = await updateStore((store) => {
-    const item = store.groups.find((candidate) => candidate.id === id);
-    if (!item || !isGroupMember(item, authenticated.id)) {
-      throw new ApiError(404, "group_not_found", "Группа не найдена");
-    }
+  const group = await write(async (tx) => {
+    const item = await findGroupForMember(tx, id, authenticated.id);
+    if (!item) throw new ApiError(404, "group_not_found", "Группа не найдена");
     if (item.ownerId !== authenticated.id) {
       throw new ApiError(403, "not_group_owner", "Изменять группу может только её владелец");
     }
-    if (name !== undefined) item.name = name;
-    if (avatarUrlSupplied) item.avatarUrl = avatarUrl || undefined;
-    if (avatarBackgroundSupplied) item.avatarBackground = avatarBackground || undefined;
-    item.updatedAt = new Date().toISOString();
-    return publicGroup(item, store.users);
+    const row = await tx.group.update({
+      where: { id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(avatarUrlSupplied ? { avatarUrl: avatarUrl || null } : {}),
+        ...(avatarBackgroundSupplied ? { avatarBackground: avatarBackground || null } : {}),
+        updatedAt: new Date().toISOString(),
+      },
+      include: groupInclude,
+    });
+    return publicGroup(toGroupRecord(row));
   });
   return ok({ group });
 });
@@ -67,21 +69,23 @@ export const DELETE = route<Context>(async (request, { params }) => {
   const { id } = await params;
   if (!isUuid(id)) throw new ApiError(400, "invalid_group_id", "Некорректный UUID группы");
 
-  const result = await updateStore((store) => {
-    const group = store.groups.find((candidate) => candidate.id === id);
-    if (!group || !isGroupMember(group, authenticated.id)) {
-      throw new ApiError(404, "group_not_found", "Группа не найдена");
-    }
-    group.memberIds = group.memberIds.filter((memberId) => memberId !== authenticated.id);
-    if (group.memberIds.length === 0) {
-      store.groups = store.groups.filter((candidate) => candidate.id !== id);
-      store.groupMessages = store.groupMessages.filter((message) => message.groupId !== id);
+  const result = await write(async (tx) => {
+    const group = await findGroupForMember(tx, id, authenticated.id);
+    if (!group) throw new ApiError(404, "group_not_found", "Группа не найдена");
+    await tx.groupMember.deleteMany({ where: { groupId: id, userId: authenticated.id } });
+    const remaining = group.memberIds.filter((memberId) => memberId !== authenticated.id);
+    if (remaining.length === 0) {
+      // Members and messages go with the group (cascade).
+      await tx.group.delete({ where: { id } });
       return { deleted: true };
     }
-    if (group.ownerId === authenticated.id) {
-      group.ownerId = group.memberIds[0];
-    }
-    group.updatedAt = new Date().toISOString();
+    await tx.group.update({
+      where: { id },
+      data: {
+        ...(group.ownerId === authenticated.id ? { ownerId: remaining[0] } : {}),
+        updatedAt: new Date().toISOString(),
+      },
+    });
     return { deleted: false };
   });
 

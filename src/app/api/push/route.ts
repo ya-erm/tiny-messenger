@@ -1,9 +1,8 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
+import { read, write } from "@/lib/db";
 import { pushConfiguration } from "@/lib/push";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { PushSubscriptionRecord } from "@/lib/types";
 
 const MAX_SUBSCRIPTIONS_PER_USER = 10;
 
@@ -50,13 +49,11 @@ export const GET = route(async (request) => {
   assertRateLimit(request, true);
   const authenticated = await authenticate(request);
   const configuration = pushConfiguration();
-  const store = await readStore();
+  const subscriptionCount = await read((db) => db.pushSubscription.count({ where: { userId: authenticated.id } }));
   return ok({
     configured: configuration.configured,
     publicKey: configuration.configured ? configuration.publicKey : "",
-    subscriptionCount: store.pushSubscriptions.filter(
-      (subscription) => subscription.userId === authenticated.id,
-    ).length,
+    subscriptionCount,
   });
 });
 
@@ -70,36 +67,50 @@ export const POST = route(async (request) => {
   const body = await readJson(request);
   const subscription = subscriptionFromBody(body);
   const now = new Date().toISOString();
+  const expirationTime = subscription.expirationTime === undefined
+    ? null
+    : BigInt(Math.trunc(subscription.expirationTime));
 
-  await updateStore((store) => {
-    const existing = store.pushSubscriptions.find(
-      (item) => item.endpoint === subscription.endpoint,
-    );
+  await write(async (tx) => {
+    const existing = await tx.pushSubscription.findUnique({
+      where: { endpoint: subscription.endpoint },
+      select: { endpoint: true },
+    });
     if (existing) {
-      existing.userId = authenticated.id;
-      existing.expirationTime = subscription.expirationTime;
-      existing.keys = subscription.keys;
-      existing.updatedAt = now;
+      await tx.pushSubscription.update({
+        where: { endpoint: subscription.endpoint },
+        data: {
+          userId: authenticated.id,
+          expirationTime,
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+          updatedAt: now,
+        },
+      });
       return;
     }
 
-    const userSubscriptions = store.pushSubscriptions.filter(
-      (item) => item.userId === authenticated.id,
-    );
-    if (userSubscriptions.length >= MAX_SUBSCRIPTIONS_PER_USER) {
-      const oldest = userSubscriptions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
-      store.pushSubscriptions = store.pushSubscriptions.filter(
-        (item) => item.endpoint !== oldest.endpoint,
-      );
+    const count = await tx.pushSubscription.count({ where: { userId: authenticated.id } });
+    if (count >= MAX_SUBSCRIPTIONS_PER_USER) {
+      const oldest = await tx.pushSubscription.findFirst({
+        where: { userId: authenticated.id },
+        orderBy: { updatedAt: "asc" },
+        select: { endpoint: true },
+      });
+      if (oldest) await tx.pushSubscription.delete({ where: { endpoint: oldest.endpoint } });
     }
 
-    const item: PushSubscriptionRecord = {
-      userId: authenticated.id,
-      ...subscription,
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.pushSubscriptions.push(item);
+    await tx.pushSubscription.create({
+      data: {
+        endpoint: subscription.endpoint,
+        userId: authenticated.id,
+        expirationTime,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
   });
 
   return ok({ subscribed: true });
@@ -114,10 +125,6 @@ export const DELETE = route(async (request) => {
     throw new ApiError(422, "invalid_push_endpoint", "Передайте адрес push-подписки");
   }
 
-  await updateStore((store) => {
-    store.pushSubscriptions = store.pushSubscriptions.filter(
-      (item) => item.userId !== authenticated.id || item.endpoint !== endpoint,
-    );
-  });
+  await write((tx) => tx.pushSubscription.deleteMany({ where: { userId: authenticated.id, endpoint } }));
   return ok({ subscribed: false });
 });

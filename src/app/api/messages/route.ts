@@ -2,11 +2,21 @@ import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { isMessageVisibleTo, publicMessage, showConversation } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { publicMessage } from "@/lib/domain";
 import { sendPushToUser } from "@/lib/push";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { ChoiceOption, MessageRecord } from "@/lib/types";
+import {
+  deleteMessagesForUser,
+  involving,
+  messageInclude,
+  readStatesAround,
+  readStatesForChat,
+  showConversation,
+  toMessageRecord,
+  visibleTo,
+} from "@/lib/store";
+import type { ChoiceOption } from "@/lib/types";
 import { cleanString, isMessageKind, isUuid, validLength } from "@/lib/validation";
 
 export const GET = route(async (request) => {
@@ -25,21 +35,27 @@ export const GET = route(async (request) => {
   if (contactId && !isUuid(contactId)) {
     throw new ApiError(400, "invalid_contact_id", "Некорректный UUID собеседника");
   }
-  const store = await readStore();
-  const messages = store.messages
-    .filter((message) => {
-      const inbox = message.toUserId === authenticated.id;
-      const sent = message.fromUserId === authenticated.id;
-      if (!isMessageVisibleTo(message, authenticated.id)) return false;
-      if (box === "inbox" && !inbox) return false;
-      if (box === "sent" && !sent) return false;
-      if (box === "all" && !inbox && !sent) return false;
-      return !contactId || message.fromUserId === contactId || message.toUserId === contactId;
-    })
-    .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
-    .slice(0, limit)
-    .reverse()
-    .map((message) => publicMessage(message, store.readStates));
+  const boxFilter = box === "inbox"
+    ? { toUserId: authenticated.id }
+    : box === "sent"
+      ? { fromUserId: authenticated.id }
+      : involving(authenticated.id);
+  const messages = await read(async (db) => {
+    const rows = await db.message.findMany({
+      where: {
+        AND: [
+          boxFilter,
+          visibleTo(authenticated.id),
+          ...(contactId ? [{ OR: [{ fromUserId: contactId }, { toUserId: contactId }] }] : []),
+        ],
+      },
+      include: messageInclude,
+      orderBy: { sentAt: "desc" },
+      take: limit,
+    });
+    const readStates = await readStatesAround(db, authenticated.id);
+    return rows.reverse().map((row) => publicMessage(toMessageRecord(row), readStates));
+  });
   return ok({ messages });
 });
 
@@ -98,23 +114,27 @@ export const POST = route(async (request) => {
     }
   }
 
-  const message = await updateStore((store) => {
-    if (!store.users.some((user) => user.id === toUserId)) {
-      throw new ApiError(404, "recipient_not_found", "Получатель не найден");
-    }
-    const item: MessageRecord = {
-      id: randomUUID(),
-      fromUserId: authenticated.id,
-      toUserId,
-      senderName: authenticated.name,
-      text,
-      kind,
-      ...(options ? { options } : {}),
-      sentAt: new Date().toISOString(),
-    };
-    store.messages.push(item);
-    showConversation(store.hiddenConversations, authenticated.id, toUserId);
-    return publicMessage(item, store.readStates);
+  const message = await write(async (tx) => {
+    const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true } });
+    if (!recipient) throw new ApiError(404, "recipient_not_found", "Получатель не найден");
+    const row = await tx.message.create({
+      data: {
+        id: randomUUID(),
+        fromUserId: authenticated.id,
+        toUserId,
+        senderName: authenticated.name,
+        text,
+        kind,
+        sentAt: new Date().toISOString(),
+        ...(options
+          ? { options: { create: options.map((option, position) => ({ optionId: option.id, label: option.label, position })) } }
+          : {}),
+      },
+      include: messageInclude,
+    });
+    await showConversation(tx, authenticated.id, toUserId);
+    const readStates = await readStatesForChat(tx, authenticated.id);
+    return publicMessage(toMessageRecord(row), readStates);
   });
   await sendPushToUser(message.toUserId, {
     title: message.senderName,
@@ -150,26 +170,19 @@ export const DELETE = route(async (request) => {
   }
 
   const uniqueIds = [...new Set(ids as string[])];
-  const deletedIds = await updateStore((store) => {
-    const requested = new Set(uniqueIds);
-    const accessible = store.messages.filter(
-      (message) => requested.has(message.id) && (
-        message.fromUserId === authenticated.id || message.toUserId === authenticated.id
-      ),
-    );
+  const deletedIds = await write(async (tx) => {
+    const accessible = await tx.message.findMany({
+      where: { id: { in: uniqueIds }, ...involving(authenticated.id) },
+      select: { id: true },
+    });
     if (accessible.length !== uniqueIds.length) {
       throw new ApiError(404, "message_not_found", "Одно или несколько сообщений не найдены");
     }
 
     if (scope === "everyone") {
-      store.messages = store.messages.filter((message) => !requested.has(message.id));
+      await tx.message.deleteMany({ where: { id: { in: uniqueIds } } });
     } else {
-      for (const message of accessible) {
-        message.deletedForUserIds ||= [];
-        if (!message.deletedForUserIds.includes(authenticated.id)) {
-          message.deletedForUserIds.push(authenticated.id);
-        }
-      }
+      await deleteMessagesForUser(tx, uniqueIds, authenticated.id);
     }
     return uniqueIds;
   });

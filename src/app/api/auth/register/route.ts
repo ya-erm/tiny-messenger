@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { createToken, hashToken, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
+import { write } from "@/lib/db";
 import { animalProfileByName, randomAnimalProfile } from "@/lib/names";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
+import { toUserRecord } from "@/lib/store";
 import { cleanNickname, cleanString, validLength, validNickname } from "@/lib/validation";
 
 export const POST = route(async (request) => {
@@ -27,22 +28,22 @@ export const POST = route(async (request) => {
 
   const token = createToken();
   const now = new Date().toISOString();
-  const user = await updateStore((store) => {
-    if (nickname && store.users.some((candidate) => candidate.nickname === nickname)) {
+  const user = await write(async (tx) => {
+    if (nickname && await tx.user.findUnique({ where: { nickname }, select: { id: true } })) {
       throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
     }
-    const item = {
-      id: randomUUID(),
-      name,
-      ...(nickname ? { nickname } : {}),
-      ...(animalProfile?.avatarUrl ? { avatarUrl: animalProfile.avatarUrl } : {}),
-      tokenHash: hashToken(token),
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.users.push(item);
-    return item;
+    return tx.user.create({
+      data: {
+        id: randomUUID(),
+        name,
+        nickname: nickname || null,
+        avatarUrl: animalProfile?.avatarUrl || null,
+        tokenHash: hashToken(token),
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
   });
 
-  return ok({ user: publicUser(user), token }, { status: 201 });
+  return ok({ user: publicUser(toUserRecord(user)), token }, { status: 201 });
 });

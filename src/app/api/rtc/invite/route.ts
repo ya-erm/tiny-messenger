@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
+import { read } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
-import { readStore } from "@/lib/store";
 
 function validInternalToken(value: string) {
   const expected = process.env.MESSENGER_INTERNAL_TOKEN || "";
@@ -21,8 +21,10 @@ export const POST = route(async (request) => {
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
   const fromUserId = typeof body.fromUserId === "string" ? body.fromUserId : "";
   const fromName = typeof body.fromName === "string" ? body.fromName.slice(0, 80) : "Собеседник";
-  const store = await readStore();
-  if (!peerUserId || !sessionId || !fromUserId || !store.users.some((user) => user.id === peerUserId)) {
+  const peer = peerUserId
+    ? await read((db) => db.user.findUnique({ where: { id: peerUserId }, select: { id: true } }))
+    : null;
+  if (!peerUserId || !sessionId || !fromUserId || !peer) {
     throw new ApiError(400, "invalid_invite", "Некорректное приглашение в звонок");
   }
   await sendPushToUser(peerUserId, {

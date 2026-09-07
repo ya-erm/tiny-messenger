@@ -2,21 +2,21 @@ import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { isGroupMember, publicGroup } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { publicGroup } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { GroupRecord } from "@/lib/types";
+import { groupInclude, memberOf, toGroupRecord } from "@/lib/store";
 import { cleanString, isUuid, validLength } from "@/lib/validation";
 
 export const GET = route(async (request) => {
   assertRateLimit(request, true);
   const authenticated = await authenticate(request);
-  const store = await readStore();
-  const groups = store.groups
-    .filter((group) => isGroupMember(group, authenticated.id))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((group) => publicGroup(group, store.users));
-  return ok({ groups });
+  const rows = await read((db) => db.group.findMany({
+    where: memberOf(authenticated.id),
+    include: groupInclude,
+    orderBy: { updatedAt: "desc" },
+  }));
+  return ok({ groups: rows.map((row) => publicGroup(toGroupRecord(row))) });
 });
 
 export const POST = route(async (request) => {
@@ -40,22 +40,22 @@ export const POST = route(async (request) => {
     throw new ApiError(422, "too_many_members", `В группе не может быть больше ${LIMITS.groupMembersMax} участников`);
   }
 
-  const group = await updateStore((store) => {
-    const missing = memberIds.filter((id) => !store.users.some((user) => user.id === id));
-    if (missing.length > 0) {
+  const group = await write(async (tx) => {
+    const known = await tx.user.count({ where: { id: { in: memberIds } } });
+    if (known !== memberIds.length) {
       throw new ApiError(404, "user_not_found", "Один или несколько участников не найдены");
     }
     const now = new Date().toISOString();
-    const item: GroupRecord = {
-      id: randomUUID(),
-      name,
-      ownerId: authenticated.id,
-      memberIds,
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.groups.push(item);
-    return publicGroup(item, store.users);
+    const id = randomUUID();
+    await tx.group.create({
+      data: { id, name, ownerId: authenticated.id, createdAt: now, updatedAt: now },
+    });
+    // One row at a time so `seq` follows the requested order (owner first).
+    for (const userId of memberIds) {
+      await tx.groupMember.create({ data: { groupId: id, userId } });
+    }
+    const row = await tx.group.findUniqueOrThrow({ where: { id }, include: groupInclude });
+    return publicGroup(toGroupRecord(row));
   });
   return ok({ group }, { status: 201 });
 });

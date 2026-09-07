@@ -2,11 +2,18 @@ import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { isGroupMember, isMessageVisibleTo, publicGroupMessage } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { publicGroupMessage } from "@/lib/domain";
 import { sendPushToUser } from "@/lib/push";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { GroupMessageRecord } from "@/lib/types";
+import {
+  deleteGroupMessagesForUser,
+  findGroupForMember,
+  memberOf,
+  readStatesForChat,
+  toGroupMessageRecord,
+  visibleTo,
+} from "@/lib/store";
 import { cleanString, isUuid, validLength } from "@/lib/validation";
 
 export const GET = route(async (request) => {
@@ -20,17 +27,17 @@ export const GET = route(async (request) => {
     : 50;
   if (!isUuid(groupId)) throw new ApiError(400, "invalid_group_id", "Некорректный UUID группы");
 
-  const store = await readStore();
-  const group = store.groups.find((candidate) => candidate.id === groupId);
-  if (!group || !isGroupMember(group, authenticated.id)) {
-    throw new ApiError(404, "group_not_found", "Группа не найдена");
-  }
-  const messages = store.groupMessages
-    .filter((message) => message.groupId === groupId && isMessageVisibleTo(message, authenticated.id))
-    .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
-    .slice(0, limit)
-    .reverse()
-    .map((message) => publicGroupMessage(message, group, store.readStates));
+  const messages = await read(async (db) => {
+    const group = await findGroupForMember(db, groupId, authenticated.id);
+    if (!group) throw new ApiError(404, "group_not_found", "Группа не найдена");
+    const rows = await db.groupMessage.findMany({
+      where: { groupId, ...visibleTo(authenticated.id) },
+      orderBy: { sentAt: "desc" },
+      take: limit,
+    });
+    const readStates = await readStatesForChat(db, groupId);
+    return rows.reverse().map((row) => publicGroupMessage(toGroupMessageRecord(row), group, readStates));
+  });
   return ok({ messages });
 });
 
@@ -47,21 +54,21 @@ export const POST = route(async (request) => {
     throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
   }
 
-  const { message, group } = await updateStore((store) => {
-    const found = store.groups.find((candidate) => candidate.id === groupId);
-    if (!found || !isGroupMember(found, authenticated.id)) {
-      throw new ApiError(404, "group_not_found", "Группа не найдена");
-    }
-    const item: GroupMessageRecord = {
-      id: randomUUID(),
-      groupId,
-      fromUserId: authenticated.id,
-      senderName: authenticated.name,
-      text,
-      sentAt: new Date().toISOString(),
-    };
-    store.groupMessages.push(item);
-    return { message: publicGroupMessage(item, found, store.readStates), group: found };
+  const { message, group } = await write(async (tx) => {
+    const found = await findGroupForMember(tx, groupId, authenticated.id);
+    if (!found) throw new ApiError(404, "group_not_found", "Группа не найдена");
+    const row = await tx.groupMessage.create({
+      data: {
+        id: randomUUID(),
+        groupId,
+        fromUserId: authenticated.id,
+        senderName: authenticated.name,
+        text,
+        sentAt: new Date().toISOString(),
+      },
+    });
+    const readStates = await readStatesForChat(tx, groupId);
+    return { message: publicGroupMessage(toGroupMessageRecord(row), found, readStates), group: found };
   });
 
   const recipients = group.memberIds.filter((id) => id !== authenticated.id);
@@ -98,14 +105,11 @@ export const DELETE = route(async (request) => {
   }
 
   const uniqueIds = [...new Set(ids as string[])];
-  const deletedIds = await updateStore((store) => {
-    const requested = new Set(uniqueIds);
-    const memberOf = new Set(
-      store.groups.filter((group) => isGroupMember(group, authenticated.id)).map((group) => group.id),
-    );
-    const accessible = store.groupMessages.filter(
-      (message) => requested.has(message.id) && memberOf.has(message.groupId),
-    );
+  const deletedIds = await write(async (tx) => {
+    const accessible = await tx.groupMessage.findMany({
+      where: { id: { in: uniqueIds }, group: memberOf(authenticated.id) },
+      select: { id: true, fromUserId: true },
+    });
     if (accessible.length !== uniqueIds.length) {
       throw new ApiError(404, "message_not_found", "Одно или несколько сообщений не найдены");
     }
@@ -116,14 +120,9 @@ export const DELETE = route(async (request) => {
       if (accessible.some((message) => message.fromUserId !== authenticated.id)) {
         throw new ApiError(403, "not_message_author", "Удалить у всех можно только свои сообщения");
       }
-      store.groupMessages = store.groupMessages.filter((message) => !requested.has(message.id));
+      await tx.groupMessage.deleteMany({ where: { id: { in: uniqueIds } } });
     } else {
-      for (const message of accessible) {
-        message.deletedForUserIds ||= [];
-        if (!message.deletedForUserIds.includes(authenticated.id)) {
-          message.deletedForUserIds.push(authenticated.id);
-        }
-      }
+      await deleteGroupMessagesForUser(tx, uniqueIds, authenticated.id);
     }
     return uniqueIds;
   });

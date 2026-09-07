@@ -1,19 +1,30 @@
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
+import { read, write } from "@/lib/db";
+import type { Db } from "@/lib/db";
 import {
-  advanceReadState,
   findReadState,
-  isGroupMember,
-  isMessageVisibleTo,
   messageStatus,
   publicGroup,
   publicGroupMessage,
   publicMessage,
 } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { PublicContact, StoreData } from "@/lib/types";
+import {
+  advanceReadState,
+  groupInclude,
+  involving,
+  memberOf,
+  messageInclude,
+  readStatesAround,
+  toGroupMessageRecord,
+  toGroupRecord,
+  toMessageRecord,
+  toUserRecord,
+  visibleTo,
+} from "@/lib/store";
+import type { PublicContact } from "@/lib/types";
 
 export const POST = route(async (request) => {
   assertRateLimit(request, true);
@@ -25,84 +36,96 @@ export const POST = route(async (request) => {
     : 100;
   const now = new Date().toISOString();
 
-  const selectMessages = (store: StoreData) => store.messages
-    .filter(
-      (message) =>
-        (message.fromUserId === authenticated.id || message.toUserId === authenticated.id)
-        && isMessageVisibleTo(message, authenticated.id),
-    )
-    .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
-    .slice(0, limit)
-    .reverse();
+  const load = async (db: Db) => {
+    const groups = (await db.group.findMany({
+      where: memberOf(authenticated.id),
+      include: groupInclude,
+    })).map(toGroupRecord);
+    const groupIds = groups.map((group) => group.id);
 
-  const selectGroups = (store: StoreData) => store.groups
-    .filter((group) => isGroupMember(group, authenticated.id));
+    const [contacts, messages, groupMessages, hidden, readStates] = await Promise.all([
+      db.contact.findMany({ where: { ownerId: authenticated.id }, include: { user: true } }),
+      db.message.findMany({
+        where: { ...involving(authenticated.id), ...visibleTo(authenticated.id) },
+        include: messageInclude,
+        orderBy: { sentAt: "desc" },
+        take: limit,
+      }),
+      db.groupMessage.findMany({
+        where: { groupId: { in: groupIds }, ...visibleTo(authenticated.id) },
+        orderBy: { sentAt: "desc" },
+        take: limit,
+      }),
+      db.hiddenConversation.findMany({ where: { ownerId: authenticated.id }, select: { peerId: true } }),
+      readStatesAround(db, authenticated.id, groupIds),
+    ]);
 
-  const selectGroupMessages = (store: StoreData) => {
-    const groupIds = new Set(selectGroups(store).map((group) => group.id));
-    return store.groupMessages
-      .filter((message) => groupIds.has(message.groupId) && isMessageVisibleTo(message, authenticated.id))
-      .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
-      .slice(0, limit)
-      .reverse();
+    return {
+      groups,
+      contacts,
+      messages: messages.reverse().map(toMessageRecord),
+      groupMessages: groupMessages.reverse().map(toGroupMessageRecord),
+      hiddenPeerIds: hidden.map((item) => item.peerId),
+      readStates,
+    };
   };
+
+  type Loaded = Awaited<ReturnType<typeof load>>;
 
   // Everything incoming that the reader has not yet been marked as having
   // received, keyed by chat and reduced to the newest sentAt per chat.
-  const pendingDeliveries = (store: StoreData) => {
+  const pendingDeliveries = (loaded: Loaded) => {
     const marks = new Map<string, string>();
     const note = (chatId: string, sentAt: string) => {
       const current = marks.get(chatId);
       if (!current || current < sentAt) marks.set(chatId, sentAt);
     };
-    for (const message of selectMessages(store)) {
-      if (message.toUserId === authenticated.id && messageStatus(message, store.readStates) === "sent") {
+    for (const message of loaded.messages) {
+      if (message.toUserId === authenticated.id && messageStatus(message, loaded.readStates) === "sent") {
         note(message.fromUserId, message.sentAt);
       }
     }
-    for (const message of selectGroupMessages(store)) {
+    for (const message of loaded.groupMessages) {
       if (message.fromUserId === authenticated.id) continue;
-      const state = findReadState(store.readStates, authenticated.id, message.groupId);
+      const state = findReadState(loaded.readStates, authenticated.id, message.groupId);
       if (!state?.lastDeliveredAt || state.lastDeliveredAt < message.sentAt) note(message.groupId, message.sentAt);
     }
     return marks;
   };
 
-  const createPayload = (store: StoreData) => {
-    const contacts = store.contacts
-      .filter((contact) => contact.ownerId === authenticated.id)
-      .flatMap((contact): PublicContact[] => {
-        const user = store.users.find((candidate) => candidate.id === contact.userId);
-        return user ? [{ ...contact, user: publicUser(user) }] : [];
-      })
+  const createPayload = (loaded: Loaded) => {
+    const contacts = loaded.contacts
+      .map((contact): PublicContact => ({
+        userId: contact.userId,
+        user: publicUser(toUserRecord(contact.user)),
+        createdAt: contact.createdAt,
+        updatedAt: contact.updatedAt,
+      }))
       .sort((a, b) => a.user.name.localeCompare(b.user.name, "ru"));
-    const groups = selectGroups(store);
 
     return {
       contacts,
-      messages: selectMessages(store).map((message) => publicMessage(message, store.readStates)),
-      hiddenPeerIds: store.hiddenConversations
-        .filter((item) => item.ownerId === authenticated.id)
-        .map((item) => item.peerId),
-      groups: groups.map((group) => publicGroup(group, store.users)),
-      groupMessages: selectGroupMessages(store).flatMap((message) => {
-        const group = groups.find((candidate) => candidate.id === message.groupId);
-        return group ? [publicGroupMessage(message, group, store.readStates)] : [];
+      messages: loaded.messages.map((message) => publicMessage(message, loaded.readStates)),
+      hiddenPeerIds: loaded.hiddenPeerIds,
+      groups: loaded.groups.map(publicGroup),
+      groupMessages: loaded.groupMessages.flatMap((message) => {
+        const group = loaded.groups.find((candidate) => candidate.id === message.groupId);
+        return group ? [publicGroupMessage(message, group, loaded.readStates)] : [];
       }),
-      readStates: store.readStates
+      readStates: loaded.readStates
         .filter((state) => state.userId === authenticated.id)
         .map(({ chatId, lastDeliveredAt, lastReadAt }) => ({ chatId, lastDeliveredAt, lastReadAt })),
       syncedAt: now,
     };
   };
 
-  const snapshot = await readStore();
+  const snapshot = await read(load);
   const payload = pendingDeliveries(snapshot).size > 0
-    ? await updateStore((store) => {
-      for (const [chatId, sentAt] of pendingDeliveries(store)) {
-        advanceReadState(store.readStates, authenticated.id, chatId, { deliveredAt: sentAt });
+    ? await write(async (tx) => {
+      for (const [chatId, sentAt] of pendingDeliveries(await load(tx))) {
+        await advanceReadState(tx, authenticated.id, chatId, { deliveredAt: sentAt });
       }
-      return createPayload(store);
+      return createPayload(await load(tx));
     })
     : createPayload(snapshot);
 

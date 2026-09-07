@@ -1,8 +1,16 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { advanceReadState, isGroupMember, isMessageVisibleTo, publicGroupMessage } from "@/lib/domain";
+import { write } from "@/lib/db";
+import { publicGroupMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
+import {
+  advanceReadState,
+  groupInclude,
+  readStatesForChat,
+  toGroupMessageRecord,
+  toGroupRecord,
+  visibleTo,
+} from "@/lib/store";
 import { isUuid } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
@@ -18,17 +26,18 @@ export const PATCH = route<Context>(async (request, { params }) => {
   if (status !== "delivered" && status !== "read") {
     throw new ApiError(422, "invalid_status", "Статус должен быть delivered или read");
   }
-  const message = await updateStore((store) => {
-    const item = store.groupMessages.find((candidate) => candidate.id === id);
-    const group = item ? store.groups.find((candidate) => candidate.id === item.groupId) : undefined;
-    if (!item || !group || !isGroupMember(group, authenticated.id) || !isMessageVisibleTo(item, authenticated.id)) {
-      throw new ApiError(404, "message_not_found", "Сообщение не найдено");
-    }
-    advanceReadState(store.readStates, authenticated.id, group.id, {
-      deliveredAt: item.sentAt,
-      ...(status === "read" ? { readAt: item.sentAt } : {}),
+  const message = await write(async (tx) => {
+    const row = await tx.groupMessage.findFirst({
+      where: { id, group: { members: { some: { userId: authenticated.id } } }, ...visibleTo(authenticated.id) },
+      include: { group: { include: groupInclude } },
     });
-    return publicGroupMessage(item, group, store.readStates);
+    if (!row) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
+    await advanceReadState(tx, authenticated.id, row.groupId, {
+      deliveredAt: row.sentAt,
+      ...(status === "read" ? { readAt: row.sentAt } : {}),
+    });
+    const readStates = await readStatesForChat(tx, row.groupId);
+    return publicGroupMessage(toGroupMessageRecord(row), toGroupRecord(row.group), readStates);
   });
   return ok({ message });
 });

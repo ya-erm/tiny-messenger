@@ -8,7 +8,6 @@ import type {
   PublicMessage,
   PublicUser,
   ReadStateRecord,
-  StoreData,
   UserRecord,
 } from "@/lib/types";
 
@@ -27,27 +26,26 @@ export function findReadState(readStates: ReadStateRecord[], userId: string, cha
   return readStates.find((item) => item.userId === userId && item.chatId === chatId);
 }
 
+export interface ReadMarks {
+  deliveredAt?: string;
+  readAt?: string;
+}
+
 // Cursors only move forward: marking an older message read must not un-read the
 // newer ones already covered. ISO timestamps compare correctly as strings.
-export function advanceReadState(
-  readStates: ReadStateRecord[],
-  userId: string,
-  chatId: string,
-  marks: { deliveredAt?: string; readAt?: string },
-) {
-  let state = findReadState(readStates, userId, chatId);
-  if (!state) {
-    state = { userId, chatId };
-    readStates.push(state);
-  }
+export function nextReadState(
+  current: Pick<ReadStateRecord, "lastDeliveredAt" | "lastReadAt"> | undefined,
+  marks: ReadMarks,
+): Pick<ReadStateRecord, "lastDeliveredAt" | "lastReadAt"> {
+  let { lastDeliveredAt, lastReadAt } = current ?? {};
   const deliveredAt = [marks.deliveredAt, marks.readAt].filter((value): value is string => Boolean(value)).sort().at(-1);
-  if (deliveredAt && (!state.lastDeliveredAt || state.lastDeliveredAt < deliveredAt)) {
-    state.lastDeliveredAt = deliveredAt;
+  if (deliveredAt && (!lastDeliveredAt || lastDeliveredAt < deliveredAt)) {
+    lastDeliveredAt = deliveredAt;
   }
-  if (marks.readAt && (!state.lastReadAt || state.lastReadAt < marks.readAt)) {
-    state.lastReadAt = marks.readAt;
+  if (marks.readAt && (!lastReadAt || lastReadAt < marks.readAt)) {
+    lastReadAt = marks.readAt;
   }
-  return state;
+  return { lastDeliveredAt, lastReadAt };
 }
 
 function receiptFor(state: ReadStateRecord | undefined, sentAt: string): MessageStatus {
@@ -66,54 +64,7 @@ export function isUnread(status: MessageStatus) {
 }
 
 export function publicMessage(message: MessageRecord, readStates: ReadStateRecord[]): PublicMessage {
-  const { deletedForUserIds: _deletedForUserIds, ...visibleFields } = message;
-  return { ...visibleFields, status: messageStatus(message, readStates) };
-}
-
-export function isMessageVisibleTo(message: { deletedForUserIds?: string[] }, userId: string) {
-  return !message.deletedForUserIds?.includes(userId);
-}
-
-export function isConversationMessage(message: MessageRecord, firstUserId: string, secondUserId: string) {
-  return (
-    (message.fromUserId === firstUserId && message.toUserId === secondUserId)
-    || (message.fromUserId === secondUserId && message.toUserId === firstUserId)
-  );
-}
-
-export function hideConversation(
-  hiddenConversations: StoreData["hiddenConversations"],
-  ownerId: string,
-  peerId: string,
-  hiddenAt: string,
-) {
-  const existing = hiddenConversations.find(
-    (item) => item.ownerId === ownerId && item.peerId === peerId,
-  );
-  if (existing) existing.hiddenAt = hiddenAt;
-  else hiddenConversations.push({ ownerId, peerId, hiddenAt });
-}
-
-export function showConversation(
-  hiddenConversations: StoreData["hiddenConversations"],
-  firstUserId: string,
-  secondUserId: string,
-) {
-  showConversationForUser(hiddenConversations, firstUserId, secondUserId);
-  showConversationForUser(hiddenConversations, secondUserId, firstUserId);
-}
-
-export function showConversationForUser(
-  hiddenConversations: StoreData["hiddenConversations"],
-  ownerId: string,
-  peerId: string,
-) {
-  for (let index = hiddenConversations.length - 1; index >= 0; index -= 1) {
-    const item = hiddenConversations[index];
-    if (item.ownerId === ownerId && item.peerId === peerId) {
-      hiddenConversations.splice(index, 1);
-    }
-  }
+  return { ...message, status: messageStatus(message, readStates) };
 }
 
 export function canAccessMessage(user: UserRecord, message: MessageRecord) {
@@ -131,18 +82,14 @@ export function isGroupMember(group: GroupRecord, userId: string) {
   return group.memberIds.includes(userId);
 }
 
-export function publicGroup(group: GroupRecord, users: UserRecord[]): PublicGroup {
-  const members = group.memberIds.flatMap((id) => {
-    const user = users.find((candidate) => candidate.id === id);
-    return user ? [publicUser(user)] : [];
-  });
+export function publicGroup(group: GroupRecord): PublicGroup {
   return {
     id: group.id,
     name: group.name,
     ...(group.avatarUrl ? { avatarUrl: group.avatarUrl } : {}),
     ...(group.avatarBackground ? { avatarBackground: group.avatarBackground } : {}),
     ownerId: group.ownerId,
-    members,
+    members: group.members.map(publicUser),
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
   };
@@ -172,6 +119,5 @@ export function publicGroupMessage(
   group: GroupRecord,
   readStates: ReadStateRecord[],
 ): PublicGroupMessage {
-  const { deletedForUserIds: _deletedForUserIds, ...visibleFields } = message;
-  return { ...visibleFields, status: groupMessageStatus(message, group, readStates) };
+  return { ...message, status: groupMessageStatus(message, group, readStates) };
 }

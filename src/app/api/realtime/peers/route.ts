@@ -1,24 +1,27 @@
 import { ok, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { isMessageVisibleTo } from "@/lib/domain";
+import { read } from "@/lib/db";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore } from "@/lib/store";
+import { involving, visibleTo } from "@/lib/store";
 
 export const GET = route(async (request) => {
   assertRateLimit(request, true);
   const authenticated = await authenticate(request);
-  const store = await readStore();
-  const userIds = new Set(
-    store.contacts
-      .filter((contact) => contact.ownerId === authenticated.id)
-      .map((contact) => contact.userId),
-  );
+  const userIds = await read(async (db) => {
+    const [contacts, pairs] = await Promise.all([
+      db.contact.findMany({ where: { ownerId: authenticated.id }, select: { userId: true } }),
+      db.message.findMany({
+        where: { ...involving(authenticated.id), ...visibleTo(authenticated.id) },
+        select: { fromUserId: true, toUserId: true },
+        distinct: ["fromUserId", "toUserId"],
+      }),
+    ]);
+    const ids = new Set(contacts.map((contact) => contact.userId));
+    for (const pair of pairs) {
+      ids.add(pair.fromUserId === authenticated.id ? pair.toUserId : pair.fromUserId);
+    }
+    return [...ids].sort();
+  });
 
-  for (const message of store.messages) {
-    if (!isMessageVisibleTo(message, authenticated.id)) continue;
-    if (message.fromUserId === authenticated.id) userIds.add(message.toUserId);
-    if (message.toUserId === authenticated.id) userIds.add(message.fromUserId);
-  }
-
-  return ok({ userIds: [...userIds].sort() });
+  return ok({ userIds });
 });

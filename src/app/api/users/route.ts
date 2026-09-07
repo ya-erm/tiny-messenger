@@ -1,8 +1,9 @@
 import { ApiError, ok, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
+import { read } from "@/lib/db";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore } from "@/lib/store";
+import { toUserRecord } from "@/lib/store";
 import { cleanNickname, cleanString, validLength, validNickname } from "@/lib/validation";
 
 const MAX_SEARCH_QUERY_LENGTH = Math.max(36, LIMITS.name, LIMITS.nickname + 1);
@@ -27,14 +28,13 @@ export const GET = route(async (request) => {
   const nickname = cleanNickname(searchParams.get("nickname"));
 
   if (hasQuery) {
-    const store = await readStore();
     if (!rawQuery) {
-      const users = store.users
-        .filter((candidate) => candidate.id !== authenticated.id && candidate.nickname)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .slice(0, 8)
-        .map(publicUser);
-      return ok({ users });
+      const rows = await read((db) => db.user.findMany({
+        where: { id: { not: authenticated.id }, nickname: { not: null } },
+        orderBy: { updatedAt: "desc" },
+        take: 8,
+      }));
+      return ok({ users: rows.map((row) => publicUser(toUserRecord(row))) });
     }
 
     if (!validLength(rawQuery, 1, MAX_SEARCH_QUERY_LENGTH)) {
@@ -47,9 +47,13 @@ export const GET = route(async (request) => {
     const query = rawQuery.replace(/^@/, "").toLocaleLowerCase("ru");
     if (!query) throw new ApiError(400, "invalid_user_query", "Введите имя, ник или UUID");
 
-    const users = store.users
+    // SQLite's LIKE folds case for ASCII only, so a Cyrillic name would not
+    // match case-insensitively in SQL. The user table is small; rank in JS.
+    const rows = await read((db) => db.user.findMany({ where: { id: { not: authenticated.id } } }));
+    const users = rows
+      .map(toUserRecord)
       .map((candidate) => ({ candidate, rank: searchRank(candidate, query) }))
-      .filter(({ candidate, rank }) => candidate.id !== authenticated.id && Number.isFinite(rank))
+      .filter(({ rank }) => Number.isFinite(rank))
       .sort((left, right) => {
         return left.rank - right.rank
           || left.candidate.name.localeCompare(right.candidate.name, "ru")
@@ -67,8 +71,7 @@ export const GET = route(async (request) => {
       `Ник: до ${LIMITS.nickname} строчных латинских букв, цифр или символов _ . -`,
     );
   }
-  const store = await readStore();
-  const user = store.users.find((candidate) => candidate.nickname === nickname);
+  const user = await read((db) => db.user.findUnique({ where: { nickname } }));
   if (!user) throw new ApiError(404, "user_not_found", "Пользователь с таким ником не найден");
-  return ok({ user: publicUser(user) });
+  return ok({ user: publicUser(toUserRecord(user)) });
 });

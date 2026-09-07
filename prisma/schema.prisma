@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Timestamps are ISO-8601 strings rather than DateTime on purpose. The API
+// already speaks ISO strings, the read/delivery watermarks are compared as
+// strings, and SQLite has no native datetime type anyway: ISO text sorts
+// correctly and works with SQLite's own date functions.
+
+model User {
+  id               String  @id
+  name             String
+  nickname         String? @unique
+  avatarUrl        String?
+  avatarBackground String?
+  tokenHash        String  @unique
+  createdAt        String
+  updatedAt        String
+
+  contacts              Contact[]              @relation("ContactOwner")
+  contactOf             Contact[]              @relation("ContactUser")
+  sentMessages          Message[]              @relation("MessageSender")
+  receivedMessages      Message[]              @relation("MessageRecipient")
+  messageDeletions      MessageDeletion[]
+  ownedGroups           Group[]
+  groupMemberships      GroupMember[]
+  groupMessages         GroupMessage[]
+  groupMessageDeletions GroupMessageDeletion[]
+  readStates            ReadState[]
+  hiddenConversations   HiddenConversation[]   @relation("HiddenOwner")
+  hiddenBy              HiddenConversation[]   @relation("HiddenPeer")
+  pushSubscriptions     PushSubscription[]
+}
+
+model Contact {
+  ownerId   String
+  userId    String
+  createdAt String
+  updatedAt String
+
+  owner User @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  user  User @relation("ContactUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, userId])
+}
+
+model Message {
+  id          String  @id
+  fromUserId  String
+  toUserId    String
+  senderName  String
+  text        String
+  kind        String
+  sentAt      String
+  editedAt    String?
+  answerId    String?
+  answerLabel String?
+  answeredAt  String?
+
+  from      User              @relation("MessageSender", fields: [fromUserId], references: [id], onDelete: Cascade)
+  to        User              @relation("MessageRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+  options   ChoiceOption[]
+  deletions MessageDeletion[]
+
+  @@index([toUserId, sentAt])
+  @@index([fromUserId, sentAt])
+}
+
+model ChoiceOption {
+  messageId String
+  optionId  String
+  label     String
+  position  Int
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, optionId])
+}
+
+// "Deleted for me": the message stays for the other party.
+model MessageDeletion {
+  messageId String
+  userId    String
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+}
+
+model Group {
+  id               String  @id
+  name             String
+  avatarUrl        String?
+  avatarBackground String?
+  ownerId          String
+  createdAt        String
+  updatedAt        String
+
+  owner    User           @relation(fields: [ownerId], references: [id])
+  members  GroupMember[]
+  messages GroupMessage[]
+}
+
+// `seq` keeps join order: members are listed in the order they were added and
+// the earliest remaining member inherits ownership when the owner leaves.
+model GroupMember {
+  seq     Int    @id @default(autoincrement())
+  groupId String
+  userId  String
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model GroupMessage {
+  id         String  @id
+  groupId    String
+  fromUserId String
+  senderName String
+  text       String
+  sentAt     String
+  editedAt   String?
+
+  group     Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  from      User                   @relation(fields: [fromUserId], references: [id], onDelete: Cascade)
+  deletions GroupMessageDeletion[]
+
+  @@index([groupId, sentAt])
+}
+
+model GroupMessageDeletion {
+  messageId String
+  userId    String
+
+  message GroupMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+}
+
+// Delivery and read watermarks per (reader, chat). `chatId` is the peer's user
+// ID for a 1:1 conversation and the group ID for a group, so it is not a
+// foreign key.
+model ReadState {
+  userId          String
+  chatId          String
+  lastDeliveredAt String?
+  lastReadAt      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, chatId])
+}
+
+model HiddenConversation {
+  ownerId  String
+  peerId   String
+  hiddenAt String
+
+  owner User @relation("HiddenOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  peer  User @relation("HiddenPeer", fields: [peerId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, peerId])
+}
+
+model PushSubscription {
+  endpoint       String  @id
+  userId         String
+  expirationTime BigInt?
+  p256dh         String
+  auth           String
+  createdAt      String
+  updatedAt      String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

@@ -1,7 +1,8 @@
 import "server-only";
 
 import webpush from "web-push";
-import { readStore, updateStore } from "@/lib/store";
+import { read, write } from "@/lib/db";
+import { toPushSubscriptionRecord } from "@/lib/store";
 
 export interface PushPayload {
   title: string;
@@ -46,8 +47,8 @@ function configureWebPush() {
 export async function sendPushToUser(userId: string, payload: PushPayload) {
   if (!configureWebPush()) return;
 
-  const store = await readStore();
-  const subscriptions = store.pushSubscriptions.filter((item) => item.userId === userId);
+  const rows = await read((db) => db.pushSubscription.findMany({ where: { userId } }));
+  const subscriptions = rows.map(toPushSubscriptionRecord);
   if (!subscriptions.length) return;
 
   const expiredEndpoints: string[] = [];
@@ -75,11 +76,6 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
   }));
 
   if (expiredEndpoints.length) {
-    const expired = new Set(expiredEndpoints);
-    await updateStore((currentStore) => {
-      currentStore.pushSubscriptions = currentStore.pushSubscriptions.filter(
-        (subscription) => !expired.has(subscription.endpoint),
-      );
-    });
+    await write((tx) => tx.pushSubscription.deleteMany({ where: { endpoint: { in: expiredEndpoints } } }));
   }
 }

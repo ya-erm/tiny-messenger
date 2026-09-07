@@ -1,8 +1,9 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
+import { write } from "@/lib/db";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
+import { toUserRecord } from "@/lib/store";
 import { cleanNickname, cleanString, validAvatarBackground, validHttpUrl, validLength, validNickname } from "@/lib/validation";
 
 export const GET = route(async (request) => {
@@ -39,21 +40,26 @@ export const PATCH = route(async (request) => {
       `Ник: до ${LIMITS.nickname} строчных латинских букв, цифр или символов _ . -`,
     );
   }
-  const user = await updateStore((store) => {
-    const item = store.users.find((candidate) => candidate.id === authenticated.id);
+  const user = await write(async (tx) => {
+    const item = await tx.user.findUnique({ where: { id: authenticated.id }, select: { id: true } });
     if (!item) throw new ApiError(404, "user_not_found", "Пользователь не найден");
-    if (
-      nickname &&
-      store.users.some((candidate) => candidate.id !== authenticated.id && candidate.nickname === nickname)
-    ) {
-      throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
+    if (nickname) {
+      const taken = await tx.user.findFirst({
+        where: { nickname, id: { not: authenticated.id } },
+        select: { id: true },
+      });
+      if (taken) throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
     }
-    item.name = name;
-    item.nickname = nickname || undefined;
-    item.avatarUrl = avatarUrl || undefined;
-    item.avatarBackground = avatarBackground || undefined;
-    item.updatedAt = new Date().toISOString();
-    return item;
+    return tx.user.update({
+      where: { id: authenticated.id },
+      data: {
+        name,
+        nickname: nickname || null,
+        avatarUrl: avatarUrl || null,
+        avatarBackground: avatarBackground || null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
   });
-  return ok({ user: publicUser(user) });
+  return ok({ user: publicUser(toUserRecord(user)) });
 });

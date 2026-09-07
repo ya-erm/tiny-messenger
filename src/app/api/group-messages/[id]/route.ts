@@ -1,22 +1,28 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { canEditGroupMessage, isGroupMember, publicGroupMessage } from "@/lib/domain";
+import { write } from "@/lib/db";
+import { canEditGroupMessage, publicGroupMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
-import type { StoreData } from "@/lib/types";
+import type { Prisma } from "@/generated/prisma/client";
+import {
+  deleteGroupMessagesForUser,
+  groupInclude,
+  readStatesForChat,
+  toGroupMessageRecord,
+  toGroupRecord,
+} from "@/lib/store";
 import { cleanString, isUuid, validLength } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
 
-function findAccessible(store: StoreData, id: string, userId: string) {
-  const index = store.groupMessages.findIndex((candidate) => candidate.id === id);
-  const message = index >= 0 ? store.groupMessages[index] : undefined;
-  const group = message ? store.groups.find((candidate) => candidate.id === message.groupId) : undefined;
-  if (!message || !group || !isGroupMember(group, userId)) {
-    throw new ApiError(404, "message_not_found", "Сообщение не найдено");
-  }
-  return { index, message, group };
+async function findAccessible(tx: Prisma.TransactionClient, id: string, userId: string) {
+  const row = await tx.groupMessage.findFirst({
+    where: { id, group: { members: { some: { userId } } } },
+    include: { group: { include: groupInclude } },
+  });
+  if (!row) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
+  return { message: toGroupMessageRecord(row), group: toGroupRecord(row.group) };
 }
 
 export const PATCH = route<Context>(async (request, { params }) => {
@@ -30,16 +36,19 @@ export const PATCH = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
   }
 
-  const message = await updateStore((store) => {
-    const { message: found, group } = findAccessible(store, id, authenticated.id);
+  const message = await write(async (tx) => {
+    const { message: found, group } = await findAccessible(tx, id, authenticated.id);
     if (!canEditGroupMessage(authenticated, found)) {
       throw new ApiError(403, "message_not_editable", "Можно менять только свои сообщения");
     }
-    if (found.text !== text) {
-      found.text = text;
-      found.editedAt = new Date().toISOString();
-    }
-    return publicGroupMessage(found, group, store.readStates);
+    const row = found.text !== text
+      ? toGroupMessageRecord(await tx.groupMessage.update({
+        where: { id },
+        data: { text, editedAt: new Date().toISOString() },
+      }))
+      : found;
+    const readStates = await readStatesForChat(tx, group.id);
+    return publicGroupMessage(row, group, readStates);
   });
 
   return ok({ message });
@@ -56,19 +65,16 @@ export const DELETE = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_delete_scope", "scope должен быть me или everyone");
   }
 
-  await updateStore((store) => {
-    const { index, message } = findAccessible(store, id, authenticated.id);
+  await write(async (tx) => {
+    const { message } = await findAccessible(tx, id, authenticated.id);
     if (scope === "everyone") {
       if (message.fromUserId !== authenticated.id) {
         throw new ApiError(403, "not_message_author", "Удалить у всех можно только свои сообщения");
       }
-      store.groupMessages.splice(index, 1);
+      await tx.groupMessage.delete({ where: { id } });
       return;
     }
-    message.deletedForUserIds ||= [];
-    if (!message.deletedForUserIds.includes(authenticated.id)) {
-      message.deletedForUserIds.push(authenticated.id);
-    }
+    await deleteGroupMessagesForUser(tx, [id], authenticated.id);
   });
 
   return ok({ deleted: true, id, scope });

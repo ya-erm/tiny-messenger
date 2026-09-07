@@ -14,7 +14,7 @@
 - голосовые WebRTC-комнаты 1:1 с повторным входом, reconnect и выбором аудиоустройств;
 - presence контактов: «В сети» и сохранённое время последнего подключения;
 - REST polling для ESP и веба, а также WebSocket device adapter на общем HTTP-сервере;
-- атомарное JSON-хранилище, общий minute-window rate limit и отдельная защита от слишком быстрой отправки сообщений;
+- SQLite через Prisma с миграциями и непрерывным бэкапом Litestream в S3, общий minute-window rate limit и отдельная защита от слишком быстрой отправки сообщений;
 - Docker-сборка с единым Next.js custom server для VPS.
 
 Текущие серверные defaults:
@@ -36,7 +36,8 @@ pnpm install
 pnpm dev
 ```
 
-Откройте `http://localhost:3000`. Рабочие данные появятся в `data/store.json` и не попадут в git.
+Откройте `http://localhost:3000`. `pnpm dev` сам генерирует Prisma-клиент и
+накатывает миграции; база появится в `data/messenger.db` и не попадёт в git.
 
 Проверки:
 
@@ -44,6 +45,79 @@ pnpm dev
 pnpm typecheck
 pnpm build
 ```
+
+## База данных и бэкап
+
+Данные лежат в одном файле SQLite (`DATABASE_URL`, по умолчанию
+`file:./data/messenger.db`), приложение работает с ним напрямую через Prisma и
+better-sqlite3 в режиме WAL. Метаданные голосовых комнат и presence остаются в
+`data/realtime.json`.
+
+Схема описана в `prisma/schema.prisma`, история миграций в `prisma/migrations`.
+После изменения схемы создайте миграцию локально и закоммитьте её:
+
+```bash
+pnpm db:migrate --name describe_change
+```
+
+В production миграции применяются автоматически при старте контейнера
+(`prisma migrate deploy` в `docker-entrypoint.sh`), отдельно запускать ничего не
+нужно. `pnpm db:studio` открывает Prisma Studio для просмотра данных.
+
+### Переезд с JSON-хранилища
+
+Если у вас ещё есть `data/store.json` от предыдущих версий, импортируйте его
+один раз в пустую базу:
+
+```bash
+pnpm db:deploy
+pnpm db:import-json
+```
+
+В Docker то же самое делается внутри контейнера после первого запуска новой
+версии (миграции к этому моменту уже применены):
+
+```bash
+docker compose exec -u nextjs messenger node scripts/import-json-store.mjs
+```
+
+`-u nextjs` важен: файлы WAL, созданные от root, приложение потом не сможет
+открыть на запись.
+
+Скрипт отказывается работать, если в базе уже есть пользователи. UUID, токены и
+история сохраняются; сам `store.json` после импорта можно удалить.
+
+### Litestream
+
+Сервис `litestream` в `docker-compose.yml` непрерывно реплицирует базу в любой
+S3-совместимый бакет (Yandex Object Storage, Backblaze B2, Cloudflare R2):
+изменения уходят пачками раз в секунду, полный снимок раз в сутки, хранится
+неделя истории. Сервис включается профилем `backup`, чтобы без настроенного
+бакета он не запускался. Настройки в `deploy/litestream.yml`, доступы и
+профиль в `.env`:
+
+```dotenv
+COMPOSE_PROFILES=backup
+LITESTREAM_ACCESS_KEY_ID=...
+LITESTREAM_SECRET_ACCESS_KEY=...
+LITESTREAM_BUCKET=my-messenger-backup
+LITESTREAM_ENDPOINT=https://storage.yandexcloud.net
+LITESTREAM_REGION=ru-central1
+```
+
+После этого обычный `docker compose up -d` поднимет и Litestream.
+
+Бакет должен быть приватным: в базе лежат хеши токенов и ключи push-подписок,
+а Litestream ничего не шифрует сам. Восстановление на новой машине до запуска
+приложения:
+
+```bash
+docker compose run --rm litestream restore -config /etc/litestream.yml -o /app/data/messenger.db /app/data/messenger.db
+```
+
+Флаг `-timestamp` восстанавливает состояние на момент внутри окна хранения.
+Проверить, что реплика живёт, можно командой
+`docker compose exec litestream litestream snapshots -config /etc/litestream.yml /app/data/messenger.db`.
 
 Smoke-тест ожидает уже запущенный сервер на порту 3107 (либо адрес в `TEST_BASE_URL`) и создаёт двух тестовых пользователей:
 
@@ -163,11 +237,11 @@ pnpm push:keys
 | `POST /api/push` | Сохранить браузерную подписку: `{ "subscription": PushSubscriptionJSON }` |
 | `DELETE /api/push` | Удалить подписку текущего браузера: `{ "endpoint": "https://…" }` |
 
-Подписки хранятся в `store.json`. Сервер автоматически удаляет недействительные
+Подписки хранятся в базе. Сервер автоматически удаляет недействительные
 endpoint-ы после ответов push-сервиса `404` или `410`. При выходе из браузера
 клиент также удаляет свою подписку.
 
-Сервер хранит только SHA-256 хеш токена. После потери токена восстановить доступ без прямого редактирования JSON нельзя.
+Сервер хранит только SHA-256 хеш токена. После потери токена восстановить доступ без прямого редактирования базы нельзя.
 
 ### Контакты
 
@@ -318,7 +392,7 @@ curl -sS -X POST https://example.com/api/messages/poll \
 docker compose up -d --build
 ```
 
-JSON лежит в конкретной папке `./data/store.json` рядом с `docker-compose.yml`. При первом старте entrypoint поправит права каталога, а само приложение продолжит работать не от root. Перед обновлением сервера достаточно скопировать папку `data`. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
+База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). При первом старте entrypoint поправит права каталога и применит миграции, а само приложение продолжит работать не от root. Перед обновлением сервера достаточно убедиться, что Litestream жив, либо снять консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
 
 Compose публикует приложение только на `127.0.0.1:3000`, чтобы порт нельзя было обойти снаружи. Контейнерный reverse proxy может подключаться к сети `<compose-project>_default` и обращаться к сервису как `messenger:3000`.
 

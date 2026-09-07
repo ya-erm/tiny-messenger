@@ -1,135 +1,257 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import path from "node:path";
-import { advanceReadState } from "@/lib/domain";
-import type { MessageRecord, StoreData } from "@/lib/types";
+import type {
+  GroupMessage,
+  Prisma,
+  PushSubscription,
+  ReadState,
+  User,
+} from "@/generated/prisma/client";
+import type { Db } from "@/lib/db";
+import { nextReadState, type ReadMarks } from "@/lib/domain";
+import type {
+  GroupMessageRecord,
+  GroupRecord,
+  MessageKind,
+  MessageRecord,
+  PushSubscriptionRecord,
+  ReadStateRecord,
+  UserRecord,
+} from "@/lib/types";
 
-const initialStore: StoreData = {
-  version: 1,
-  users: [],
-  contacts: [],
-  messages: [],
-  hiddenConversations: [],
-  pushSubscriptions: [],
-  groups: [],
-  groupMessages: [],
-  readStates: [],
-};
+// Row → record mappers. Prisma returns `null` for optional columns; the API and
+// domain code treat "absent" as `undefined` and never emit nulls.
 
-let writeQueue: Promise<void> = Promise.resolve();
-
-function dataFilePath() {
-  const configured = process.env.MESSENGER_DATA_FILE;
-  return path.resolve(
-    /* turbopackIgnore: true */ configured || path.join(process.cwd(), "data", "store.json"),
-  );
+export function toUserRecord(row: User): UserRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    ...(row.nickname ? { nickname: row.nickname } : {}),
+    ...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+    ...(row.avatarBackground ? { avatarBackground: row.avatarBackground } : {}),
+    tokenHash: row.tokenHash,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
-async function ensureStore() {
-  const file = dataFilePath();
-  await mkdir(path.dirname(file), { recursive: true });
+export const messageInclude = {
+  options: { orderBy: { position: "asc" } },
+} satisfies Prisma.MessageInclude;
 
-  try {
-    const handle = await open(/* turbopackIgnore: true */ file, "wx");
-    await handle.writeFile(`${JSON.stringify(initialStore, null, 2)}\n`, "utf8");
-    await handle.close();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-      throw error;
-    }
-  }
+export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+
+export function toMessageRecord(row: MessageRow): MessageRecord {
+  return {
+    id: row.id,
+    fromUserId: row.fromUserId,
+    toUserId: row.toUserId,
+    senderName: row.senderName,
+    text: row.text,
+    kind: row.kind as MessageKind,
+    ...(row.kind === "choice"
+      ? { options: row.options.map((option) => ({ id: option.optionId, label: option.label })) }
+      : {}),
+    sentAt: row.sentAt,
+    ...(row.editedAt ? { editedAt: row.editedAt } : {}),
+    ...(row.answerId && row.answerLabel && row.answeredAt
+      ? { answer: { id: row.answerId, label: row.answerLabel, answeredAt: row.answeredAt } }
+      : {}),
+  };
 }
 
-function validateStore(value: unknown): StoreData {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    (value as StoreData).version !== 1 ||
-    !Array.isArray((value as StoreData).users) ||
-    !Array.isArray((value as StoreData).contacts) ||
-    !Array.isArray((value as StoreData).messages) ||
-    ("hiddenConversations" in value
-      && !Array.isArray((value as StoreData).hiddenConversations)) ||
-    ("pushSubscriptions" in value
-      && !Array.isArray((value as StoreData).pushSubscriptions)) ||
-    ("groups" in value && !Array.isArray((value as StoreData).groups)) ||
-    ("groupMessages" in value && !Array.isArray((value as StoreData).groupMessages)) ||
-    ("readStates" in value && !Array.isArray((value as StoreData).readStates))
-  ) {
-    throw new Error("Messenger data file has an unsupported format");
-  }
+export const groupInclude = {
+  members: { orderBy: { seq: "asc" }, include: { user: true } },
+} satisfies Prisma.GroupInclude;
 
-  const store = value as StoreData;
-  // Added after the initial JSON format shipped. Existing stores are upgraded
-  // in memory and persisted by the next mutation.
-  store.hiddenConversations ||= [];
-  store.pushSubscriptions ||= [];
-  store.groups ||= [];
-  store.groupMessages ||= [];
-  store.readStates ||= [];
-  migrateReadMarks(store);
-  return store;
+export type GroupRow = Prisma.GroupGetPayload<{ include: typeof groupInclude }>;
+
+export function toGroupRecord(row: GroupRow): GroupRecord {
+  const members = row.members.map((member) => toUserRecord(member.user));
+  return {
+    id: row.id,
+    name: row.name,
+    ...(row.avatarUrl ? { avatarUrl: row.avatarUrl } : {}),
+    ...(row.avatarBackground ? { avatarBackground: row.avatarBackground } : {}),
+    ownerId: row.ownerId,
+    memberIds: members.map((member) => member.id),
+    members,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
-type LegacyMessageRecord = MessageRecord & { deliveredAt?: string; readAt?: string };
-
-// Messages used to carry their own deliveredAt/readAt. Fold those into the
-// recipient's watermark, keyed by the message's own sentAt so exactly the marked
-// message and everything before it count as read.
-function migrateReadMarks(store: StoreData) {
-  for (const message of store.messages as LegacyMessageRecord[]) {
-    if (!("deliveredAt" in message) && !("readAt" in message)) continue;
-    const readAt = message.readAt || message.answer?.answeredAt;
-    advanceReadState(store.readStates, message.toUserId, message.fromUserId, {
-      ...(message.deliveredAt ? { deliveredAt: message.sentAt } : {}),
-      ...(readAt ? { readAt: message.sentAt } : {}),
-    });
-    delete message.deliveredAt;
-    delete message.readAt;
-  }
+export function toGroupMessageRecord(row: GroupMessage): GroupMessageRecord {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    fromUserId: row.fromUserId,
+    senderName: row.senderName,
+    text: row.text,
+    sentAt: row.sentAt,
+    ...(row.editedAt ? { editedAt: row.editedAt } : {}),
+  };
 }
 
-export async function readStore(): Promise<StoreData> {
-  await ensureStore();
-  const raw = await readFile(/* turbopackIgnore: true */ dataFilePath(), "utf8");
-  return validateStore(JSON.parse(raw) as unknown);
+export function toReadStateRecord(row: ReadState): ReadStateRecord {
+  return {
+    userId: row.userId,
+    chatId: row.chatId,
+    ...(row.lastDeliveredAt ? { lastDeliveredAt: row.lastDeliveredAt } : {}),
+    ...(row.lastReadAt ? { lastReadAt: row.lastReadAt } : {}),
+  };
 }
 
-async function writeStore(data: StoreData) {
-  const target = dataFilePath();
-  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
-  await mkdir(path.dirname(target), { recursive: true });
-  try {
-    const handle = await open(/* turbopackIgnore: true */ temporary, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await handle.sync();
-    await handle.close();
-    await rename(temporary, target);
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
+export function toPushSubscriptionRecord(row: PushSubscription): PushSubscriptionRecord {
+  return {
+    userId: row.userId,
+    endpoint: row.endpoint,
+    ...(row.expirationTime !== null ? { expirationTime: Number(row.expirationTime) } : {}),
+    keys: { p256dh: row.p256dh, auth: row.auth },
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
-export async function updateStore<T>(
-  mutate: (store: StoreData) => T | Promise<T>,
-): Promise<T> {
-  let result!: T;
-  let failure: unknown;
+// Query fragments.
 
-  writeQueue = writeQueue.then(async () => {
-    try {
-      const store = await readStore();
-      result = await mutate(store);
-      await writeStore(store);
-    } catch (error) {
-      failure = error;
-    }
+// "Deleted for me" hides a message from one party only. Shaped to fit both
+// Message and GroupMessage filters.
+export function visibleTo(userId: string) {
+  return { deletions: { none: { userId } } };
+}
+
+export function involving(userId: string): Prisma.MessageWhereInput {
+  return { OR: [{ fromUserId: userId }, { toUserId: userId }] };
+}
+
+export function conversationBetween(firstUserId: string, secondUserId: string): Prisma.MessageWhereInput {
+  return {
+    OR: [
+      { fromUserId: firstUserId, toUserId: secondUserId },
+      { fromUserId: secondUserId, toUserId: firstUserId },
+    ],
+  };
+}
+
+export function memberOf(userId: string): Prisma.GroupWhereInput {
+  return { members: { some: { userId } } };
+}
+
+// Incoming, unanswered messages the reader's watermark of the given kind has
+// not reached yet: everything from senders without a mark, plus anything newer
+// than the mark for senders that have one.
+export function notCoveredBy(
+  userId: string,
+  readStates: ReadStateRecord[],
+  mark: "lastDeliveredAt" | "lastReadAt",
+): Prisma.MessageWhereInput {
+  const marks = readStates.filter((state) => state.userId === userId && state[mark]);
+  return {
+    toUserId: userId,
+    answerId: null,
+    ...visibleTo(userId),
+    OR: [
+      { fromUserId: { notIn: marks.map((state) => state.chatId) } },
+      ...marks.map((state) => ({ fromUserId: state.chatId, sentAt: { gt: state[mark] } })),
+    ],
+  };
+}
+
+// Read states.
+
+// Everything needed to compute receipts for a user's 1:1 chats: the marks they
+// set as a reader, and the marks their peers set on messages they sent.
+export async function readStatesAround(db: Db, userId: string, groupIds: string[] = []) {
+  const rows = await db.readState.findMany({
+    where: { OR: [{ userId }, { chatId: userId }, ...(groupIds.length ? [{ chatId: { in: groupIds } }] : [])] },
   });
+  return rows.map(toReadStateRecord);
+}
 
-  await writeQueue;
-  if (failure) throw failure;
-  return result;
+export async function readStatesForChat(db: Db, chatId: string) {
+  const rows = await db.readState.findMany({ where: { chatId } });
+  return rows.map(toReadStateRecord);
+}
+
+export async function advanceReadState(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  chatId: string,
+  marks: ReadMarks,
+) {
+  const current = await tx.readState.findUnique({ where: { userId_chatId: { userId, chatId } } });
+  const next = nextReadState(current ? toReadStateRecord(current) : undefined, marks);
+  if (current && current.lastDeliveredAt === (next.lastDeliveredAt ?? null) && current.lastReadAt === (next.lastReadAt ?? null)) {
+    return toReadStateRecord(current);
+  }
+  const row = await tx.readState.upsert({
+    where: { userId_chatId: { userId, chatId } },
+    create: { userId, chatId, lastDeliveredAt: next.lastDeliveredAt, lastReadAt: next.lastReadAt },
+    update: { lastDeliveredAt: next.lastDeliveredAt, lastReadAt: next.lastReadAt },
+  });
+  return toReadStateRecord(row);
+}
+
+// Hidden conversations.
+
+export async function hideConversation(
+  tx: Prisma.TransactionClient,
+  ownerId: string,
+  peerId: string,
+  hiddenAt: string,
+) {
+  await tx.hiddenConversation.upsert({
+    where: { ownerId_peerId: { ownerId, peerId } },
+    create: { ownerId, peerId, hiddenAt },
+    update: { hiddenAt },
+  });
+}
+
+export async function showConversationForUser(tx: Prisma.TransactionClient, ownerId: string, peerId: string) {
+  await tx.hiddenConversation.deleteMany({ where: { ownerId, peerId } });
+}
+
+export async function showConversation(tx: Prisma.TransactionClient, firstUserId: string, secondUserId: string) {
+  await tx.hiddenConversation.deleteMany({
+    where: {
+      OR: [
+        { ownerId: firstUserId, peerId: secondUserId },
+        { ownerId: secondUserId, peerId: firstUserId },
+      ],
+    },
+  });
+}
+
+// "Delete for me" marks.
+
+export async function deleteMessagesForUser(tx: Prisma.TransactionClient, messageIds: string[], userId: string) {
+  const existing = await tx.messageDeletion.findMany({
+    where: { userId, messageId: { in: messageIds } },
+    select: { messageId: true },
+  });
+  const marked = new Set(existing.map((item) => item.messageId));
+  const fresh = messageIds.filter((id) => !marked.has(id));
+  if (fresh.length) {
+    await tx.messageDeletion.createMany({ data: fresh.map((messageId) => ({ messageId, userId })) });
+  }
+}
+
+export async function deleteGroupMessagesForUser(tx: Prisma.TransactionClient, messageIds: string[], userId: string) {
+  const existing = await tx.groupMessageDeletion.findMany({
+    where: { userId, messageId: { in: messageIds } },
+    select: { messageId: true },
+  });
+  const marked = new Set(existing.map((item) => item.messageId));
+  const fresh = messageIds.filter((id) => !marked.has(id));
+  if (fresh.length) {
+    await tx.groupMessageDeletion.createMany({ data: fresh.map((messageId) => ({ messageId, userId })) });
+  }
+}
+
+// Groups.
+
+export async function findGroupForMember(db: Db, groupId: string, userId: string) {
+  const row = await db.group.findFirst({ where: { id: groupId, ...memberOf(userId) }, include: groupInclude });
+  return row ? toGroupRecord(row) : undefined;
 }

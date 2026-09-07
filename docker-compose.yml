@@ -5,7 +5,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      MESSENGER_DATA_FILE: /app/data/store.json
+      DATABASE_URL: file:/app/data/messenger.db
       MESSENGER_REALTIME_FILE: /app/data/realtime.json
       RATE_LIMIT_PUBLIC: 120
       RATE_LIMIT_AUTH: 480
@@ -25,6 +25,30 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Continuous off-site backup of the SQLite database. Runs as the same uid as
+  # the app so it can create its shadow directory next to the database file.
+  # Exactly one Litestream instance may replicate a given database.
+  # Opt-in: set COMPOSE_PROFILES=backup in .env once the bucket is configured.
+  litestream:
+    image: litestream/litestream:0.5.17
+    profiles: ["backup"]
+    restart: unless-stopped
+    user: "1001:1001"
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    environment:
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:-}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:-}
+      LITESTREAM_BUCKET: ${LITESTREAM_BUCKET:-}
+      LITESTREAM_PATH: ${LITESTREAM_PATH:-messenger}
+      LITESTREAM_ENDPOINT: ${LITESTREAM_ENDPOINT:-https://storage.yandexcloud.net}
+      LITESTREAM_REGION: ${LITESTREAM_REGION:-ru-central1}
+    volumes:
+      - ./data:/app/data
+      - ./deploy/litestream.yml:/etc/litestream.yml:ro
+    depends_on:
+      messenger:
+        condition: service_healthy
 
   turn:
     image: coturn/coturn:4.16.0-r0

@@ -1,0 +1,24 @@
+# Litestream continuously replicates the SQLite database to an S3-compatible
+# bucket: changed pages are shipped in batches every `sync-interval`, a full
+# snapshot is uploaded every `snapshot.interval`, and anything older than
+# `snapshot.retention` is pruned. Credentials come from the environment
+# (LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY), the bucket
+# details from LITESTREAM_* variables in docker-compose.yml.
+#
+# The bucket must be private: the database holds user token hashes and push
+# subscription keys. Litestream itself does not encrypt what it uploads.
+
+snapshot:
+  interval: 24h
+  retention: 168h
+
+dbs:
+  - path: /app/data/messenger.db
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      path: ${LITESTREAM_PATH}
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: ${LITESTREAM_REGION}
+      force-path-style: true
+      sync-interval: 1s

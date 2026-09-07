@@ -24,6 +24,8 @@ export interface ChoiceOption {
   label: string;
 }
 
+// "Deleted for me" marks live in their own table and are applied as a query
+// filter, so a record the caller can see never carries them.
 export interface MessageRecord {
   id: string;
   fromUserId: string;
@@ -39,13 +41,6 @@ export interface MessageRecord {
     label: string;
     answeredAt: string;
   };
-  deletedForUserIds?: string[];
-}
-
-export interface HiddenConversationRecord {
-  ownerId: string;
-  peerId: string;
-  hiddenAt: string;
 }
 
 export interface GroupRecord {
@@ -54,7 +49,9 @@ export interface GroupRecord {
   avatarUrl?: string;
   avatarBackground?: string;
   ownerId: string;
+  // In join order; the same order as `members`.
   memberIds: string[];
+  members: UserRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -67,7 +64,6 @@ export interface GroupMessageRecord {
   text: string;
   sentAt: string;
   editedAt?: string;
-  deletedForUserIds?: string[];
 }
 
 // Delivery and read marks are watermarks per (reader, chat) rather than fields on
@@ -93,18 +89,6 @@ export interface PushSubscriptionRecord {
   updatedAt: string;
 }
 
-export interface StoreData {
-  version: 1;
-  users: UserRecord[];
-  contacts: ContactRecord[];
-  messages: MessageRecord[];
-  hiddenConversations: HiddenConversationRecord[];
-  pushSubscriptions: PushSubscriptionRecord[];
-  groups: GroupRecord[];
-  groupMessages: GroupMessageRecord[];
-  readStates: ReadStateRecord[];
-}
-
 export interface PublicUser {
   id: string;
   name: string;
@@ -121,7 +105,7 @@ export interface PublicContact {
   updatedAt: string;
 }
 
-export interface PublicMessage extends Omit<MessageRecord, "deletedForUserIds"> {
+export interface PublicMessage extends MessageRecord {
   status: MessageStatus;
 }
 
@@ -136,6 +120,6 @@ export interface PublicGroup {
   updatedAt: string;
 }
 
-export interface PublicGroupMessage extends Omit<GroupMessageRecord, "deletedForUserIds"> {
+export interface PublicGroupMessage extends GroupMessageRecord {
   status: MessageStatus;
 }

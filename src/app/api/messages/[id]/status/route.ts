@@ -1,8 +1,9 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { advanceReadState, isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { write } from "@/lib/db";
+import { publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
+import { advanceReadState, messageInclude, readStatesForChat, toMessageRecord, visibleTo } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
@@ -19,16 +20,18 @@ export const PATCH = route<Context>(async (request, { params }) => {
   if (status !== "delivered" && status !== "read") {
     throw new ApiError(422, "invalid_status", "Статус должен быть delivered или read");
   }
-  const message = await updateStore((store) => {
-    const item = store.messages.find((candidate) => candidate.id === id);
-    if (!item || item.toUserId !== authenticated.id || !isMessageVisibleTo(item, authenticated.id)) {
-      throw new ApiError(404, "message_not_found", "Входящее сообщение не найдено");
-    }
-    advanceReadState(store.readStates, authenticated.id, item.fromUserId, {
-      deliveredAt: item.sentAt,
-      ...(status === "read" ? { readAt: item.sentAt } : {}),
+  const message = await write(async (tx) => {
+    const row = await tx.message.findFirst({
+      where: { id, toUserId: authenticated.id, ...visibleTo(authenticated.id) },
+      include: messageInclude,
     });
-    return publicMessage(item, store.readStates);
+    if (!row) throw new ApiError(404, "message_not_found", "Входящее сообщение не найдено");
+    await advanceReadState(tx, authenticated.id, row.fromUserId, {
+      deliveredAt: row.sentAt,
+      ...(status === "read" ? { readAt: row.sentAt } : {}),
+    });
+    const readStates = await readStatesForChat(tx, row.fromUserId);
+    return publicMessage(toMessageRecord(row), readStates);
   });
   return ok({ message });
 });

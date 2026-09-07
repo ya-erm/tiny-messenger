@@ -1,8 +1,8 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { hideConversation, isConversationMessage } from "@/lib/domain";
+import { write } from "@/lib/db";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { updateStore } from "@/lib/store";
+import { conversationBetween, deleteMessagesForUser, hideConversation } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
@@ -23,32 +23,28 @@ export const DELETE = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_delete_scope", "scope должен быть me или everyone");
   }
 
-  const result = await updateStore((store) => {
-    if (!store.users.some((user) => user.id === peerId)) {
-      throw new ApiError(404, "user_not_found", "Собеседник не найден");
-    }
+  const result = await write(async (tx) => {
+    const peer = await tx.user.findUnique({ where: { id: peerId }, select: { id: true } });
+    if (!peer) throw new ApiError(404, "user_not_found", "Собеседник не найден");
 
     const now = new Date().toISOString();
-    hideConversation(store.hiddenConversations, authenticated.id, peerId, now);
+    await hideConversation(tx, authenticated.id, peerId, now);
 
     if (mode === "hide") return { hidden: true, deletedCount: 0 };
 
-    const conversationMessages = store.messages.filter((message) =>
-      isConversationMessage(message, authenticated.id, peerId));
+    const conversation = await tx.message.findMany({
+      where: conversationBetween(authenticated.id, peerId),
+      select: { id: true },
+    });
+    const ids = conversation.map((message) => message.id);
     if (scope === "everyone") {
-      const ids = new Set(conversationMessages.map((message) => message.id));
-      store.messages = store.messages.filter((message) => !ids.has(message.id));
-      hideConversation(store.hiddenConversations, peerId, authenticated.id, now);
+      await tx.message.deleteMany({ where: { id: { in: ids } } });
+      await hideConversation(tx, peerId, authenticated.id, now);
     } else {
-      for (const message of conversationMessages) {
-        message.deletedForUserIds ||= [];
-        if (!message.deletedForUserIds.includes(authenticated.id)) {
-          message.deletedForUserIds.push(authenticated.id);
-        }
-      }
+      await deleteMessagesForUser(tx, ids, authenticated.id);
     }
 
-    return { hidden: true, deletedCount: conversationMessages.length };
+    return { hidden: true, deletedCount: ids.length };
   });
 
   return ok({ ...result, mode, ...(mode === "delete_history" ? { scope } : {}) });

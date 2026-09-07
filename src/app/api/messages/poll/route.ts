@@ -1,10 +1,17 @@
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { advanceReadState, isMessageVisibleTo, isUnread, messageStatus, publicMessage } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { messageStatus, publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
-import { readStore, updateStore } from "@/lib/store";
-import type { StoreData } from "@/lib/types";
+import {
+  advanceReadState,
+  messageInclude,
+  notCoveredBy,
+  toMessageRecord,
+  toReadStateRecord,
+} from "@/lib/store";
+import type { Db } from "@/lib/db";
 
 export const POST = route(async (request) => {
   assertRateLimit(request, true);
@@ -17,29 +24,36 @@ export const POST = route(async (request) => {
   const includeDeliveredUnread = body.includeDeliveredUnread !== false;
   const now = new Date().toISOString();
 
-  const selectPending = (store: StoreData) =>
-    store.messages
-      .filter((message) => {
-        if (message.toUserId !== authenticated.id || !isMessageVisibleTo(message, authenticated.id)) return false;
-        const status = messageStatus(message, store.readStates);
-        return isUnread(status) && (includeDeliveredUnread || status === "sent");
-      })
-      .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
-      .slice(0, limit);
+  const selectPending = async (db: Db) => {
+    const readStates = (await db.readState.findMany({ where: { userId: authenticated.id } })).map(toReadStateRecord);
+    const rows = await db.message.findMany({
+      where: notCoveredBy(authenticated.id, readStates, includeDeliveredUnread ? "lastReadAt" : "lastDeliveredAt"),
+      include: messageInclude,
+      orderBy: { sentAt: "asc" },
+      take: limit,
+    });
+    return { readStates, pending: rows.map(toMessageRecord) };
+  };
 
-  const snapshot = await readStore();
-  const snapshotPending = selectPending(snapshot);
-  const needsDeliveryWrite = snapshotPending.some(
+  const snapshot = await read(selectPending);
+  const needsDeliveryWrite = snapshot.pending.some(
     (message) => messageStatus(message, snapshot.readStates) === "sent",
   );
 
-  const messages = needsDeliveryWrite ? await updateStore((store) => {
-    const pending = selectPending(store);
+  const messages = needsDeliveryWrite ? await write(async (tx) => {
+    const { pending } = await selectPending(tx);
+    // One watermark move per sender: the newest pending message covers the rest.
+    const newest = new Map<string, string>();
     for (const message of pending) {
-      advanceReadState(store.readStates, authenticated.id, message.fromUserId, { deliveredAt: message.sentAt });
+      const current = newest.get(message.fromUserId);
+      if (!current || current < message.sentAt) newest.set(message.fromUserId, message.sentAt);
     }
-    return pending.map((message) => publicMessage(message, store.readStates));
-  }) : snapshotPending.map((message) => publicMessage(message, snapshot.readStates));
+    for (const [fromUserId, sentAt] of newest) {
+      await advanceReadState(tx, authenticated.id, fromUserId, { deliveredAt: sentAt });
+    }
+    const readStates = (await tx.readState.findMany({ where: { userId: authenticated.id } })).map(toReadStateRecord);
+    return pending.map((message) => publicMessage(message, readStates));
+  }) : snapshot.pending.map((message) => publicMessage(message, snapshot.readStates));
 
   return ok({ messages, polledAt: now });
 });

@@ -1,8 +1,9 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
-import { readStore } from "@/lib/store";
+import { read } from "@/lib/db";
 import { ApiError } from "@/lib/api";
+import { toUserRecord } from "@/lib/store";
 
 export { publicUser } from "@/lib/domain";
 
@@ -15,10 +16,9 @@ export function createToken() {
 }
 
 export async function authenticateToken(token: string) {
-  const store = await readStore();
-  const user = store.users.find((item) => item.tokenHash === hashToken(token));
+  const user = await read((db) => db.user.findUnique({ where: { tokenHash: hashToken(token) } }));
   if (!user) throw new ApiError(401, "invalid_token", "Токен не найден или был заменён");
-  return user;
+  return toUserRecord(user);
 }
 
 export function tokenFromRequest(request: Request) {
