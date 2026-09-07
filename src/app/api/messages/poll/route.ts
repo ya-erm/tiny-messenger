@@ -1,9 +1,10 @@
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { advanceReadState, isMessageVisibleTo, isUnread, messageStatus, publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
+import type { StoreData } from "@/lib/types";
 
 export const POST = route(async (request) => {
   assertRateLimit(request, true);
@@ -16,30 +17,29 @@ export const POST = route(async (request) => {
   const includeDeliveredUnread = body.includeDeliveredUnread !== false;
   const now = new Date().toISOString();
 
-  const selectPending = (store: Awaited<ReturnType<typeof readStore>>) =>
+  const selectPending = (store: StoreData) =>
     store.messages
-      .filter(
-        (message) =>
-          message.toUserId === authenticated.id &&
-          isMessageVisibleTo(message, authenticated.id) &&
-          !message.readAt &&
-          !message.answer &&
-          (includeDeliveredUnread || !message.deliveredAt),
-      )
+      .filter((message) => {
+        if (message.toUserId !== authenticated.id || !isMessageVisibleTo(message, authenticated.id)) return false;
+        const status = messageStatus(message, store.readStates);
+        return isUnread(status) && (includeDeliveredUnread || status === "sent");
+      })
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
       .slice(0, limit);
 
   const snapshot = await readStore();
   const snapshotPending = selectPending(snapshot);
-  const needsDeliveryWrite = snapshotPending.some((message) => !message.deliveredAt);
+  const needsDeliveryWrite = snapshotPending.some(
+    (message) => messageStatus(message, snapshot.readStates) === "sent",
+  );
 
   const messages = needsDeliveryWrite ? await updateStore((store) => {
     const pending = selectPending(store);
     for (const message of pending) {
-      message.deliveredAt ||= now;
+      advanceReadState(store.readStates, authenticated.id, message.fromUserId, { deliveredAt: message.sentAt });
     }
-    return pending.map(publicMessage);
-  }) : snapshotPending.map(publicMessage);
+    return pending.map((message) => publicMessage(message, store.readStates));
+  }) : snapshotPending.map((message) => publicMessage(message, snapshot.readStates));
 
   return ok({ messages, polledAt: now });
 });

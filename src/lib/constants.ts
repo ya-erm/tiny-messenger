@@ -11,6 +11,9 @@ export const LIMITS = {
   tokenMin: 8,
   tokenMax: 64,
   pageSize: 100,
+  // Groups are web-only, so no device-screen constraint applies here.
+  groupName: 40,
+  groupMembersMax: 50,
 } as const;
 
 export const API_VERSION = 1;

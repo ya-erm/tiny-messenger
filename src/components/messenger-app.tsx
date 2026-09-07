@@ -9,7 +9,7 @@ import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
-import type { PublicContact, PublicMessage, PublicUser } from "@/lib/types";
+import type { MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
 const THEME_KEY = "tiny-messenger:v1:theme";
@@ -83,6 +83,32 @@ type ApiEnvelope<T> = { ok: true; data: T } | {
   error: { code?: string; message: string };
 };
 type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; avatarBackground?: string; saved: boolean };
+// A 1:1 conversation is addressed by the peer's user ID, a group by its own ID.
+type ChatRef = { kind: "peer" | "group"; id: string };
+type ChatEntry = { ref: ChatRef; name: string; avatarUrl?: string; avatarBackground?: string; peer?: Peer; group?: PublicGroup };
+type ChatMessage = PublicMessage | PublicGroupMessage;
+type ReadState = { chatId: string; lastDeliveredAt?: string; lastReadAt?: string };
+
+function isDirectMessage(message: ChatMessage): message is PublicMessage {
+  return "toUserId" in message;
+}
+
+function chatKey(ref: ChatRef) {
+  return `${ref.kind}:${ref.id}`;
+}
+
+function sameChat(a: ChatRef | null, b: ChatRef | null) {
+  return Boolean(a && b && a.kind === b.kind && a.id === b.id);
+}
+
+function pluralize(count: number, forms: [string, string, string]) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const form = mod10 === 1 && mod100 !== 11
+    ? forms[0]
+    : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20) ? forms[1] : forms[2];
+  return `${count} ${form}`;
+}
 type PushState = "checking" | "disabled" | "enabled" | "denied" | "unsupported" | "unconfigured" | "error";
 type PushConfiguration = { configured: boolean; publicKey: string; subscriptionCount: number };
 
@@ -167,7 +193,7 @@ function isStandaloneApp() {
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -177,6 +203,7 @@ function Glyph({ name }: { name: GlyphName }) {
     back: <path d="m15 18-6-6 6-6" />,
     send: <><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>,
     user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+    users: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><circle cx="17" cy="9" r="3" /><path d="M15.5 14.8A5.5 5.5 0 0 1 22 20" /></>,
     refresh: <><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.7-2.6L20 12M4 12l2.2 5.6A7 7 0 0 0 17.9 15" /></>,
     eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></>,
     eyeOff: <><path d="m3 3 18 18" /><path d="M10.6 6.2A11.6 11.6 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-2.1 2.8M6.5 6.5C3.6 8.2 2 12 2 12s3.5 6 10 6a10 10 0 0 0 4.1-.8" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
@@ -224,15 +251,15 @@ function Avatar({ name, avatarUrl, avatarBackground, className }: { name: string
   );
 }
 
-function StatusTicks({ message }: { message: PublicMessage }) {
-  const double = message.status !== "sent";
-  const active = message.status === "read" || message.status === "answered";
+function StatusTicks({ status }: { status: MessageStatus }) {
+  const double = status !== "sent";
+  const active = status === "read" || status === "answered";
   const label = {
     sent: "Отправлено",
     delivered: "Доставлено",
     read: "Прочитано",
     answered: "Получен ответ",
-  }[message.status];
+  }[status];
 
   return (
     <span className={`ticks ${double ? "ticks-double" : ""} ${active ? "ticks-active" : ""}`} data-tooltip={label} aria-label={label}>
@@ -478,10 +505,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [groups, setGroups] = useState<PublicGroup[]>([]);
+  const [groupMessages, setGroupMessages] = useState<PublicGroupMessage[]>([]);
+  const [readStates, setReadStates] = useState<ReadState[]>([]);
+  const [selectedChat, setSelectedChat] = useState<ChatRef | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [membersGroupId, setMembersGroupId] = useState<string | null>(null);
+  const [leaveGroupId, setLeaveGroupId] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const lastNoticeId = useRef(0);
   // Kept as setNotice(text) so the 15 call sites stay untouched; "" clears all.
@@ -505,7 +538,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [messageDeleteIds, setMessageDeleteIds] = useState<string[] | null>(null);
   const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
   const [showConversationActions, setShowConversationActions] = useState(false);
-  const [sidebarActionsPeerId, setSidebarActionsPeerId] = useState<string | null>(null);
+  const [sidebarActionsChat, setSidebarActionsChat] = useState<ChatRef | null>(null);
   const [pushState, setPushState] = useState<PushState>("checking");
   const [pushPublicKey, setPushPublicKey] = useState("");
   const [pushBusy, setPushBusy] = useState(false);
@@ -515,6 +548,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const sidebarActionsRef = useRef<HTMLDivElement>(null);
   const initialPeerSelectionHandledRef = useRef(false);
   const conversationHistoryRef = useRef(false);
+  const readMarkInFlightRef = useRef<string | null>(null);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -598,13 +632,23 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   const refreshState = useCallback(async () => {
     if (!token) return;
-    const data = await request<{ contacts: PublicContact[]; messages: PublicMessage[]; hiddenPeerIds: string[] }>("/api/sync", {
+    const data = await request<{
+      contacts: PublicContact[];
+      messages: PublicMessage[];
+      hiddenPeerIds: string[];
+      groups: PublicGroup[];
+      groupMessages: PublicGroupMessage[];
+      readStates: ReadState[];
+    }>("/api/sync", {
       method: "POST",
       body: JSON.stringify({ limit: 100 }),
     });
     setContacts(data.contacts);
     setMessages(data.messages);
     setHiddenPeerIds(data.hiddenPeerIds);
+    setGroups(data.groups);
+    setGroupMessages(data.groupMessages);
+    setReadStates(data.readStates);
   }, [request, token]);
 
   const refreshPushState = useCallback(async () => {
@@ -672,17 +716,28 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     void addContact(sharedIdentifier);
   }, [phase, user, sharedIdentifier, sharedContactHandled]);
 
-  const conversationSummaries = useMemo(() => {
-    const result = new Map<string, { last: PublicMessage | undefined; unread: number }>();
-    for (const message of messages) {
-      const peerId = message.fromUserId === user?.id ? message.toUserId : message.fromUserId;
-      const summary = result.get(peerId) ?? { last: undefined, unread: 0 };
+  const readCursors = useMemo(
+    () => new Map(readStates.map((state) => [state.chatId, state.lastReadAt ?? ""])),
+    [readStates],
+  );
+
+  // Unread is judged against the reader's own watermark rather than the
+  // message status: in a group the status is the sender-side aggregate.
+  const chatSummaries = useMemo(() => {
+    const result = new Map<string, { last: ChatMessage | undefined; unread: number }>();
+    const note = (ref: ChatRef, message: ChatMessage) => {
+      const key = chatKey(ref);
+      const summary = result.get(key) ?? { last: undefined, unread: 0 };
       summary.last = message;
-      if (message.fromUserId === peerId && message.toUserId === user?.id && !message.readAt) summary.unread += 1;
-      result.set(peerId, summary);
+      if (message.fromUserId !== user?.id && message.sentAt > (readCursors.get(ref.id) ?? "")) summary.unread += 1;
+      result.set(key, summary);
+    };
+    for (const message of messages) {
+      note({ kind: "peer", id: message.fromUserId === user?.id ? message.toUserId : message.fromUserId }, message);
     }
+    for (const message of groupMessages) note({ kind: "group", id: message.groupId }, message);
     return result;
-  }, [messages, user?.id]);
+  }, [groupMessages, messages, readCursors, user?.id]);
 
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
@@ -705,54 +760,60 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       }
     }
     const hidden = new Set(hiddenPeerIds);
-    return Array.from(result.values())
-      .filter((peer) => !hidden.has(peer.id))
-      .sort((a, b) => {
-        const aLast = conversationSummaries.get(a.id)?.last;
-        const bLast = conversationSummaries.get(b.id)?.last;
-        if (aLast && bLast) return bLast.sentAt.localeCompare(aLast.sentAt);
-        if (aLast) return -1;
-        if (bLast) return 1;
-        return a.name.localeCompare(b.name, "ru");
-      });
-  }, [contacts, conversationSummaries, hiddenPeerIds, messages, user?.id]);
+    return Array.from(result.values()).filter((peer) => !hidden.has(peer.id));
+  }, [contacts, hiddenPeerIds, messages, user?.id]);
+
+  const chats = useMemo<ChatEntry[]>(() => {
+    const entries: ChatEntry[] = [
+      ...peers.map((peer): ChatEntry => ({ ref: { kind: "peer", id: peer.id }, name: peer.name, avatarUrl: peer.avatarUrl, avatarBackground: peer.avatarBackground, peer })),
+      ...groups.map((group): ChatEntry => ({ ref: { kind: "group", id: group.id }, name: group.name, avatarUrl: group.avatarUrl, avatarBackground: group.avatarBackground, group })),
+    ];
+    return entries.sort((a, b) => {
+      const aLast = chatSummaries.get(chatKey(a.ref))?.last;
+      const bLast = chatSummaries.get(chatKey(b.ref))?.last;
+      if (aLast && bLast) return bLast.sentAt.localeCompare(aLast.sentAt);
+      if (aLast) return -1;
+      if (bLast) return 1;
+      return a.name.localeCompare(b.name, "ru");
+    });
+  }, [chatSummaries, groups, peers]);
 
   useEffect(() => {
-    if (initialPeerSelectionHandledRef.current || peers.length === 0) return;
+    if (initialPeerSelectionHandledRef.current || chats.length === 0) return;
     initialPeerSelectionHandledRef.current = true;
 
-    if (!selectedId && !window.matchMedia("(max-width: 800px)").matches) {
-      setSelectedId(peers[0].id);
+    if (!selectedChat && !window.matchMedia("(max-width: 800px)").matches) {
+      setSelectedChat(chats[0].ref);
     }
-  }, [peers, selectedId]);
+  }, [chats, selectedChat]);
 
   useEffect(() => {
-    if (selectedId === null) setSelectedMessageIds(null);
+    if (selectedChat === null) setSelectedMessageIds(null);
     setShowConversationActions(false);
-  }, [selectedId]);
+  }, [selectedChat]);
 
   // On a phone the conversation replaces the list, so it is its own screen and
   // deserves a history entry: that is what the iOS edge swipe and the Android
   // back button act on. Switching between conversations reuses the one entry.
   useEffect(() => {
-    if (selectedId && !conversationHistoryRef.current && window.matchMedia("(max-width: 800px)").matches) {
+    if (selectedChat && !conversationHistoryRef.current && window.matchMedia("(max-width: 800px)").matches) {
       window.history.pushState({ conversationOpen: true }, "");
       conversationHistoryRef.current = true;
       return;
     }
-    if (!selectedId && conversationHistoryRef.current) {
+    if (!selectedChat && conversationHistoryRef.current) {
       conversationHistoryRef.current = false;
       // Closed from the header button rather than the gesture: drop our entry so
       // the stack does not grow a dead step for every visit.
       if (window.history.state?.conversationOpen) window.history.back();
     }
-  }, [selectedId]);
+  }, [selectedChat]);
 
   useEffect(() => {
     const onPopState = () => {
       if (!conversationHistoryRef.current) return;
       conversationHistoryRef.current = false;
-      setSelectedId(null);
+      setSelectedChat(null);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -779,15 +840,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }, [showConversationActions]);
 
   useEffect(() => {
-    if (!sidebarActionsPeerId) return;
+    if (!sidebarActionsChat) return;
 
     const closeOnOutsidePress = (event: PointerEvent) => {
       if (!sidebarActionsRef.current?.contains(event.target as Node)) {
-        setSidebarActionsPeerId(null);
+        setSidebarActionsChat(null);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSidebarActionsPeerId(null);
+      if (event.key === "Escape") setSidebarActionsChat(null);
     };
 
     document.addEventListener("pointerdown", closeOnOutsidePress);
@@ -796,15 +857,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       document.removeEventListener("pointerdown", closeOnOutsidePress);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [sidebarActionsPeerId]);
+  }, [sidebarActionsChat]);
 
-  const selectedPeer = peers.find((peer) => peer.id === selectedId) || null;
-  const conversation = messages.filter(
-    (message) =>
-      selectedId &&
-      ((message.fromUserId === user?.id && message.toUserId === selectedId) ||
-        (message.toUserId === user?.id && message.fromUserId === selectedId)),
-  );
+  const selectedEntry = chats.find((entry) => sameChat(entry.ref, selectedChat)) || null;
+  const selectedPeer = selectedEntry?.peer ?? null;
+  const selectedGroup = selectedEntry?.group ?? null;
+  const conversation = useMemo<ChatMessage[]>(() => {
+    if (!selectedChat) return [];
+    if (selectedChat.kind === "group") return groupMessages.filter((message) => message.groupId === selectedChat.id);
+    return messages.filter(
+      (message) =>
+        (message.fromUserId === user?.id && message.toUserId === selectedChat.id) ||
+        (message.toUserId === user?.id && message.fromUserId === selectedChat.id),
+    );
+  }, [groupMessages, messages, selectedChat, user?.id]);
+  const membersGroup = groups.find((group) => group.id === membersGroupId) ?? null;
   const voicePeers = useMemo(() => peers.map((peer) => ({ id: peer.id, name: peer.name })), [peers]);
   const voice = useVoiceExperience({
     token,
@@ -925,7 +992,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     setContacts([]);
     setMessages([]);
     setHiddenPeerIds([]);
-    setSelectedId(null);
+    setGroups([]);
+    setGroupMessages([]);
+    setReadStates([]);
+    setSelectedChat(null);
     setShowSettings(false);
     setPhase("welcome");
   }
@@ -949,7 +1019,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       });
       await refreshState();
       setSelectedMessageIds(null);
-      setSelectedId(data.contact.userId);
+      setSelectedChat({ kind: "peer", id: data.contact.userId });
       setContactFormDefaultId(null);
       setNotice("Контакт добавлен");
     } catch (error) {
@@ -959,22 +1029,66 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
-  async function sendMessage(input: { text: string; kind: "text" | "choice"; left: string; right: string }) {
-    if (!selectedId) return;
+  async function createGroup(name: string, memberIds: string[]) {
     setBusy(true);
     try {
-      await request("/api/messages", {
+      const data = await request<{ group: PublicGroup }>("/api/groups", {
         method: "POST",
-        body: JSON.stringify({
-          toUserId: selectedId,
-          text: input.text,
-          kind: input.kind,
-          ...(input.kind === "choice" ? { options: [
-            { id: "1", label: input.left },
-            { id: "2", label: input.right },
-          ] } : {}),
-        }),
+        body: JSON.stringify({ name, memberIds }),
       });
+      await refreshState();
+      setSelectedMessageIds(null);
+      setSelectedChat({ kind: "group", id: data.group.id });
+      setShowGroupForm(false);
+      setNotice("Группа создана");
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function leaveGroup() {
+    if (!leaveGroupId) return;
+    setBusy(true);
+    try {
+      await request(`/api/groups/${leaveGroupId}`, { method: "DELETE" });
+      setLeaveGroupId(null);
+      setMembersGroupId(null);
+      setSelectedMessageIds(null);
+      if (selectedChat?.kind === "group" && selectedChat.id === leaveGroupId) setSelectedChat(null);
+      await refreshState();
+      setNotice("Вы вышли из группы");
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendMessage(input: { text: string; kind: "text" | "choice"; left: string; right: string }) {
+    if (!selectedChat) return;
+    setBusy(true);
+    try {
+      if (selectedChat.kind === "group") {
+        await request("/api/group-messages", {
+          method: "POST",
+          body: JSON.stringify({ groupId: selectedChat.id, text: input.text }),
+        });
+      } else {
+        await request("/api/messages", {
+          method: "POST",
+          body: JSON.stringify({
+            toUserId: selectedChat.id,
+            text: input.text,
+            kind: input.kind,
+            ...(input.kind === "choice" ? { options: [
+              { id: "1", label: input.left },
+              { id: "2", label: input.right },
+            ] } : {}),
+          }),
+        });
+      }
       await refreshState();
     } catch (error) {
       if (!isMessageRateLimitError(error)) setNotice((error as Error).message);
@@ -984,17 +1098,22 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
-  async function markRead(messageId: string) {
-    try {
-      await request(`/api/messages/${messageId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "read" }),
-      });
-      await refreshState();
-    } catch (error) {
-      setNotice((error as Error).message);
-    }
-  }
+  // Opening a chat reads it: the watermark moves up to the newest incoming
+  // message, which covers everything before it. One request per new message.
+  useEffect(() => {
+    if (!selectedChat || !user || document.visibilityState !== "visible") return;
+    const latest = conversation.filter((message) => message.fromUserId !== user.id).at(-1);
+    if (!latest || latest.sentAt <= (readCursors.get(selectedChat.id) ?? "")) return;
+    if (readMarkInFlightRef.current === latest.id) return;
+    readMarkInFlightRef.current = latest.id;
+    const resource = selectedChat.kind === "group" ? "group-messages" : "messages";
+    void request(`/api/${resource}/${latest.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "read" }),
+    })
+      .then(() => refreshState())
+      .catch(() => { readMarkInFlightRef.current = null; });
+  }, [conversation, readCursors, refreshState, request, selectedChat, user]);
 
   async function answer(messageId: string, optionId: string) {
     try {
@@ -1021,7 +1140,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     if (!messageDeleteIds?.length) return;
     setBusy(true);
     try {
-      await request("/api/messages", {
+      await request(selectedChat?.kind === "group" ? "/api/group-messages" : "/api/messages", {
         method: "DELETE",
         body: JSON.stringify({ ids: messageDeleteIds, scope }),
       });
@@ -1057,7 +1176,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   // overflow-y, which would clip a menu opened on the last message.
   const openMessageMenu = (messageId: string, bubble: HTMLElement) => {
     const rect = bubble.getBoundingClientRect();
-    const outgoing = messages.find((message) => message.id === messageId)?.fromUserId === user?.id;
+    const outgoing = conversation.find((message) => message.id === messageId)?.fromUserId === user?.id;
     const above = window.innerHeight - rect.bottom < 130;
     setMessageMenu({
       id: messageId,
@@ -1081,18 +1200,23 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   // whenever the selection was in fact yours and merely too large.
   const editTarget = (() => {
     const ids = selectedMessageIds ?? [];
-    const target = ids.length === 1 ? messages.find((message) => message.id === ids[0]) : undefined;
+    const target = ids.length === 1 ? conversation.find((message) => message.id === ids[0]) : undefined;
     if (!target) return { message: null, hint: "Выберите одно сообщение" };
     if (target.fromUserId !== user?.id) return { message: null, hint: "Менять можно только своё сообщение" };
-    if (target.kind !== "text") return { message: null, hint: "Вопрос изменить нельзя" };
+    if (isDirectMessage(target) && target.kind !== "text") return { message: null, hint: "Вопрос изменить нельзя" };
     return { message: target, hint: "Изменить" };
   })();
+
+  // In a group only the author may take a message away from everyone, so the
+  // option is offered only when every chosen message is yours.
+  const deleteForEveryoneAllowed = selectedChat?.kind !== "group"
+    || (messageDeleteIds ?? []).every((id) => conversation.find((message) => message.id === id)?.fromUserId === user?.id);
 
   async function editMessage(text: string) {
     if (!editingMessageId) return;
     setBusy(true);
     try {
-      await request(`/api/messages/${editingMessageId}`, {
+      await request(`/api/${selectedChat?.kind === "group" ? "group-messages" : "messages"}/${editingMessageId}`, {
         method: "PATCH",
         body: JSON.stringify({ text }),
       });
@@ -1108,16 +1232,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }
 
   async function deleteConversation(mode: "hide" | "delete_history", scope?: "me" | "everyone") {
-    if (!selectedId) return;
+    if (selectedChat?.kind !== "peer") return;
     setBusy(true);
     try {
-      await request(`/api/conversations/${selectedId}`, {
+      await request(`/api/conversations/${selectedChat.id}`, {
         method: "DELETE",
         body: JSON.stringify({ mode, ...(scope ? { scope } : {}) }),
       });
       setDialogDeleteStage(null);
       setSelectedMessageIds(null);
-      setSelectedId(null);
+      setSelectedChat(null);
       await refreshState();
       setNotice(mode === "hide" ? "Диалог скрыт" : "История удалена");
     } catch (error) {
@@ -1134,7 +1258,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   return (
     <main className="app-shell">
-      <div className={`messenger ${selectedPeer ? "has-conversation" : ""}`}>
+      <div className={`messenger ${selectedEntry ? "has-conversation" : ""}`}>
         <aside className="sidebar">
           <header className="sidebar-header">
             <div className="brand"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div>
@@ -1148,36 +1272,49 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
             </div>
             <button type="button" className="profile-strip-share" onClick={() => { void shareOwnProfile(); }} aria-label="Поделиться своим профилем" data-tooltip="Поделиться"><Glyph name="share" /></button>
           </div>
-          <div className="contacts-title"><span>Диалоги</span><button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт" data-tooltip="Добавить контакт" data-tooltip-position="bottom"><Glyph name="plus" /></button></div>
+          <div className="contacts-title">
+            <span>Диалоги</span>
+            <span className="contacts-title-actions">
+              <button className="small-icon-button" onClick={() => setShowGroupForm(true)} aria-label="Создать группу" data-tooltip="Создать группу" data-tooltip-position="bottom"><Glyph name="users" /></button>
+              <button className="small-icon-button" onClick={() => setContactFormDefaultId("")} aria-label="Добавить контакт" data-tooltip="Добавить контакт" data-tooltip-position="bottom"><Glyph name="plus" /></button>
+            </span>
+          </div>
           <div className="contact-list">
-            {peers.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по нику или UUID, чтобы написать первым.</p></div> : peers.map((peer) => {
-              const { last, unread } = conversationSummaries.get(peer.id) ?? { last: undefined, unread: 0 };
-              const sidebarMenuOpen = sidebarActionsPeerId === peer.id;
+            {chats.length === 0 ? <div className="empty-sidebar"><Glyph name="user" /><p>Добавьте друга по нику или UUID, чтобы написать первым.</p></div> : chats.map((entry) => {
+              const { ref, peer, group } = entry;
+              const { last, unread } = chatSummaries.get(chatKey(ref)) ?? { last: undefined, unread: 0 };
+              const sidebarMenuOpen = sameChat(sidebarActionsChat, ref);
+              const preview = last
+                ? group ? `${last.fromUserId === user.id ? "Вы" : last.senderName}: ${last.text}` : last.text
+                : group ? pluralize(group.members.length, ["участник", "участника", "участников"]) : peer && !peer.saved ? "Не сохранён" : null;
+              const openActions = () => {
+                setSelectedMessageIds(null);
+                setShowConversationActions(false);
+                setSelectedChat(ref);
+              };
               return <div
-                key={peer.id}
+                key={chatKey(ref)}
                 className={`contact-row-shell ${sidebarMenuOpen ? "menu-open" : ""}`}
                 ref={sidebarMenuOpen ? sidebarActionsRef : undefined}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  setSelectedMessageIds(null);
-                  setShowConversationActions(false);
-                  setSelectedId(peer.id);
-                  setSidebarActionsPeerId(peer.id);
+                  openActions();
+                  setSidebarActionsChat(ref);
                 }}
               >
-                <button className={`contact-row ${selectedId === peer.id ? "selected" : ""}`} onClick={() => {
-                  setSidebarActionsPeerId(null);
+                <button className={`contact-row ${sameChat(selectedChat, ref) ? "selected" : ""}`} onClick={() => {
+                  setSidebarActionsChat(null);
                   setSelectedMessageIds(null);
-                  setSelectedId(peer.id);
+                  setSelectedChat(ref);
                 }}>
                   <span className="contact-avatar-shell">
-                    <Avatar name={peer.name} avatarUrl={peer.avatarUrl} avatarBackground={peer.avatarBackground} className="contact-avatar" />
-                    {voice.presence.get(peer.id)?.online ? <span className="presence-dot" aria-label={formatPresence(voice.presence.get(peer.id))} /> : null}
+                    <Avatar name={entry.name} avatarUrl={entry.avatarUrl} avatarBackground={entry.avatarBackground} className={`contact-avatar ${group ? "group-avatar" : ""}`} />
+                    {peer && voice.presence.get(peer.id)?.online ? <span className="presence-dot" aria-label={formatPresence(voice.presence.get(peer.id))} /> : null}
                   </span>
                   <span className="contact-copy">
-                    <strong>{peer.name}</strong>
-                    {!last && peer.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
-                    {last ? <small className="contact-preview">{last.text}</small> : !peer.saved ? <small className="contact-preview">Не сохранён</small> : null}
+                    <strong>{entry.name}</strong>
+                    {!last && peer?.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
+                    {preview ? <small className="contact-preview">{preview}</small> : null}
                   </span>
                   <span className="contact-meta">
                     <time className="contact-time">{last ? formatTime(last.sentAt) : ""}</time>
@@ -1192,12 +1329,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                   type="button"
                   className="contact-row-actions-button"
                   onClick={() => {
-                    setSelectedMessageIds(null);
-                    setShowConversationActions(false);
-                    setSelectedId(peer.id);
-                    setSidebarActionsPeerId((current) => current === peer.id ? null : peer.id);
+                    openActions();
+                    setSidebarActionsChat((current) => sameChat(current, ref) ? null : ref);
                   }}
-                  aria-label={`Действия с диалогом ${peer.name}`}
+                  aria-label={`Действия с ${group ? "группой" : "диалогом"} ${entry.name}`}
                   aria-haspopup="menu"
                   aria-expanded={sidebarMenuOpen}
                   data-tooltip="Действия"
@@ -1208,35 +1343,58 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 </button>
                 {sidebarMenuOpen ? <div className="conversation-actions-popover contact-row-actions-popover" role="menu">
                   <button type="button" role="menuitem" disabled={!last} onClick={() => {
-                    setSidebarActionsPeerId(null);
-                    setSelectedId(peer.id);
+                    setSidebarActionsChat(null);
+                    setSelectedChat(ref);
                     setSelectedMessageIds([]);
                   }}>
                     <Glyph name="select" />
                     Выбрать сообщения
                   </button>
-                  <button type="button" role="menuitem" className="danger" onClick={() => {
-                    setSidebarActionsPeerId(null);
+                  {group ? <>
+                    <button type="button" role="menuitem" onClick={() => {
+                      setSidebarActionsChat(null);
+                      setMembersGroupId(group.id);
+                    }}>
+                      <Glyph name="users" />
+                      Участники
+                    </button>
+                    <button type="button" role="menuitem" className="danger" onClick={() => {
+                      setSidebarActionsChat(null);
+                      setLeaveGroupId(group.id);
+                    }}>
+                      <Glyph name="logout" />
+                      Покинуть группу
+                    </button>
+                  </> : <button type="button" role="menuitem" className="danger" onClick={() => {
+                    setSidebarActionsChat(null);
                     setSelectedMessageIds(null);
-                    setSelectedId(peer.id);
+                    setSelectedChat(ref);
                     setDialogDeleteStage("choice");
                   }}>
                     <Glyph name="trash" />
                     Удалить диалог
-                  </button>
+                  </button>}
                 </div> : null}
               </div>;
             })}
           </div>
-          <button className="add-contact-button" onClick={() => setContactFormDefaultId("")}><Glyph name="plus" /> Новый контакт</button>
+          <div className="sidebar-actions">
+            <button className="add-contact-button" onClick={() => setContactFormDefaultId("")}><Glyph name="plus" /> Новый контакт</button>
+            <button className="add-contact-button" onClick={() => setShowGroupForm(true)}><Glyph name="users" /> Новая группа</button>
+          </div>
         </aside>
 
         <section className="conversation-panel">
-          {selectedPeer ? <>
+          {selectedEntry ? <>
             <header className="conversation-header">
-              <button className="mobile-back" onClick={() => setSelectedId(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
-              <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatarUrl} avatarBackground={selectedPeer.avatarBackground} className="contact-avatar large" />
-              <div className="conversation-title" title={selectedPeer.id}><strong>{selectedPeer.name}</strong><span>{formatPresence(voice.presence.get(selectedPeer.id))}</span></div>
+              <button className="mobile-back" onClick={() => setSelectedChat(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
+              <Avatar name={selectedEntry.name} avatarUrl={selectedEntry.avatarUrl} avatarBackground={selectedEntry.avatarBackground} className={`contact-avatar large ${selectedGroup ? "group-avatar" : ""}`} />
+              <div className="conversation-title" title={selectedEntry.ref.id}>
+                <strong>{selectedEntry.name}</strong>
+                <span>{selectedGroup
+                  ? pluralize(selectedGroup.members.length, ["участник", "участника", "участников"])
+                  : formatPresence(voice.presence.get(selectedEntry.ref.id))}</span>
+              </div>
               {selectedMessageIds !== null ? (
                 <div className="selection-toolbar">
                   <strong>Выбрано: {selectedMessageIds.length}</strong>
@@ -1259,8 +1417,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 </div>
               ) : (
                 <div className="conversation-actions">
-                  {!selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
-                  <button
+                  {selectedPeer && !selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
+                  {selectedPeer ? <button
                     type="button"
                     className="header-icon-button voice-call-button"
                     disabled={voice.setupBusy || Boolean(voice.session?.owner) || (Boolean(voice.session) && voice.session?.peerUserId !== selectedPeer.id)}
@@ -1271,13 +1429,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     aria-label={voice.session?.owner ? "Голосовой чат активен" : voice.session?.peerUserId === selectedPeer.id ? "Вернуться в голосовой чат" : "Позвонить"}
                     data-tooltip={voice.session?.owner ? "В голосовом чате" : voice.session?.peerUserId === selectedPeer.id ? "Вернуться" : "Позвонить"}
                     data-tooltip-position="bottom"
-                  ><Glyph name="phone" /></button>
+                  ><Glyph name="phone" /></button> : null}
+                  {selectedGroup ? <button
+                    type="button"
+                    className="header-icon-button"
+                    onClick={() => setMembersGroupId(selectedGroup.id)}
+                    aria-label="Участники группы"
+                    data-tooltip="Участники"
+                    data-tooltip-position="bottom"
+                  ><Glyph name="users" /></button> : null}
                   <div className="conversation-actions-menu" ref={conversationActionsRef}>
                     <button
                       type="button"
                       className="header-icon-button"
                       onClick={() => setShowConversationActions((current) => !current)}
-                      aria-label="Действия с диалогом"
+                      aria-label={selectedGroup ? "Действия с группой" : "Действия с диалогом"}
                       aria-haspopup="menu"
                       aria-expanded={showConversationActions}
                       data-tooltip="Действия"
@@ -1298,7 +1464,18 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                         <Glyph name="select" />
                         Выбрать сообщения
                       </button>
-                      <button
+                      {selectedGroup ? <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => {
+                          setShowConversationActions(false);
+                          setLeaveGroupId(selectedGroup.id);
+                        }}
+                      >
+                        <Glyph name="logout" />
+                        Покинуть группу
+                      </button> : <button
                         type="button"
                         role="menuitem"
                         className="danger"
@@ -1309,7 +1486,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                       >
                         <Glyph name="trash" />
                         Удалить диалог
-                      </button>
+                      </button>}
                     </div> : null}
                   </div>
                 </div>
@@ -1322,6 +1499,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                 const selected = selectedMessageIds?.includes(message.id) ?? false;
                 const selectionMode = selectedMessageIds !== null;
                 const toggleSelection = () => toggleMessageSelection(message.id);
+                const direct = isDirectMessage(message) ? message : null;
+                const plainText = !direct || direct.kind === "text";
                 return <Fragment key={message.id}>
                   <article
                     className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
@@ -1360,20 +1539,19 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     <div className="message-bubble">
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
-                      <p>{message.text}{message.kind === "text" ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</span> : null}</p>
-                      <QuestionOptions message={message} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} />
-                      {!selectionMode && !outgoing && !message.readAt && message.kind === "text" && <button className="read-button" onClick={() => markRead(message.id)}>Отметить прочитанным</button>}
-                      {message.kind === "choice" ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks message={message} />}</footer> : null}
+                      <p>{message.text}{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
+                      {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
+                      {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</footer> : null}
                     </div>
                   </article>
-                  <AnswerBubble message={message} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} />
+                  {direct && selectedPeer ? <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null}
                 </Fragment>;
               })}
             </div>
             {messageMenu ? (() => {
-              const target = messages.find((message) => message.id === messageMenu.id);
+              const target = conversation.find((message) => message.id === messageMenu.id);
               if (!target) return null;
-              const editable = target.fromUserId === user.id && target.kind === "text";
+              const editable = target.fromUserId === user.id && (!isDirectMessage(target) || target.kind === "text");
               return <div className="conversation-actions-popover message-menu" style={messageMenu.style} role="menu" onPointerDown={(event) => event.stopPropagation()}>
                 <button type="button" role="menuitem" onClick={() => {
                   setMessageMenu(null);
@@ -1397,8 +1575,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
             <Composer
               busy={busy}
               sendCooldownSeconds={sendCooldownSeconds}
+              allowChoice={Boolean(selectedPeer)}
               onSend={sendMessage}
-              editing={editingMessageId ? messages.find((message) => message.id === editingMessageId) ?? null : null}
+              editing={editingMessageId ? conversation.find((message) => message.id === editingMessageId) ?? null : null}
               onEdit={editMessage}
               onCancelEdit={() => setEditingMessageId(null)}
             />
@@ -1409,6 +1588,30 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       <VoiceExperienceUi voice={voice} />
 
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
+      {showGroupForm && <GroupDialog busy={busy} request={request} contacts={contacts} onClose={() => setShowGroupForm(false)} onSubmit={createGroup} />}
+      {membersGroup && <GroupMembersDialog
+        group={membersGroup}
+        userId={user.id}
+        request={request}
+        contacts={contacts}
+        setNotice={setNotice}
+        onChanged={refreshState}
+        onLeave={() => setLeaveGroupId(membersGroup.id)}
+        onClose={() => setMembersGroupId(null)}
+      />}
+      {leaveGroupId && <ActionDialog
+        title="Покинуть группу?"
+        description={(groups.find((group) => group.id === leaveGroupId)?.members.length ?? 0) <= 1
+          ? "Вы последний участник: группа и вся её переписка будут удалены.\nЭто действие нельзя будет отменить."
+          : "Вы перестанете получать сообщения этой группы. Переписка останется у остальных участников."}
+        actions={[
+          { label: "Покинуть группу", kind: "danger-outline", icon: "logout", onClick: () => { void leaveGroup(); } },
+        ]}
+        busy={busy}
+        illustration={deleteDialogIllustration}
+        illustrationAlt="Ёжик убирает диалог в архив"
+        onClose={() => setLeaveGroupId(null)}
+      />}
       {showSettings && <SettingsDialog
         user={user}
         token={token}
@@ -1436,7 +1639,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
           : "Выберите, у кого исчезнут выбранные сообщения."}\nЭто действие нельзя будет отменить.`}
         actions={[
           { label: "Удалить только у меня", kind: "danger-outline", onClick: () => { void deleteMessages("me"); } },
-          { label: "Удалить у меня и у собеседника", kind: "danger-outline", onClick: () => { void deleteMessages("everyone"); } },
+          ...(deleteForEveryoneAllowed ? [{
+            label: selectedChat?.kind === "group" ? "Удалить у всех участников" : "Удалить у меня и у собеседника",
+            kind: "danger-outline" as const,
+            onClick: () => { void deleteMessages("everyone"); },
+          }] : []),
         ]}
         busy={busy}
         illustration={deleteMessagesIllustration}
@@ -1652,7 +1859,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
   </main>;
 }
 
-function Composer({ busy, sendCooldownSeconds, onSend, editing, onEdit, onCancelEdit }: { busy: boolean; sendCooldownSeconds: number; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void>; editing: PublicMessage | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
+function Composer({ busy, sendCooldownSeconds, allowChoice, onSend, editing, onEdit, onCancelEdit }: { busy: boolean; sendCooldownSeconds: number; allowChoice: boolean; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void>; editing: { text: string } | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<"text" | "choice">("text");
   const [left, setLeft] = useState("Да");
@@ -1662,6 +1869,8 @@ function Composer({ busy, sendCooldownSeconds, onSend, editing, onEdit, onCancel
   // Not inside the setText updater: React calls updaters twice in development,
   // and the second pass would park the message text as if it were the draft.
   useEffect(() => { latestTextRef.current = text; }, [text]);
+  // Questions are a two-button device affordance; a group has no such target.
+  useEffect(() => { if (!allowChoice) setKind("text"); }, [allowChoice]);
 
   // Entering edit mode borrows the composer, so park the draft and hand it back
   // when the edit is finished or dropped.
@@ -1701,7 +1910,7 @@ function Composer({ busy, sendCooldownSeconds, onSend, editing, onEdit, onCancel
         <button type="button" className="small-icon-button" onClick={onCancelEdit} aria-label="Отменить изменение" data-tooltip="Отменить"><Glyph name="close" /></button>
       </div>
     ) : (
-      <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button><button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button><span>{Array.from(text).length}/{LIMITS.message}</span></div>
+      <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button>{allowChoice ? <button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button> : null}<span>{Array.from(text).length}/{LIMITS.message}</span></div>
     )}
     <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || !text.trim()} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
     {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
@@ -1786,6 +1995,214 @@ function ContactDialog({ defaultId, busy, request, onClose, onSubmit }: { defaul
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+// Contacts are offered up front; typing switches to the server-side search the
+// contact dialog uses. `exclude` hides people already picked or in the group.
+function UserSearch({ request, contacts, exclude, disabled, pickLabel, onPick }: {
+  request: <T>(path: string, init?: RequestInit) => Promise<T>;
+  contacts: PublicUser[];
+  exclude: Set<string>;
+  disabled: boolean;
+  pickLabel: string;
+  onPick: (user: PublicUser) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [results, setResults] = useState<PublicUser[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const query = value.trim();
+
+  useEffect(() => {
+    if (!query) {
+      setResults([]);
+      setSearching(false);
+      setSearchError("");
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setSearching(true);
+      setSearchError("");
+      void request<{ users: PublicUser[] }>(
+        `/api/users?query=${encodeURIComponent(query)}`,
+        { signal: controller.signal },
+      )
+        .then((data) => setResults(data.users))
+        .catch((error: Error) => {
+          if (error.name !== "AbortError") {
+            setResults([]);
+            setSearchError(error.message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 300);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [query, request]);
+
+  const candidates = (query ? results : contacts).filter((candidate) => !exclude.has(candidate.id));
+
+  return (
+    <div className="user-search">
+      <label className="field-label">Поиск
+        <input value={value} maxLength={36} autoComplete="off" spellCheck={false} onChange={(event) => setValue(event.target.value)} placeholder="Имя, @ник или UUID" />
+      </label>
+      <div className="contact-search-results user-search-results" aria-live="polite">
+        {searching ? <p className="contact-search-status">Ищем пользователей…</p> : null}
+        {!searching && !searchError && candidates.length === 0 ? <p className="contact-search-status">{query ? "Никого не нашли" : "Здесь появятся ваши контакты"}</p> : null}
+        {searchError ? <p className="contact-search-status error">{searchError}</p> : null}
+        {!searching && candidates.map((candidate) => (
+          <button key={candidate.id} type="button" className="contact-search-result" disabled={disabled} onClick={() => onPick(candidate)}>
+            <Avatar name={candidate.name} avatarUrl={candidate.avatarUrl} avatarBackground={candidate.avatarBackground} className="contact-search-avatar" />
+            <span>
+              <strong>{candidate.name}</strong>
+              <small>{candidate.nickname ? `@${candidate.nickname} · ` : ""}{candidate.id}</small>
+            </span>
+            <span className="contact-add-label">{pickLabel}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GroupDialog({ busy, request, contacts, onClose, onSubmit }: {
+  busy: boolean;
+  request: <T>(path: string, init?: RequestInit) => Promise<T>;
+  contacts: PublicContact[];
+  onClose: () => void;
+  onSubmit: (name: string, memberIds: string[]) => void;
+}) {
+  const [name, setName] = useState("");
+  const [members, setMembers] = useState<PublicUser[]>([]);
+  const contactUsers = useMemo(() => contacts.map((contact) => contact.user), [contacts]);
+  const exclude = useMemo(() => new Set(members.map((member) => member.id)), [members]);
+  const ready = Boolean(name.trim()) && members.length > 0;
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="modal-card group-card" onSubmit={(event) => { event.preventDefault(); if (!busy && ready) onSubmit(name.trim(), members.map((member) => member.id)); }}>
+        <div className="modal-header">
+          <h2>Новая группа</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
+        <label className="field-label">Название
+          <input autoFocus value={name} maxLength={LIMITS.groupName} onChange={(event) => setName(event.target.value)} placeholder="Например, Семья" />
+        </label>
+        {members.length > 0 ? (
+          <div className="member-chips">
+            {members.map((member) => (
+              <button key={member.id} type="button" className="member-chip" onClick={() => setMembers((current) => current.filter((item) => item.id !== member.id))} aria-label={`Убрать ${member.name}`}>
+                <span>{member.name}</span>
+                <Glyph name="close" />
+              </button>
+            ))}
+          </div>
+        ) : <p className="input-hint">Выберите участников из контактов или найдите по нику</p>}
+        <UserSearch
+          request={request}
+          contacts={contactUsers}
+          exclude={exclude}
+          disabled={busy || members.length >= LIMITS.groupMembersMax - 1}
+          pickLabel="Добавить"
+          onPick={(user) => setMembers((current) => [...current, user])}
+        />
+        <button className="primary-button wide" disabled={busy || !ready}>{busy ? "Создаём…" : "Создать группу"}</button>
+      </form>
+    </div>
+  );
+}
+
+function GroupMembersDialog({ group, userId, request, contacts, setNotice, onChanged, onLeave, onClose }: {
+  group: PublicGroup;
+  userId: string;
+  request: <T>(path: string, init?: RequestInit) => Promise<T>;
+  contacts: PublicContact[];
+  setNotice: (message: string) => void;
+  onChanged: () => Promise<void>;
+  onLeave: () => void;
+  onClose: () => void;
+}) {
+  const owner = group.ownerId === userId;
+  const [name, setName] = useState(group.name);
+  const [busy, setBusy] = useState(false);
+  const contactUsers = useMemo(() => contacts.map((contact) => contact.user), [contacts]);
+  const exclude = useMemo(() => new Set(group.members.map((member) => member.id)), [group.members]);
+
+  async function run(action: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    try {
+      await action();
+      await onChanged();
+      setNotice(done);
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rename = () => run(
+    () => request(`/api/groups/${group.id}`, { method: "PATCH", body: JSON.stringify({ name: name.trim() }) }),
+    "Название изменено",
+  );
+  const addMember = (user: PublicUser) => run(
+    () => request(`/api/groups/${group.id}/members`, { method: "POST", body: JSON.stringify({ userId: user.id }) }),
+    `${user.name} добавлен в группу`,
+  );
+  const removeMember = (user: PublicUser) => run(
+    () => request(`/api/groups/${group.id}/members`, { method: "DELETE", body: JSON.stringify({ userId: user.id }) }),
+    `${user.name} исключён из группы`,
+  );
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal-card group-card" role="dialog" aria-modal="true" aria-labelledby="group-members-title">
+        <div className="modal-header">
+          <h2 id="group-members-title">{group.name}</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
+        </div>
+        {owner ? (
+          <form className="group-rename" onSubmit={(event) => { event.preventDefault(); if (!busy && name.trim() && name.trim() !== group.name) void rename(); }}>
+            <label className="field-label">Название
+              <input value={name} maxLength={LIMITS.groupName} onChange={(event) => setName(event.target.value)} />
+            </label>
+            <button type="submit" className="secondary-button" disabled={busy || !name.trim() || name.trim() === group.name}>Сохранить</button>
+          </form>
+        ) : null}
+        <p className="group-section-title">{pluralize(group.members.length, ["участник", "участника", "участников"])}</p>
+        <div className="member-list">
+          {group.members.map((member) => (
+            <div key={member.id} className="contact-search-result member-row">
+              <Avatar name={member.name} avatarUrl={member.avatarUrl} avatarBackground={member.avatarBackground} className="contact-search-avatar" />
+              <span>
+                <strong>{member.name}{member.id === userId ? " (вы)" : ""}</strong>
+                <small>{member.id === group.ownerId ? "Владелец" : member.nickname ? `@${member.nickname}` : member.id}</small>
+              </span>
+              {owner && member.id !== userId ? (
+                <button type="button" className="member-remove" disabled={busy} onClick={() => { void removeMember(member); }}>Исключить</button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <p className="group-section-title">Добавить участника</p>
+        <UserSearch
+          request={request}
+          contacts={contactUsers}
+          exclude={exclude}
+          disabled={busy || group.members.length >= LIMITS.groupMembersMax}
+          pickLabel="Добавить"
+          onPick={(user) => { void addMember(user); }}
+        />
+        <button type="button" className="danger-outline-button wide" disabled={busy} onClick={onLeave}><Glyph name="logout" /> Покинуть группу</button>
+      </section>
     </div>
   );
 }

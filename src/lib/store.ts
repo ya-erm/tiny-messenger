@@ -3,7 +3,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
-import type { StoreData } from "@/lib/types";
+import { advanceReadState } from "@/lib/domain";
+import type { MessageRecord, StoreData } from "@/lib/types";
 
 const initialStore: StoreData = {
   version: 1,
@@ -12,6 +13,9 @@ const initialStore: StoreData = {
   messages: [],
   hiddenConversations: [],
   pushSubscriptions: [],
+  groups: [],
+  groupMessages: [],
+  readStates: [],
 };
 
 let writeQueue: Promise<void> = Promise.resolve();
@@ -49,7 +53,10 @@ function validateStore(value: unknown): StoreData {
     ("hiddenConversations" in value
       && !Array.isArray((value as StoreData).hiddenConversations)) ||
     ("pushSubscriptions" in value
-      && !Array.isArray((value as StoreData).pushSubscriptions))
+      && !Array.isArray((value as StoreData).pushSubscriptions)) ||
+    ("groups" in value && !Array.isArray((value as StoreData).groups)) ||
+    ("groupMessages" in value && !Array.isArray((value as StoreData).groupMessages)) ||
+    ("readStates" in value && !Array.isArray((value as StoreData).readStates))
   ) {
     throw new Error("Messenger data file has an unsupported format");
   }
@@ -59,7 +66,29 @@ function validateStore(value: unknown): StoreData {
   // in memory and persisted by the next mutation.
   store.hiddenConversations ||= [];
   store.pushSubscriptions ||= [];
+  store.groups ||= [];
+  store.groupMessages ||= [];
+  store.readStates ||= [];
+  migrateReadMarks(store);
   return store;
+}
+
+type LegacyMessageRecord = MessageRecord & { deliveredAt?: string; readAt?: string };
+
+// Messages used to carry their own deliveredAt/readAt. Fold those into the
+// recipient's watermark, keyed by the message's own sentAt so exactly the marked
+// message and everything before it count as read.
+function migrateReadMarks(store: StoreData) {
+  for (const message of store.messages as LegacyMessageRecord[]) {
+    if (!("deliveredAt" in message) && !("readAt" in message)) continue;
+    const readAt = message.readAt || message.answer?.answeredAt;
+    advanceReadState(store.readStates, message.toUserId, message.fromUserId, {
+      ...(message.deliveredAt ? { deliveredAt: message.sentAt } : {}),
+      ...(readAt ? { readAt: message.sentAt } : {}),
+    });
+    delete message.deliveredAt;
+    delete message.readAt;
+  }
 }
 
 export async function readStore(): Promise<StoreData> {

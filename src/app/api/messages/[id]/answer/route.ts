@@ -1,6 +1,6 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { advanceReadState, isMessageVisibleTo, publicMessage } from "@/lib/domain";
 import { sendPushToUser } from "@/lib/push";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
@@ -32,11 +32,10 @@ export const POST = route<Context>(async (request, { params }) => {
     }
     const option = item.options.find((candidate) => candidate.id === optionId);
     if (!option) throw new ApiError(422, "invalid_choice", "Такого варианта нет");
-    item.deliveredAt ||= now;
-    item.readAt ||= now;
+    advanceReadState(store.readStates, authenticated.id, item.fromUserId, { readAt: item.sentAt });
     const answeredNow = !item.answer;
     item.answer ||= { id: optionId, label: option.label, answeredAt: now };
-    return { message: item, answeredNow };
+    return { message: publicMessage(item, store.readStates), answeredNow };
   });
   if (result.answeredNow && result.message.answer) {
     await sendPushToUser(result.message.fromUserId, {
@@ -46,5 +45,5 @@ export const POST = route<Context>(async (request, { params }) => {
       url: `/id/${authenticated.id}`,
     }).catch((error) => console.error("Failed to notify question sender", error));
   }
-  return ok({ message: publicMessage(result.message) });
+  return ok({ message: result.message });
 });

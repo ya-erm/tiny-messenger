@@ -260,6 +260,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .add-contact-button { height: 49px; display: flex; align-items: center; justify-content: center; gap: 7px; margin: 10px 16px 16px; color: var(--green-ink); background: transparent; border: 1px dashed var(--green-line-warm); border-radius: 14px; font-size: 12px; font-weight: 800; cursor: pointer; }
 .add-contact-button:hover { background: var(--green-tint); }
 .add-contact-button .glyph { width: 16px; }
+.contacts-title-actions { display: flex; gap: 2px; }
+.sidebar-actions { display: flex; gap: 8px; margin: 10px 16px 16px; }
+.sidebar-actions .add-contact-button { flex: 1; min-width: 0; margin: 0; padding: 0 8px; }
+/* Groups share the row layout with people; the warm tint is what tells them apart. */
+.contact-avatar.group-avatar { color: var(--orange-ink); background: var(--orange-tint); }
 
 .conversation-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--veil), var(--veil)), radial-gradient(var(--green-line) 1px, transparent 1px); background-size: auto, 22px 22px; }
 .conversation-header { position: relative; z-index: 20; gap: 12px; overflow: visible; background: var(--veil-header); backdrop-filter: blur(10px); }
@@ -332,7 +337,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .answer-message.outgoing .reply-preview { color: var(--on-green-bright); background: rgba(255,255,255,.12); border-left-color: var(--on-green-dim); }
 .answer-message.outgoing .reply-preview p { color: rgba(255,255,255,.78); }
 .message-bubble .answer-text { font-size: 13px; font-weight: 700; }
-.read-button { margin-top: 9px; padding: 6px 8px; color: var(--green-ink); background: transparent; border: 1px solid var(--green-line); border-radius: 8px; font-size: 9px; font-weight: 800; cursor: pointer; }
 .conversation-empty, .no-conversation { margin: auto; text-align: center; color: var(--muted); }
 .conversation-empty h2, .no-conversation h2 { margin: 16px 0 5px; color: var(--ink); font-family: "Unbounded", sans-serif; font-size: 16px; }
 .conversation-empty p, .no-conversation p { margin: 0; font-size: 12px; }
@@ -467,6 +471,25 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .contact-search-result strong { font-size: 11px; }
 .contact-search-result small { margin-top: 3px; color: var(--muted); font-size: 9px; }
 .contact-add-label { color: var(--green-ink); font-size: 9px; font-weight: 800; }
+.group-card { width: min(460px, 100%); }
+.user-search-results { height: auto; min-height: 60px; max-height: 176px; }
+.member-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.member-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px 6px 10px; color: var(--green-dark-ink); background: var(--green-soft); border: 0; border-radius: 999px; font-size: 10px; font-weight: 800; cursor: pointer; }
+.member-chip:hover { background: var(--green-line); }
+.member-chip .glyph { width: 12px; height: 12px; }
+.group-rename { display: flex; align-items: flex-end; gap: 8px; }
+.group-rename .field-label { flex: 1; min-width: 0; }
+.group-rename .secondary-button { align-self: flex-end; margin-bottom: 1px; white-space: nowrap; }
+.group-section-title { margin: 18px 0 0; color: var(--label); font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.member-list { display: grid; gap: 7px; margin-top: 8px; }
+.member-row { cursor: default; }
+.member-row:hover { background: var(--panel); border-color: transparent; }
+.member-remove { padding: 6px 8px; color: var(--danger-ink); background: transparent; border: 1px solid var(--danger-line); border-radius: 8px; font-size: 9px; font-weight: 800; cursor: pointer; }
+.member-remove:hover { background: var(--danger-soft); }
+.member-remove:disabled { opacity: .45; cursor: default; }
+.danger-outline-button.wide { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 18px; }
+.danger-outline-button .glyph { width: 15px; height: 15px; }
+.group-card .primary-button.wide { margin-top: 16px; }
 .settings-card { width: min(580px, 100%); }
 .settings-section { margin: 22px 0; padding: 18px; background: var(--panel); border-radius: 14px; }
 .settings-section .field-label:first-child { margin-top: 0; }
@@ -603,7 +626,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .messenger { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
   .sidebar-header, .conversation-header { height: calc(76px + env(safe-area-inset-top)); flex-basis: calc(76px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
   .composer { padding-bottom: calc(17px + env(safe-area-inset-bottom)); }
-  .add-contact-button { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .sidebar-actions { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .message-stream { padding: 18px 14px; }
   .message-bubble { max-width: 86%; }
   .conversation-header { padding-left: 14px; padding-right: 14px; }

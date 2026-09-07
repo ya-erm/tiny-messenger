@@ -147,6 +147,27 @@ assert.equal(answered.message.status, "answered");
 assert.equal(answered.message.answer.id, "2");
 assert.equal(answered.message.answer.label, "Нет");
 
+// Receipts are a watermark: reading the newer message reads the older one too.
+const olderText = await api("/api/messages", {
+  token: alice.token,
+  method: "POST",
+  body: JSON.stringify({ toUserId: bob.user.id, text: "Первое", kind: "text" }),
+});
+const newerText = await api("/api/messages", {
+  token: alice.token,
+  method: "POST",
+  body: JSON.stringify({ toUserId: bob.user.id, text: "Второе", kind: "text" }),
+});
+await api(`/api/messages/${newerText.message.id}/status`, {
+  token: bob.token,
+  method: "PATCH",
+  body: JSON.stringify({ status: "read" }),
+});
+const olderAfterWatermark = await api(`/api/messages/${olderText.message.id}`, { token: alice.token });
+assert.equal(olderAfterWatermark.message.status, "read");
+const bobPending = await api("/api/messages/poll", { token: bob.token, method: "POST", body: "{}" });
+assert.ok(!bobPending.messages.some((message) => message.id === olderText.message.id));
+
 const contact = await api("/api/contacts", {
   token: alice.token,
   method: "POST",
@@ -209,6 +230,170 @@ assert.equal(
   synced.messages.find((message) => message.id === syncMessage.message.id).status,
   "delivered",
 );
+assert.ok(synced.readStates.some((state) => state.chatId === bob.user.id && state.lastDeliveredAt));
+assert.deepEqual(synced.groups, []);
+assert.deepEqual(synced.groupMessages, []);
+
+const grace = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Грейс", nickname: "grace" }) });
+const henry = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Генри", nickname: "henry" }) });
+const ivan = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Иван", nickname: "ivan" }) });
+const judy = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Джуди", nickname: "judy" }) });
+
+const lonelyGroup = await fetch(`${baseUrl}/api/groups`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${grace.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "Одна", memberIds: [grace.user.id] }),
+});
+assert.equal(lonelyGroup.status, 422);
+
+const createdGroup = await api("/api/groups", {
+  token: grace.token,
+  method: "POST",
+  body: JSON.stringify({ name: "Проект", memberIds: [henry.user.id, ivan.user.id, henry.user.id] }),
+});
+const group = createdGroup.group;
+assert.equal(group.ownerId, grace.user.id);
+assert.deepEqual(group.members.map((member) => member.id), [grace.user.id, henry.user.id, ivan.user.id]);
+const henryGroups = await api("/api/groups", { token: henry.token });
+assert.deepEqual(henryGroups.groups.map((item) => item.id), [group.id]);
+const outsiderGroup = await fetch(`${baseUrl}/api/groups/${group.id}`, {
+  headers: { Authorization: `Bearer ${judy.token}` },
+});
+assert.equal(outsiderGroup.status, 404);
+
+const groupHello = await api("/api/group-messages", {
+  token: grace.token,
+  method: "POST",
+  body: JSON.stringify({ groupId: group.id, text: "Привет всем" }),
+});
+assert.equal(groupHello.message.status, "sent");
+const outsiderSend = await fetch(`${baseUrl}/api/group-messages`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${judy.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ groupId: group.id, text: "Я не в группе" }),
+});
+assert.equal(outsiderSend.status, 404);
+
+// Sync is the delivery receipt; the sender sees the weakest receipt of the members.
+const henrySync = await api("/api/sync", { token: henry.token, method: "POST", body: JSON.stringify({ limit: 100 }) });
+assert.equal(henrySync.groups[0].id, group.id);
+assert.equal(henrySync.groupMessages[0].id, groupHello.message.id);
+assert.ok(henrySync.readStates.some((state) => state.chatId === group.id && state.lastDeliveredAt));
+const afterHenry = await api(`/api/group-messages?groupId=${group.id}`, { token: grace.token });
+assert.equal(afterHenry.messages[0].status, "sent");
+await api("/api/sync", { token: ivan.token, method: "POST", body: JSON.stringify({ limit: 100 }) });
+const afterIvan = await api(`/api/group-messages?groupId=${group.id}`, { token: grace.token });
+assert.equal(afterIvan.messages[0].status, "delivered");
+await api(`/api/group-messages/${groupHello.message.id}/status`, {
+  token: henry.token,
+  method: "PATCH",
+  body: JSON.stringify({ status: "read" }),
+});
+const afterHenryRead = await api(`/api/group-messages?groupId=${group.id}`, { token: grace.token });
+assert.equal(afterHenryRead.messages[0].status, "delivered");
+const ivanRead = await api(`/api/group-messages/${groupHello.message.id}/status`, {
+  token: ivan.token,
+  method: "PATCH",
+  body: JSON.stringify({ status: "read" }),
+});
+assert.equal(ivanRead.message.status, "read");
+
+const henryReply = await api("/api/group-messages", {
+  token: henry.token,
+  method: "POST",
+  body: JSON.stringify({ groupId: group.id, text: "Ответ" }),
+});
+const foreignEdit = await fetch(`${baseUrl}/api/group-messages/${henryReply.message.id}`, {
+  method: "PATCH",
+  headers: { Authorization: `Bearer ${grace.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ text: "Чужая правка" }),
+});
+assert.equal(foreignEdit.status, 403);
+const ownEdit = await api(`/api/group-messages/${henryReply.message.id}`, {
+  token: henry.token,
+  method: "PATCH",
+  body: JSON.stringify({ text: "Ответ!" }),
+});
+assert.equal(ownEdit.message.text, "Ответ!");
+assert.ok(ownEdit.message.editedAt);
+const foreignDelete = await fetch(`${baseUrl}/api/group-messages`, {
+  method: "DELETE",
+  headers: { Authorization: `Bearer ${grace.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ ids: [henryReply.message.id], scope: "everyone" }),
+});
+assert.equal(foreignDelete.status, 403);
+await api(`/api/group-messages/${henryReply.message.id}`, {
+  token: grace.token,
+  method: "DELETE",
+  body: JSON.stringify({ scope: "me" }),
+});
+const graceWithoutReply = await api(`/api/group-messages?groupId=${group.id}`, { token: grace.token });
+assert.ok(!graceWithoutReply.messages.some((message) => message.id === henryReply.message.id));
+const ivanKeepsReply = await api(`/api/group-messages?groupId=${group.id}`, { token: ivan.token });
+assert.ok(ivanKeepsReply.messages.some((message) => message.id === henryReply.message.id));
+await api("/api/group-messages", {
+  token: henry.token,
+  method: "DELETE",
+  body: JSON.stringify({ ids: [henryReply.message.id], scope: "everyone" }),
+});
+const ivanAfterAuthorDelete = await api(`/api/group-messages?groupId=${group.id}`, { token: ivan.token });
+assert.ok(!ivanAfterAuthorDelete.messages.some((message) => message.id === henryReply.message.id));
+
+// Any member may invite; a newcomer's cursor starts at the join, so older
+// messages do not fall back to "unread" for their authors.
+const joined = await api(`/api/groups/${group.id}/members`, {
+  token: henry.token,
+  method: "POST",
+  body: JSON.stringify({ userId: judy.user.id }),
+});
+assert.equal(joined.group.members.length, 4);
+const afterJoin = await api(`/api/group-messages?groupId=${group.id}`, { token: grace.token });
+assert.equal(afterJoin.messages.find((message) => message.id === groupHello.message.id).status, "read");
+const nonOwnerKick = await fetch(`${baseUrl}/api/groups/${group.id}/members`, {
+  method: "DELETE",
+  headers: { Authorization: `Bearer ${henry.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ userId: judy.user.id }),
+});
+assert.equal(nonOwnerKick.status, 403);
+const nonOwnerRename = await fetch(`${baseUrl}/api/groups/${group.id}`, {
+  method: "PATCH",
+  headers: { Authorization: `Bearer ${henry.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "Чужое имя" }),
+});
+assert.equal(nonOwnerRename.status, 403);
+const renamed = await api(`/api/groups/${group.id}`, {
+  token: grace.token,
+  method: "PATCH",
+  body: JSON.stringify({ name: "Проект X" }),
+});
+assert.equal(renamed.group.name, "Проект X");
+const kicked = await api(`/api/groups/${group.id}/members`, {
+  token: grace.token,
+  method: "DELETE",
+  body: JSON.stringify({ userId: judy.user.id }),
+});
+assert.equal(kicked.group.members.length, 3);
+const selfKick = await fetch(`${baseUrl}/api/groups/${group.id}/members`, {
+  method: "DELETE",
+  headers: { Authorization: `Bearer ${grace.token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ userId: grace.user.id }),
+});
+assert.equal(selfKick.status, 422);
+
+// Leaving: ownership passes to the next member, the last one out deletes the group.
+const ivanLeft = await api(`/api/groups/${group.id}`, { token: ivan.token, method: "DELETE" });
+assert.equal(ivanLeft.deleted, false);
+const ivanGone = await fetch(`${baseUrl}/api/groups/${group.id}`, { headers: { Authorization: `Bearer ${ivan.token}` } });
+assert.equal(ivanGone.status, 404);
+await api(`/api/groups/${group.id}`, { token: grace.token, method: "DELETE" });
+const inherited = await api(`/api/groups/${group.id}`, { token: henry.token });
+assert.equal(inherited.group.ownerId, henry.user.id);
+assert.deepEqual(inherited.group.members.map((member) => member.id), [henry.user.id]);
+const henryLeft = await api(`/api/groups/${group.id}`, { token: henry.token, method: "DELETE" });
+assert.equal(henryLeft.deleted, true);
+const henryAfterGroup = await api("/api/sync", { token: henry.token, method: "POST", body: JSON.stringify({ limit: 100 }) });
+assert.deepEqual(henryAfterGroup.groups, []);
+assert.deepEqual(henryAfterGroup.groupMessages, []);
 
 const deletionOwner = await api("/api/auth/register", {
   method: "POST",
@@ -417,4 +602,4 @@ const restored = await api("/api/me", { token: reset.token });
 assert.equal(restored.user.id, alice.user.id);
 assert.equal(restored.user.nickname, "anya");
 
-console.log("API smoke test passed: profile → push config → user search → messaging → contacts → sync → deletion → message rate limit → token reset");
+console.log("API smoke test passed: profile → push config → user search → messaging → contacts → sync → groups → deletion → message rate limit → token reset");

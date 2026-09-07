@@ -1,14 +1,13 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { advanceReadState, isMessageVisibleTo, publicMessage } from "@/lib/domain";
+import { advanceReadState, isGroupMember, isMessageVisibleTo, publicGroupMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
 
-// Marks the message and everything the same sender wrote before it: the receipt
-// is a watermark on the conversation, not a flag on the message.
+// Moves the caller's watermark in the group up to this message.
 export const PATCH = route<Context>(async (request, { params }) => {
   assertRateLimit(request, true);
   const authenticated = await authenticate(request);
@@ -20,15 +19,16 @@ export const PATCH = route<Context>(async (request, { params }) => {
     throw new ApiError(422, "invalid_status", "Статус должен быть delivered или read");
   }
   const message = await updateStore((store) => {
-    const item = store.messages.find((candidate) => candidate.id === id);
-    if (!item || item.toUserId !== authenticated.id || !isMessageVisibleTo(item, authenticated.id)) {
-      throw new ApiError(404, "message_not_found", "Входящее сообщение не найдено");
+    const item = store.groupMessages.find((candidate) => candidate.id === id);
+    const group = item ? store.groups.find((candidate) => candidate.id === item.groupId) : undefined;
+    if (!item || !group || !isGroupMember(group, authenticated.id) || !isMessageVisibleTo(item, authenticated.id)) {
+      throw new ApiError(404, "message_not_found", "Сообщение не найдено");
     }
-    advanceReadState(store.readStates, authenticated.id, item.fromUserId, {
+    advanceReadState(store.readStates, authenticated.id, group.id, {
       deliveredAt: item.sentAt,
       ...(status === "read" ? { readAt: item.sentAt } : {}),
     });
-    return publicMessage(item, store.readStates);
+    return publicGroupMessage(item, group, store.readStates);
   });
   return ok({ message });
 });

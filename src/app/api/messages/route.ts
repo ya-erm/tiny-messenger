@@ -39,7 +39,7 @@ export const GET = route(async (request) => {
     .sort((a, b) => b.sentAt.localeCompare(a.sentAt))
     .slice(0, limit)
     .reverse()
-    .map(publicMessage);
+    .map((message) => publicMessage(message, store.readStates));
   return ok({ messages });
 });
 
@@ -114,7 +114,7 @@ export const POST = route(async (request) => {
     };
     store.messages.push(item);
     showConversation(store.hiddenConversations, authenticated.id, toUserId);
-    return item;
+    return publicMessage(item, store.readStates);
   });
   await sendPushToUser(message.toUserId, {
     title: message.senderName,
@@ -124,7 +124,7 @@ export const POST = route(async (request) => {
     tag: `message-${message.id}`,
     url: `/id/${message.fromUserId}`,
   }).catch((error) => console.error("Failed to notify message recipient", error));
-  return ok({ message: publicMessage(message) }, { status: 201 });
+  return ok({ message }, { status: 201 });
 });
 
 export const DELETE = route(async (request) => {

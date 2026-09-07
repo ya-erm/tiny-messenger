@@ -34,8 +34,6 @@ export interface MessageRecord {
   options?: ChoiceOption[];
   sentAt: string;
   editedAt?: string;
-  deliveredAt?: string;
-  readAt?: string;
   answer?: {
     id: string;
     label: string;
@@ -48,6 +46,39 @@ export interface HiddenConversationRecord {
   ownerId: string;
   peerId: string;
   hiddenAt: string;
+}
+
+export interface GroupRecord {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  avatarBackground?: string;
+  ownerId: string;
+  memberIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupMessageRecord {
+  id: string;
+  groupId: string;
+  fromUserId: string;
+  senderName: string;
+  text: string;
+  sentAt: string;
+  editedAt?: string;
+  deletedForUserIds?: string[];
+}
+
+// Delivery and read marks are watermarks per (reader, chat) rather than fields on
+// every message: a message counts as delivered/read by `userId` when its sentAt is
+// at or before the cursor. `chatId` is the peer's user ID for a 1:1 conversation
+// and the group ID for a group, so one record shape serves both.
+export interface ReadStateRecord {
+  userId: string;
+  chatId: string;
+  lastDeliveredAt?: string;
+  lastReadAt?: string;
 }
 
 export interface PushSubscriptionRecord {
@@ -69,6 +100,9 @@ export interface StoreData {
   messages: MessageRecord[];
   hiddenConversations: HiddenConversationRecord[];
   pushSubscriptions: PushSubscriptionRecord[];
+  groups: GroupRecord[];
+  groupMessages: GroupMessageRecord[];
+  readStates: ReadStateRecord[];
 }
 
 export interface PublicUser {
@@ -88,5 +122,20 @@ export interface PublicContact {
 }
 
 export interface PublicMessage extends Omit<MessageRecord, "deletedForUserIds"> {
+  status: MessageStatus;
+}
+
+export interface PublicGroup {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  avatarBackground?: string;
+  ownerId: string;
+  members: PublicUser[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicGroupMessage extends Omit<GroupMessageRecord, "deletedForUserIds"> {
   status: MessageStatus;
 }

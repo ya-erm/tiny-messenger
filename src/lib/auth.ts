@@ -2,8 +2,9 @@ import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
 import { readStore } from "@/lib/store";
-import type { PublicUser, UserRecord } from "@/lib/types";
 import { ApiError } from "@/lib/api";
+
+export { publicUser } from "@/lib/domain";
 
 export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -11,17 +12,6 @@ export function hashToken(token: string) {
 
 export function createToken() {
   return `msg_${randomBytes(12).toString("base64url")}`;
-}
-
-export function publicUser(user: UserRecord): PublicUser {
-  return {
-    id: user.id,
-    name: user.name,
-    ...(user.nickname ? { nickname: user.nickname } : {}),
-    ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
-    ...(user.avatarBackground ? { avatarBackground: user.avatarBackground } : {}),
-    createdAt: user.createdAt,
-  };
 }
 
 export async function authenticateToken(token: string) {
