@@ -44,6 +44,7 @@
   --tick: #95e2bd;
   --voice-live: #65d597;
   --on-green: #c3e7d0;
+  --on-green-ink: #204f3e;
   /* Оранжевый */
   --orange-ink-deep: #815039;
   --orange: #e47a45;
@@ -125,6 +126,9 @@
   --tick: #95e2bd;
   --voice-live: #65d597;
   --on-green: #c3e7d0;
+  /* The pill on an outgoing bubble keeps its light fill in both themes, so its
+     ink must stay dark too; --green-dark-ink flips light here and vanished. */
+  --on-green-ink: #204f3e;
   /* Оранжевый */
   --orange-ink-deep: #e6b394;
   --orange: #e47a45;
@@ -325,7 +329,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .question-option { color: var(--orange-ink-deep); background: var(--orange-tint); border-color: var(--orange-line); }
 .question-option.selected { color: #fff; background: var(--orange); border-color: var(--orange); box-shadow: none; }
 .outgoing .question-option { color: #fff; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.16); }
-.outgoing .question-option.selected { color: var(--green-dark-ink); background: var(--on-green); border-color: var(--on-green); box-shadow: none; }
+.outgoing .question-option.selected { color: var(--on-green-ink); background: var(--on-green); border-color: var(--on-green); box-shadow: none; }
 .question-options small { font-size: 12px; }
 .answer-message { margin-top: -3px; }
 .answer-message .message-bubble { min-width: 180px; }
