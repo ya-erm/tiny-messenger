@@ -116,8 +116,9 @@ docker compose run --rm litestream restore -config /etc/litestream.yml -o /app/d
 ```
 
 Флаг `-timestamp` восстанавливает состояние на момент внутри окна хранения.
-Проверить, что реплика живёт, можно командой
-`docker compose exec litestream litestream snapshots -config /etc/litestream.yml /app/data/messenger.db`.
+Посмотреть, что лежит в реплике, можно командой
+`docker compose exec litestream litestream ltx -config /etc/litestream.yml /app/data/messenger.db`,
+а сводку по репликации даёт `litestream status -config /etc/litestream.yml`.
 
 Smoke-тест ожидает уже запущенный сервер на порту 3107 (либо адрес в `TEST_BASE_URL`) и создаёт двух тестовых пользователей:
 
