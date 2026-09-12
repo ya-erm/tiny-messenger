@@ -4,6 +4,9 @@ import type { NextConfig } from "next";
 const { version } = createRequire(import.meta.url)("./package.json") as { version: string };
 
 const nextConfig: NextConfig = {
+  experimental: {
+    cpus: 1,
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
   },
