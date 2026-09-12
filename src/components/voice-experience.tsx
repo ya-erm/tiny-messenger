@@ -10,7 +10,7 @@ import type {
 } from "@/realtime/protocol";
 
 type VoiceAction = { kind: "start"; peerUserId: string } | { kind: "accept" | "join"; sessionId: string };
-type RingtoneMode = "incoming" | "outgoing";
+type RingtoneMode = "incoming" | "outgoing" | "outgoingOnce";
 type AudioElementWithSink = HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> };
 type MediaDevicesWithOutputPicker = MediaDevices & { selectAudioOutput?: () => Promise<MediaDeviceInfo> };
 type WindowWithWebkitAudio = Window & { webkitAudioContext?: typeof AudioContext };
@@ -137,7 +137,20 @@ function useRingtone(mode: RingtoneMode | null) {
     let started = false;
     let starting = false;
     let interval: number | undefined;
+    let stopTimer: number | undefined;
     let output: GainNode | null = null;
+    const stopPlayback = () => {
+      if (interval !== undefined) window.clearInterval(interval);
+      interval = undefined;
+      if (!output) return;
+      const currentOutput = output;
+      output = null;
+      const now = context.currentTime;
+      currentOutput.gain.cancelScheduledValues(now);
+      currentOutput.gain.setValueAtTime(Math.max(currentOutput.gain.value, 0.0001), now);
+      currentOutput.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+      window.setTimeout(() => currentOutput.disconnect(), 80);
+    };
     const start = async () => {
       if (cancelled || started || starting) return;
       starting = true;
@@ -150,7 +163,10 @@ function useRingtone(mode: RingtoneMode | null) {
       output.connect(context.destination);
       const play = () => { if (!cancelled && output) playRingtonePhrase(context, output, mode); };
       play();
-      interval = window.setInterval(play, mode === "incoming" ? 3_000 : 3_800);
+      if (mode !== "outgoingOnce") {
+        interval = window.setInterval(play, mode === "incoming" ? 3_000 : 3_800);
+      }
+      stopTimer = window.setTimeout(stopPlayback, mode === "outgoingOnce" ? 1_200 : 30_000);
     };
     const retryAfterInteraction = () => { void start(); };
     window.addEventListener("pointerdown", retryAfterInteraction);
@@ -160,14 +176,8 @@ function useRingtone(mode: RingtoneMode | null) {
       cancelled = true;
       window.removeEventListener("pointerdown", retryAfterInteraction);
       window.removeEventListener("keydown", retryAfterInteraction);
-      if (interval !== undefined) window.clearInterval(interval);
-      if (output) {
-        const now = context.currentTime;
-        output.gain.cancelScheduledValues(now);
-        output.gain.setValueAtTime(Math.max(output.gain.value, 0.0001), now);
-        output.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
-        window.setTimeout(() => output?.disconnect(), 80);
-      }
+      if (stopTimer !== undefined) window.clearTimeout(stopTimer);
+      stopPlayback();
     };
   }, [getContext, mode]);
 
@@ -604,12 +614,13 @@ export function useVoiceExperience({
   }, [onNotice]);
 
   const peerState = session?.participants.find((participant) => participant.userId === session.peerUserId)?.state;
+  const peerPresence = session ? presence.get(session.peerUserId) : undefined;
   const ringtone = setupBusy || setupAction?.kind === "accept"
     ? null
     : invitation && !session
       ? "incoming"
       : session?.owner && session.initiatorId === userId && peerState === "invited"
-        ? "outgoing"
+        ? peerPresence?.online && peerPresence.voiceAvailable ? "outgoing" : "outgoingOnce"
         : null;
 
   return useMemo(() => ({

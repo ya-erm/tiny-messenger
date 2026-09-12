@@ -501,7 +501,7 @@ function RateLimitDialog({ onClose }: { onClose: () => void }) {
 export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { sharedIdentifier?: string; sharedLabel?: string }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
-  const [phase, setPhase] = useState<"loading" | "welcome" | "ready">("loading");
+  const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
@@ -623,10 +623,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         setUser(restored);
         setPhase("ready");
       })
-      .catch(() => {
-        window.localStorage.removeItem(TOKEN_KEY);
-        setPhase("welcome");
-        setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
+      .catch((error: unknown) => {
+        if (error instanceof ApiClientError && error.status === 401 && error.code === "invalid_token") {
+          window.localStorage.removeItem(TOKEN_KEY);
+          setPhase("welcome");
+          setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
+          return;
+        }
+        setPhase("restore-error");
       });
   }, []);
 
@@ -1252,6 +1256,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }
 
   if (phase === "loading") return <LoadingScreen />;
+  if (phase === "restore-error") return <SessionRestoreError />;
   if (phase === "welcome" || !user) {
     return <WelcomeScreen busy={busy} notice={notices.at(-1)?.text ?? ""} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
   }
@@ -1757,6 +1762,19 @@ function ToastStack({ notices, onDismiss }: { notices: Notice[]; onDismiss: (id:
         </div>
       ))}
     </div>
+  );
+}
+
+function SessionRestoreError() {
+  return (
+    <main className="fatal-error">
+      <section className="fatal-card">
+        <span className="brand-mark big">tm</span>
+        <h1>Сервер временно недоступен</h1>
+        <p>Сохранённый токен не удалён. Проверьте соединение и попробуйте ещё раз.</p>
+        <button type="button" className="primary-button wide" onClick={() => window.location.reload()}>Повторить</button>
+      </section>
+    </main>
   );
 }
 
