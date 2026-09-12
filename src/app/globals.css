@@ -598,7 +598,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .voice-setup-card select { width: 100%; min-height: 44px; padding: 0 11px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
 .voice-setup-card > small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; }
 .voice-output-picker { margin-top: 9px; padding: 7px 0; color: var(--green-ink); background: transparent; border: 0; font-size: 9px; font-weight: 800; cursor: pointer; }
-.voice-dock { min-width: 330px; position: fixed; z-index: 50; right: 34px; bottom: 34px; display: flex; align-items: center; gap: 10px; padding: 11px 12px; color: #fff; background: var(--inverse); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; box-shadow: 0 18px 42px rgba(20,30,24,.28); }
+.voice-dock { min-width: 350px; position: fixed; z-index: 50; right: 34px; bottom: 34px; display: flex; align-items: center; gap: 10px; padding: 11px 12px; color: #fff; background: var(--inverse); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; box-shadow: 0 18px 42px rgba(20,30,24,.28); }
 .voice-live-dot { width: 10px; height: 10px; flex: 0 0 10px; background: var(--amber); border-radius: 50%; }
 .voice-live-dot.connected { background: var(--voice-live); box-shadow: 0 0 0 4px rgba(101,213,151,.15); }
 .voice-dock-copy { min-width: 100px; flex: 1; }
@@ -607,6 +607,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .voice-dock-copy small { margin-top: 3px; color: rgba(255,255,255,.67); font-size: 8px; }
 .voice-dock button { min-height: 34px; padding: 0 9px; color: #fff; background: rgba(255,255,255,.1); border: 0; border-radius: 9px; font-size: 8px; font-weight: 800; cursor: pointer; }
 .voice-dock button:hover { background: rgba(255,255,255,.18); }
+.voice-volume-control { width: 88px; display: flex; align-items: center; gap: 7px; flex: 0 0 88px; color: rgba(255,255,255,.75); }
+.voice-volume-control .voice-control-icon { width: 15px; height: 15px; flex: 0 0 15px; }
+.voice-volume-control input { width: 66px; height: 20px; margin: 0; accent-color: var(--voice-live); cursor: pointer; }
+.voice-dock .voice-control-button { width: 34px; display: grid; place-items: center; flex: 0 0 34px; padding: 0; }
+.voice-control-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .voice-dock .voice-muted { color: var(--danger-on-dark); background: rgba(228,122,69,.25); }
 .voice-dock .voice-leave { color: #fff; background: var(--danger); }
 
@@ -660,8 +665,12 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .action-dialog-buttons { padding-top: 4px; }
   @keyframes sheet-up { from { transform: translateY(100%); } }
   .toast { font-size: 12px; }
-  .voice-dock { min-width: 0; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); left: 10px; }
+  .voice-dock { min-width: 0; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); left: 10px; gap: 8px; padding: 9px 10px; }
+  .voice-dock-copy { min-width: 0; }
+  .voice-volume-control { width: 70px; flex-basis: 70px; gap: 5px; }
+  .voice-volume-control input { width: 50px; }
   .voice-dock button { min-height: 44px; }
+  .voice-dock .voice-control-button { width: 44px; flex-basis: 44px; }
 }
 
 @media (max-width: 480px) {

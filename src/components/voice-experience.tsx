@@ -10,8 +10,10 @@ import type {
 } from "@/realtime/protocol";
 
 type VoiceAction = { kind: "start"; peerUserId: string } | { kind: "accept" | "join"; sessionId: string };
+type RingtoneMode = "incoming" | "outgoing";
 type AudioElementWithSink = HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> };
 type MediaDevicesWithOutputPicker = MediaDevices & { selectAudioOutput?: () => Promise<MediaDeviceInfo> };
+type WindowWithWebkitAudio = Window & { webkitAudioContext?: typeof AudioContext };
 
 export interface VoicePeer {
   id: string;
@@ -24,6 +26,8 @@ export interface VoiceExperienceController {
   session: VoiceSessionSnapshot | null;
   invitation: VoiceSessionSnapshot | null;
   muted: boolean;
+  remoteVolume: number;
+  ringtone: RingtoneMode | null;
   rtcState: RTCPeerConnectionState | "idle" | "preparing";
   requestStart: (peer: VoicePeer) => void;
   requestJoin: (sessionId: string) => void;
@@ -31,6 +35,7 @@ export interface VoiceExperienceController {
   decline: (sessionId: string) => void;
   leave: () => void;
   toggleMute: () => void;
+  setRemoteVolume: (volume: number) => void;
   closeSetup: () => void;
   confirmSetup: () => void;
   setupOpen: boolean;
@@ -51,6 +56,8 @@ export interface VoiceExperienceController {
 
 const INPUT_KEY = "tiny-messenger:v1:audio-input";
 const OUTPUT_KEY = "tiny-messenger:v1:audio-output";
+const VOLUME_KEY = "tiny-messenger:v1:remote-volume";
+const DEFAULT_REMOTE_VOLUME = 1;
 const RTC_CONFIGURATION_CACHE_MS = 5 * 60_000;
 const RESTART_DELAYS_MS = [0, 3_000, 10_000, 25_000] as const;
 const SILENT_ACK_ERRORS = new Set([
@@ -61,6 +68,115 @@ const SILENT_ACK_ERRORS = new Set([
   "stale_revision",
   "future_revision",
 ]);
+
+function VoiceControlIcon({ name }: { name: "microphone" | "microphoneOff" | "volume" | "volumeOff" | "hangUp" }) {
+  const paths = {
+    microphone: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></>,
+    microphoneOff: <><path d="M9 9V6a3 3 0 0 1 5.8-1M15 10.5V11a3 3 0 0 1-4.8 2.4M5 11a7 7 0 0 0 11.7 5.2M19 11a7 7 0 0 1-.5 2.6M12 18v3M9 21h6M3 3l18 18" /></>,
+    volume: <><path d="M5 9H2v6h3l5 4V5L5 9Z" /><path d="M14 9a4 4 0 0 1 0 6M17 6a8 8 0 0 1 0 12" /></>,
+    volumeOff: <><path d="M5 9H2v6h3l5 4V5L5 9ZM15 10l5 5M20 10l-5 5" /></>,
+    hangUp: <path d="M5.6 15.8c4.3-3 8.5-3 12.8 0M7.2 14.8l-1.7 4.1-3.2-1.3.7-3a2 2 0 0 1 1-1.3c5.3-3.3 10.7-3.3 16 0a2 2 0 0 1 1 1.3l.7 3-3.2 1.3-1.7-4.1" />,
+  };
+  return <svg className="voice-control-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function scheduleTone(context: AudioContext, output: GainNode, start: number, frequency: number, duration: number) {
+  const oscillator = context.createOscillator();
+  const envelope = context.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(frequency, start);
+  envelope.gain.setValueAtTime(0.0001, start);
+  envelope.gain.exponentialRampToValueAtTime(0.13, start + 0.07);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(envelope).connect(output);
+  oscillator.start(start);
+  oscillator.stop(start + duration + 0.02);
+}
+
+function playRingtonePhrase(context: AudioContext, output: GainNode, mode: RingtoneMode) {
+  const start = context.currentTime + 0.02;
+  if (mode === "incoming") {
+    scheduleTone(context, output, start, 659.25, 0.48);
+    scheduleTone(context, output, start + 0.34, 783.99, 0.62);
+    return;
+  }
+  scheduleTone(context, output, start, 440, 0.42);
+  scheduleTone(context, output, start + 0.46, 554.37, 0.5);
+}
+
+function useRingtone(mode: RingtoneMode | null) {
+  const contextRef = useRef<AudioContext | null>(null);
+
+  const getContext = useCallback(() => {
+    if (contextRef.current && contextRef.current.state !== "closed") return contextRef.current;
+    const AudioContextConstructor = window.AudioContext
+      || (window as WindowWithWebkitAudio).webkitAudioContext;
+    contextRef.current = AudioContextConstructor ? new AudioContextConstructor() : null;
+    return contextRef.current;
+  }, []);
+
+  useEffect(() => {
+    const unlock = () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      void getContext()?.resume().catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [getContext]);
+
+  useEffect(() => {
+    if (!mode) return;
+    const context = getContext();
+    if (!context) return;
+    let cancelled = false;
+    let started = false;
+    let starting = false;
+    let interval: number | undefined;
+    let output: GainNode | null = null;
+    const start = async () => {
+      if (cancelled || started || starting) return;
+      starting = true;
+      await context.resume().catch(() => undefined);
+      starting = false;
+      if (cancelled || context.state !== "running") return;
+      started = true;
+      output = context.createGain();
+      output.gain.value = mode === "incoming" ? 0.72 : 0.52;
+      output.connect(context.destination);
+      const play = () => { if (!cancelled && output) playRingtonePhrase(context, output, mode); };
+      play();
+      interval = window.setInterval(play, mode === "incoming" ? 3_000 : 3_800);
+    };
+    const retryAfterInteraction = () => { void start(); };
+    window.addEventListener("pointerdown", retryAfterInteraction);
+    window.addEventListener("keydown", retryAfterInteraction);
+    void start();
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pointerdown", retryAfterInteraction);
+      window.removeEventListener("keydown", retryAfterInteraction);
+      if (interval !== undefined) window.clearInterval(interval);
+      if (output) {
+        const now = context.currentTime;
+        output.gain.cancelScheduledValues(now);
+        output.gain.setValueAtTime(Math.max(output.gain.value, 0.0001), now);
+        output.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+        window.setTimeout(() => output?.disconnect(), 80);
+      }
+    };
+  }, [getContext, mode]);
+
+  useEffect(() => () => {
+    const context = contextRef.current;
+    contextRef.current = null;
+    void context?.close();
+  }, []);
+}
 
 function requestId() {
   return crypto.randomUUID();
@@ -93,6 +209,7 @@ export function useVoiceExperience({
   const [session, setSession] = useState<VoiceSessionSnapshot | null>(null);
   const [invitation, setInvitation] = useState<VoiceSessionSnapshot | null>(null);
   const [muted, setMuted] = useState(false);
+  const [remoteVolume, setRemoteVolumeState] = useState(DEFAULT_REMOTE_VOLUME);
   const [rtcState, setRtcState] = useState<RTCPeerConnectionState | "idle" | "preparing">("idle");
   const [setupAction, setSetupAction] = useState<VoiceAction | null>(null);
   const [setupBusy, setSetupBusy] = useState(false);
@@ -124,6 +241,14 @@ export function useVoiceExperience({
 
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => {
+    const storedVolume = window.localStorage.getItem(VOLUME_KEY);
+    const savedVolume = storedVolume === null ? Number.NaN : Number(storedVolume);
+    if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) {
+      setRemoteVolumeState(savedVolume);
+      if (remoteAudioRef.current) remoteAudioRef.current.volume = savedVolume;
+    }
+  }, []);
   const peerIds = useMemo(() => peers.map((peer) => peer.id).sort().join(","), [peers]);
 
   const send = useCallback((frame: Record<string, unknown>) => {
@@ -456,6 +581,13 @@ export function useVoiceExperience({
     void applyOutput(deviceId).catch(() => onNotice("Браузер не смог переключить аудиовыход"));
   }, [applyOutput, onNotice]);
 
+  const setRemoteVolume = useCallback((volume: number) => {
+    const nextVolume = Math.min(1, Math.max(0, volume));
+    setRemoteVolumeState(nextVolume);
+    if (remoteAudioRef.current) remoteAudioRef.current.volume = nextVolume;
+    window.localStorage.setItem(VOLUME_KEY, String(nextVolume));
+  }, []);
+
   const requestOutputDevice = useCallback(() => {
     const picker = (navigator.mediaDevices as MediaDevicesWithOutputPicker).selectAudioOutput;
     if (!picker) return;
@@ -471,12 +603,23 @@ export function useVoiceExperience({
     void remoteAudioRef.current?.play().then(() => setAudioBlocked(false)).catch((error: Error) => onNotice(error.message));
   }, [onNotice]);
 
+  const peerState = session?.participants.find((participant) => participant.userId === session.peerUserId)?.state;
+  const ringtone = setupBusy || setupAction?.kind === "accept"
+    ? null
+    : invitation && !session
+      ? "incoming"
+      : session?.owner && session.initiatorId === userId && peerState === "invited"
+        ? "outgoing"
+        : null;
+
   return useMemo(() => ({
     connectionState,
     presence,
     session,
     invitation,
     muted,
+    remoteVolume,
+    ringtone,
     rtcState,
     requestStart: (peer: VoicePeer) => { void prepare({ kind: "start", peerUserId: peer.id }); },
     requestJoin: (sessionId: string) => { void prepare({ kind: "join", sessionId }); },
@@ -509,6 +652,7 @@ export function useVoiceExperience({
       track.enabled = !track.enabled;
       setMuted(!track.enabled);
     },
+    setRemoteVolume,
     closeSetup,
     confirmSetup,
     setupOpen: Boolean(setupAction),
@@ -527,13 +671,14 @@ export function useVoiceExperience({
     remoteAudioRef,
   }), [
     audioInputs, audioOutputs, closeSetup, confirmSetup, connectionState, inputDeviceId, invitation,
-    audioBlocked, muted, outputDeviceId, outputPickerAvailable, outputSelectable, prepare, presence,
+    audioBlocked, muted, outputDeviceId, outputPickerAvailable, outputSelectable, prepare, presence, remoteVolume,
     onNotice, request, requestOutputDevice, resumeAudio, rtcState, session, setInputDevice, setOutputDevice,
-    setupAction, setupBusy, stopMedia,
+    setRemoteVolume, setupAction, setupBusy, stopMedia, ringtone,
   ]);
 }
 
 export function VoiceExperienceUi({ voice }: { voice: VoiceExperienceController }) {
+  useRingtone(voice.ringtone);
   const peerState = voice.session?.participants.find((participant) => participant.userId === voice.session?.peerUserId)?.state;
   const stateLabel = voice.rtcState === "connected"
     ? "Связь установлена"
@@ -551,8 +696,38 @@ export function VoiceExperienceUi({ voice }: { voice: VoiceExperienceController 
       {!voice.session.owner ? <button type="button" onClick={() => voice.requestJoin(voice.session!.id)}>Вернуться</button> : null}
       {voice.audioBlocked ? <button type="button" onClick={voice.resumeAudio}>Включить звук</button> : null}
       {voice.session.owner ? <>
-        <button type="button" className={voice.muted ? "voice-muted" : ""} onClick={voice.toggleMute}>{voice.muted ? "Включить микрофон" : "Выкл. микрофон"}</button>
-        <button type="button" className="voice-leave" onClick={voice.leave}>Выйти</button>
+        {!voice.audioBlocked ? <label className="voice-volume-control" data-tooltip={`Громкость собеседника: ${Math.round(voice.remoteVolume * 100)}%`}>
+          <VoiceControlIcon name={voice.remoteVolume === 0 ? "volumeOff" : "volume"} />
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={voice.remoteVolume}
+            onChange={(event) => voice.setRemoteVolume(event.currentTarget.valueAsNumber)}
+            aria-label="Громкость собеседника"
+            aria-valuetext={`${Math.round(voice.remoteVolume * 100)}%`}
+          />
+        </label> : null}
+        <button
+          type="button"
+          className={`voice-control-button ${voice.muted ? "voice-muted" : ""}`}
+          onClick={voice.toggleMute}
+          aria-label={voice.muted ? "Микрофон выключен. Включить" : "Микрофон включён. Выключить"}
+          aria-pressed={voice.muted}
+          data-tooltip={voice.muted ? "Микрофон выключен · включить" : "Микрофон включён · выключить"}
+        >
+          <VoiceControlIcon name={voice.muted ? "microphoneOff" : "microphone"} />
+        </button>
+        <button
+          type="button"
+          className="voice-control-button voice-leave"
+          onClick={voice.leave}
+          aria-label="Выйти из голосового чата"
+          data-tooltip="Выйти из голосового чата"
+        >
+          <VoiceControlIcon name="hangUp" />
+        </button>
       </> : null}
     </aside> : null}
     {voice.invitation && !voice.session ? <div className="voice-overlay" role="dialog" aria-modal="true" aria-labelledby="voice-invite-title">
