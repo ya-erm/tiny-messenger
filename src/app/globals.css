@@ -595,11 +595,15 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .voice-card-actions button { min-height: 44px; }
 .voice-setup-card { text-align: left; }
 .voice-setup-card label { display: grid; gap: 6px; margin-top: 14px; color: var(--muted); font-size: 10px; font-weight: 800; }
-.voice-setup-card select { width: 100%; min-height: 44px; padding: 0 11px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
+.voice-device-select { position: relative; display: block; color: var(--green-ink); }
+.voice-device-select > .voice-control-icon { position: absolute; z-index: 1; top: 50%; left: 13px; width: 17px; height: 17px; pointer-events: none; transform: translateY(-50%); }
+.voice-setup-card select { width: 100%; min-height: 44px; padding: 0 36px 0 41px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
 .voice-setup-card > small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; }
 .voice-output-picker { margin-top: 9px; padding: 7px 0; color: var(--green-ink); background: transparent; border: 0; font-size: 9px; font-weight: 800; cursor: pointer; }
 .voice-dock { min-width: 350px; position: fixed; z-index: 50; right: 34px; bottom: 34px; display: flex; align-items: center; gap: 10px; padding: 11px 12px; color: #fff; background: var(--inverse); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; box-shadow: 0 18px 42px rgba(20,30,24,.28); }
-.voice-live-dot { width: 10px; height: 10px; flex: 0 0 10px; background: var(--amber); border-radius: 50%; }
+.voice-peer-avatar-shell { width: 38px; height: 38px; position: relative; flex: 0 0 38px; }
+.voice-peer-avatar { width: 38px; height: 38px; position: relative; display: grid; place-items: center; overflow: hidden; color: var(--green-dark-ink); background: var(--green-tint); border-radius: 50%; font-size: 13px; font-weight: 800; }
+.voice-live-dot { width: 10px; height: 10px; position: absolute; right: -1px; bottom: -1px; background: var(--amber); border: 2px solid var(--inverse); border-radius: 50%; }
 .voice-live-dot.connected { background: var(--voice-live); box-shadow: 0 0 0 4px rgba(101,213,151,.15); }
 .voice-dock-copy { min-width: 100px; flex: 1; }
 .voice-dock-copy strong, .voice-dock-copy small { display: block; }

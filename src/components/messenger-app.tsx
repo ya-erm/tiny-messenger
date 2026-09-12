@@ -876,7 +876,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     );
   }, [groupMessages, messages, selectedChat, user?.id]);
   const membersGroup = groups.find((group) => group.id === membersGroupId) ?? null;
-  const voicePeers = useMemo(() => peers.map((peer) => ({ id: peer.id, name: peer.name })), [peers]);
+  const voicePeers = useMemo(() => peers.map((peer) => ({
+    id: peer.id,
+    name: peer.name,
+    avatarUrl: peer.avatarUrl,
+    avatarBackground: peer.avatarBackground,
+  })), [peers]);
   const voice = useVoiceExperience({
     token,
     userId: user?.id || "",
@@ -1423,6 +1428,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               ) : (
                 <div className="conversation-actions">
                   {selectedPeer && !selectedPeer.saved && <button className="text-button" onClick={() => setContactFormDefaultId(selectedPeer.id)}>Сохранить</button>}
+                  {selectedPeer ? <button
+                    type="button"
+                    className="header-icon-button"
+                    disabled={voice.setupBusy}
+                    onClick={voice.openSetup}
+                    aria-label="Настройки звука"
+                    data-tooltip="Настройки звука"
+                    data-tooltip-position="bottom"
+                  ><Glyph name="settings" /></button> : null}
                   {selectedPeer ? <button
                     type="button"
                     className="header-icon-button voice-call-button"

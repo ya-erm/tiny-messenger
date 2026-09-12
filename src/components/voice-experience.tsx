@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RealtimeClient } from "@/realtime/realtime-client";
 import type {
@@ -18,12 +19,15 @@ type WindowWithWebkitAudio = Window & { webkitAudioContext?: typeof AudioContext
 export interface VoicePeer {
   id: string;
   name: string;
+  avatarUrl?: string;
+  avatarBackground?: string;
 }
 
 export interface VoiceExperienceController {
   connectionState: RealtimeConnectionState;
   presence: ReadonlyMap<string, PresenceItem>;
   session: VoiceSessionSnapshot | null;
+  sessionPeer: VoicePeer | null;
   invitation: VoiceSessionSnapshot | null;
   muted: boolean;
   remoteVolume: number;
@@ -36,8 +40,8 @@ export interface VoiceExperienceController {
   leave: () => void;
   toggleMute: () => void;
   setRemoteVolume: (volume: number) => void;
+  openSetup: () => void;
   closeSetup: () => void;
-  confirmSetup: () => void;
   setupOpen: boolean;
   setupBusy: boolean;
   audioInputs: MediaDeviceInfo[];
@@ -69,15 +73,38 @@ const SILENT_ACK_ERRORS = new Set([
   "future_revision",
 ]);
 
-function VoiceControlIcon({ name }: { name: "microphone" | "microphoneOff" | "volume" | "volumeOff" | "hangUp" }) {
+function VoiceControlIcon({ name }: { name: "microphone" | "microphoneOff" | "volume" | "volumeOff" | "settings" | "hangUp" }) {
   const paths = {
     microphone: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></>,
     microphoneOff: <><path d="M9 9V6a3 3 0 0 1 5.8-1M15 10.5V11a3 3 0 0 1-4.8 2.4M5 11a7 7 0 0 0 11.7 5.2M19 11a7 7 0 0 1-.5 2.6M12 18v3M9 21h6M3 3l18 18" /></>,
     volume: <><path d="M5 9H2v6h3l5 4V5L5 9Z" /><path d="M14 9a4 4 0 0 1 0 6M17 6a8 8 0 0 1 0 12" /></>,
     volumeOff: <><path d="M5 9H2v6h3l5 4V5L5 9ZM15 10l5 5M20 10l-5 5" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.37.72.66 1 .3.29.69.43 1.1.4h.1v4h-.1c-.41-.03-.8.11-1.1.4-.29.28-.51.62-.66 1Z" /></>,
     hangUp: <path d="M5.6 15.8c4.3-3 8.5-3 12.8 0M7.2 14.8l-1.7 4.1-3.2-1.3.7-3a2 2 0 0 1 1-1.3c5.3-3.3 10.7-3.3 16 0a2 2 0 0 1 1 1.3l.7 3-3.2 1.3-1.7-4.1" />,
   };
   return <svg className="voice-control-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function VoicePeerAvatar({ peer, connected }: { peer: VoicePeer; connected: boolean }) {
+  return <span className="voice-peer-avatar-shell" aria-hidden="true">
+    <span
+      className="voice-peer-avatar"
+      style={peer.avatarBackground ? { backgroundColor: peer.avatarBackground } : undefined}
+    >
+      <span>{peer.name.slice(0, 1).toUpperCase()}</span>
+      {peer.avatarUrl ? <Image
+        key={peer.avatarUrl}
+        className="avatar-image"
+        src={peer.avatarUrl}
+        alt=""
+        fill
+        sizes="38px"
+        unoptimized
+        onError={(event) => { event.currentTarget.hidden = true; }}
+      /> : null}
+    </span>
+    <span className={`voice-live-dot ${connected ? "connected" : ""}`} />
+  </span>;
 }
 
 function scheduleTone(context: AudioContext, output: GainNode, start: number, frequency: number, duration: number) {
@@ -221,7 +248,7 @@ export function useVoiceExperience({
   const [muted, setMuted] = useState(false);
   const [remoteVolume, setRemoteVolumeState] = useState(DEFAULT_REMOTE_VOLUME);
   const [rtcState, setRtcState] = useState<RTCPeerConnectionState | "idle" | "preparing">("idle");
-  const [setupAction, setSetupAction] = useState<VoiceAction | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
@@ -542,33 +569,38 @@ export function useVoiceExperience({
       setInputDeviceIdState(savedInput);
       setOutputDeviceIdState(savedOutput);
       await ensureMedia(savedInput);
-      setSetupAction(action);
+      const frame = action.kind === "start"
+        ? { type: "voice_start", peerUserId: action.peerUserId }
+        : { type: action.kind === "accept" ? "voice_accept" : "voice_join", sessionId: action.sessionId };
+      setRtcState("connecting");
+      await request(frame);
     } catch (error) {
       setRtcState("idle");
+      if (!sessionRef.current?.owner) stopMedia();
       onNotice((error as Error).name === "NotAllowedError"
         ? "Разрешите доступ к микрофону, чтобы начать звонок"
         : (error as Error).message);
     } finally {
       setSetupBusy(false);
     }
+  }, [ensureMedia, onNotice, request, stopMedia]);
+
+  const openSetup = useCallback(() => {
+    const savedInput = window.localStorage.getItem(INPUT_KEY) || "";
+    const savedOutput = window.localStorage.getItem(OUTPUT_KEY) || "";
+    setInputDeviceIdState(savedInput);
+    setOutputDeviceIdState(savedOutput);
+    setSetupOpen(true);
+    setSetupBusy(true);
+    void ensureMedia(savedInput).catch((error: Error) => {
+      onNotice(error.name === "NotAllowedError"
+        ? "Разрешите доступ к микрофону, чтобы выбрать устройство"
+        : error.message);
+    }).finally(() => setSetupBusy(false));
   }, [ensureMedia, onNotice]);
 
-  const confirmSetup = useCallback(() => {
-    if (!setupAction) return;
-    const frame = setupAction.kind === "start"
-      ? { type: "voice_start", peerUserId: setupAction.peerUserId }
-      : { type: setupAction.kind === "accept" ? "voice_accept" : "voice_join", sessionId: setupAction.sessionId };
-    setSetupAction(null);
-    setRtcState("connecting");
-    void request(frame).catch((error: Error) => {
-      setRtcState("idle");
-      if (!sessionRef.current?.owner) stopMedia();
-      onNotice(error.message);
-    });
-  }, [onNotice, request, setupAction, stopMedia]);
-
   const closeSetup = useCallback(() => {
-    setSetupAction(null);
+    setSetupOpen(false);
     if (!sessionRef.current?.owner) stopMedia();
   }, [stopMedia]);
 
@@ -615,7 +647,12 @@ export function useVoiceExperience({
 
   const peerState = session?.participants.find((participant) => participant.userId === session.peerUserId)?.state;
   const peerPresence = session ? presence.get(session.peerUserId) : undefined;
-  const ringtone = setupBusy || setupAction?.kind === "accept"
+  const sessionPeer = useMemo(() => {
+    if (!session) return null;
+    return peers.find((peer) => peer.id === session.peerUserId)
+      ?? { id: session.peerUserId, name: session.peerName };
+  }, [peers, session]);
+  const ringtone = setupBusy
     ? null
     : invitation && !session
       ? "incoming"
@@ -627,6 +664,7 @@ export function useVoiceExperience({
     connectionState,
     presence,
     session,
+    sessionPeer,
     invitation,
     muted,
     remoteVolume,
@@ -664,9 +702,9 @@ export function useVoiceExperience({
       setMuted(!track.enabled);
     },
     setRemoteVolume,
+    openSetup,
     closeSetup,
-    confirmSetup,
-    setupOpen: Boolean(setupAction),
+    setupOpen,
     setupBusy,
     audioInputs,
     audioOutputs,
@@ -681,10 +719,10 @@ export function useVoiceExperience({
     resumeAudio,
     remoteAudioRef,
   }), [
-    audioInputs, audioOutputs, closeSetup, confirmSetup, connectionState, inputDeviceId, invitation,
+    audioInputs, audioOutputs, closeSetup, connectionState, inputDeviceId, invitation,
     audioBlocked, muted, outputDeviceId, outputPickerAvailable, outputSelectable, prepare, presence, remoteVolume,
-    onNotice, request, requestOutputDevice, resumeAudio, rtcState, session, setInputDevice, setOutputDevice,
-    setRemoteVolume, setupAction, setupBusy, stopMedia, ringtone,
+    onNotice, openSetup, request, requestOutputDevice, resumeAudio, rtcState, session, setInputDevice, setOutputDevice,
+    sessionPeer, setRemoteVolume, setupBusy, setupOpen, stopMedia, ringtone,
   ]);
 }
 
@@ -702,11 +740,20 @@ export function VoiceExperienceUi({ voice }: { voice: VoiceExperienceController 
   return <>
     <audio ref={voice.remoteAudioRef} autoPlay playsInline />
     {voice.session ? <aside className="voice-dock" aria-label="Текущий голосовой чат">
-      <span className={`voice-live-dot ${voice.rtcState === "connected" ? "connected" : ""}`} />
+      {voice.sessionPeer ? <VoicePeerAvatar peer={voice.sessionPeer} connected={voice.rtcState === "connected"} /> : null}
       <span className="voice-dock-copy"><strong>{voice.session.peerName}</strong><small>{stateLabel}</small></span>
       {!voice.session.owner ? <button type="button" onClick={() => voice.requestJoin(voice.session!.id)}>Вернуться</button> : null}
       {voice.audioBlocked ? <button type="button" onClick={voice.resumeAudio}>Включить звук</button> : null}
       {voice.session.owner ? <>
+        <button
+          type="button"
+          className="voice-control-button"
+          onClick={voice.openSetup}
+          aria-label="Настройки звука"
+          data-tooltip="Настройки звука"
+        >
+          <VoiceControlIcon name="settings" />
+        </button>
         {!voice.audioBlocked ? <label className="voice-volume-control" data-tooltip={`Громкость собеседника: ${Math.round(voice.remoteVolume * 100)}%`}>
           <VoiceControlIcon name={voice.remoteVolume === 0 ? "volumeOff" : "volume"} />
           <input
@@ -748,27 +795,32 @@ export function VoiceExperienceUi({ voice }: { voice: VoiceExperienceController 
         <p>Комната останется доступной для повторного входа, пока в ней находится один из вас.</p>
         <div className="voice-card-actions">
           <button type="button" className="secondary-button" onClick={() => voice.decline(voice.invitation!.id)}>Отклонить</button>
-          <button type="button" className="primary-button" onClick={() => voice.requestAccept(voice.invitation!.id)}>Подключиться</button>
+          <button type="button" className="primary-button" disabled={voice.setupBusy} onClick={() => voice.requestAccept(voice.invitation!.id)}>{voice.setupBusy ? "Подключаем…" : "Подключиться"}</button>
         </div>
       </section>
     </div> : null}
     {voice.setupOpen ? <div className="voice-overlay" role="dialog" aria-modal="true" aria-labelledby="voice-setup-title">
       <section className="voice-card voice-setup-card">
         <h2 id="voice-setup-title">Настройка звука</h2>
-        <p>Проверьте устройства перед подключением.</p>
-        <label>Микрофон<select value={voice.inputDeviceId} onChange={(event) => voice.setInputDevice(event.target.value)}>
-          <option value="">Системный по умолчанию</option>
-          {voice.audioInputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Микрофон ${index + 1}`}</option>)}
-        </select></label>
-        <label>Динамики<select value={voice.outputDeviceId} disabled={!voice.outputSelectable} onChange={(event) => voice.setOutputDevice(event.target.value)}>
-          <option value="">Системные по умолчанию</option>
-          {voice.audioOutputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Выход ${index + 1}`}</option>)}
-        </select></label>
+        <p>Выберите устройства для голосового чата.</p>
+        <label>Микрофон<span className="voice-device-select">
+          <VoiceControlIcon name="microphone" />
+          <select value={voice.inputDeviceId} onChange={(event) => voice.setInputDevice(event.target.value)}>
+            <option value="">Системный по умолчанию</option>
+            {voice.audioInputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Микрофон ${index + 1}`}</option>)}
+          </select>
+        </span></label>
+        <label>Динамики<span className="voice-device-select">
+          <VoiceControlIcon name="volume" />
+          <select value={voice.outputDeviceId} disabled={!voice.outputSelectable} onChange={(event) => voice.setOutputDevice(event.target.value)}>
+            <option value="">Системные по умолчанию</option>
+            {voice.audioOutputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Выход ${index + 1}`}</option>)}
+          </select>
+        </span></label>
         {voice.outputPickerAvailable ? <button type="button" className="voice-output-picker" onClick={voice.requestOutputDevice}>Выбрать аудиовыход…</button> : null}
         {!voice.outputSelectable ? <small>Вывод звука управляется системой.</small> : null}
         <div className="voice-card-actions">
-          <button type="button" className="secondary-button" onClick={voice.closeSetup}>Отмена</button>
-          <button type="button" className="primary-button" disabled={voice.setupBusy} onClick={voice.confirmSetup}>Подключиться</button>
+          <button type="button" className="primary-button" disabled={voice.setupBusy} onClick={voice.closeSetup}>{voice.setupBusy ? "Проверяем…" : "Готово"}</button>
         </div>
       </section>
     </div> : null}
