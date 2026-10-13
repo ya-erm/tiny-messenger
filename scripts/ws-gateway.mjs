@@ -378,6 +378,13 @@ async function handleDeviceConnection(socket, request, { rest }) {
           method: "POST",
           body: JSON.stringify({ id: optionId }),
         });
+      } else if (frame.type === "reaction") {
+        const messageId = safeString(frame.messageId, 128);
+        if (!messageId) throw Object.assign(new Error("Некорректный messageId"), { code: "invalid_message_id" });
+        await rest(token, `/api/messages/${encodeURIComponent(messageId)}/reaction`, {
+          method: "PUT",
+          body: JSON.stringify({ emoji: frame.emoji }),
+        });
       } else if (frame.type === "send") {
         const toUserId = safeString(frame.toUserId, 128);
         const text = safeString(frame.text, 4096);

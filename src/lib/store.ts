@@ -1,7 +1,6 @@
 import "server-only";
 
 import type {
-  GroupMessage,
   Prisma,
   PushSubscription,
   ReadState,
@@ -37,6 +36,7 @@ export function toUserRecord(row: User): UserRecord {
 
 export const messageInclude = {
   options: { orderBy: { position: "asc" } },
+  reactions: { select: { userId: true, emoji: true }, orderBy: { userId: "asc" } },
 } satisfies Prisma.MessageInclude;
 
 export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
@@ -53,6 +53,7 @@ export function toMessageRecord(row: MessageRow): MessageRecord {
       ? { options: row.options.map((option) => ({ id: option.optionId, label: option.label })) }
       : {}),
     sentAt: row.sentAt,
+    reactions: row.reactions,
     ...(row.editedAt ? { editedAt: row.editedAt } : {}),
     ...(row.answerId && row.answerLabel && row.answeredAt
       ? { answer: { id: row.answerId, label: row.answerLabel, answeredAt: row.answeredAt } }
@@ -81,7 +82,13 @@ export function toGroupRecord(row: GroupRow): GroupRecord {
   };
 }
 
-export function toGroupMessageRecord(row: GroupMessage): GroupMessageRecord {
+export const groupMessageInclude = {
+  reactions: { select: { userId: true, emoji: true }, orderBy: { userId: "asc" } },
+} satisfies Prisma.GroupMessageInclude;
+
+type GroupMessageRow = Prisma.GroupMessageGetPayload<{ include: typeof groupMessageInclude }>;
+
+export function toGroupMessageRecord(row: GroupMessageRow): GroupMessageRecord {
   return {
     id: row.id,
     groupId: row.groupId,
@@ -89,6 +96,7 @@ export function toGroupMessageRecord(row: GroupMessage): GroupMessageRecord {
     senderName: row.senderName,
     text: row.text,
     sentAt: row.sentAt,
+    reactions: row.reactions,
     ...(row.editedAt ? { editedAt: row.editedAt } : {}),
   };
 }

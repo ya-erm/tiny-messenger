@@ -9,6 +9,7 @@ import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import {
   deleteGroupMessagesForUser,
   findGroupForMember,
+  groupMessageInclude,
   memberOf,
   readStatesForChat,
   toGroupMessageRecord,
@@ -32,6 +33,7 @@ export const GET = route(async (request) => {
     if (!group) throw new ApiError(404, "group_not_found", "Группа не найдена");
     const rows = await db.groupMessage.findMany({
       where: { groupId, ...visibleTo(authenticated.id) },
+      include: groupMessageInclude,
       orderBy: { sentAt: "desc" },
       take: limit,
     });
@@ -58,6 +60,7 @@ export const POST = route(async (request) => {
     const found = await findGroupForMember(tx, groupId, authenticated.id);
     if (!found) throw new ApiError(404, "group_not_found", "Группа не найдена");
     const row = await tx.groupMessage.create({
+      include: groupMessageInclude,
       data: {
         id: randomUUID(),
         groupId,

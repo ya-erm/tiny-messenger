@@ -1,15 +1,17 @@
 "use client";
 
 import Image, { type StaticImageData } from "next/image";
-import { CSSProperties, FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import deleteDialogIllustration from "../../public/delete-dialog.png";
 import deleteHistoryIllustration from "../../public/delete-history.png";
 import deleteMessagesIllustration from "../../public/delete-messages.png";
 import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
+import { ReactionPicker } from "@/components/reaction-picker";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
-import type { MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
+import { reactionLabel } from "@/lib/reactions";
+import type { MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
 const THEME_KEY = "tiny-messenger:v1:theme";
@@ -193,7 +195,7 @@ function isStandaloneApp() {
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit" | "smile";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -218,6 +220,7 @@ function Glyph({ name }: { name: GlyphName }) {
     bellOff: <><path d="m3 3 18 18" /><path d="M18 8a6 6 0 0 0-9.3-5M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 9h14M10 21h4" /></>,
     install: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" /></>,
     edit: <><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" /><path d="M13.5 6.5l4 4" /></>,
+    smile: <><circle cx="12" cy="12" r="9" /><path d="M8 14a4.5 4.5 0 0 0 8 0M8.5 9h.01M15.5 9h.01" /></>,
     phone: <path d="M7.1 3.5 9.6 8l-2.1 2.1a16.2 16.2 0 0 0 6.4 6.4l2.1-2.1 4.5 2.5-.7 3.1a2 2 0 0 1-2 1.5C9.3 21.5 2.5 14.7 2.5 6.2a2 2 0 0 1 1.5-2Z" />,
   };
   return <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
@@ -534,6 +537,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[] | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageMenu, setMessageMenu] = useState<{ id: string; style: CSSProperties; above: boolean } | null>(null);
+  const [reactingMessageIds, setReactingMessageIds] = useState<string[]>([]);
+  const reactionRequestsRef = useRef(new Set<string>());
+  const messageMenuRef = useRef<HTMLDivElement>(null);
+  const messageMenuTriggerRef = useRef<HTMLElement | null>(null);
+  const messageMenuId = messageMenu?.id;
   const longPressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
   const [messageDeleteIds, setMessageDeleteIds] = useState<string[] | null>(null);
   const [dialogDeleteStage, setDialogDeleteStage] = useState<"choice" | "history" | null>(null);
@@ -1136,6 +1144,32 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     }
   }
 
+  async function reactToMessage(message: ChatMessage, emoji: string) {
+    if (reactionRequestsRef.current.has(message.id)) return;
+    reactionRequestsRef.current.add(message.id);
+    setReactingMessageIds((current) => [...current, message.id]);
+    if (messageMenu?.id === message.id) messageMenuTriggerRef.current?.focus();
+    setMessageMenu(null);
+    const ownReaction = message.reactions.find((reaction) => reaction.userId === user?.id);
+    const resource = isDirectMessage(message) ? "messages" : "group-messages";
+    try {
+      const { reactions } = await request<{ reactions: MessageReaction[] }>(`/api/${resource}/${message.id}/reaction`, {
+        method: "PUT",
+        body: JSON.stringify({ emoji: ownReaction?.emoji === emoji ? null : emoji }),
+      });
+      if (isDirectMessage(message)) {
+        setMessages((current) => current.map((item) => item.id === message.id ? { ...item, reactions } : item));
+      } else {
+        setGroupMessages((current) => current.map((item) => item.id === message.id ? { ...item, reactions } : item));
+      }
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      reactionRequestsRef.current.delete(message.id);
+      setReactingMessageIds((current) => current.filter((id) => id !== message.id));
+    }
+  }
+
   function toggleMessageSelection(messageId: string) {
     setSelectedMessageIds((current) => {
       if (current === null) return current;
@@ -1165,9 +1199,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }
 
   useEffect(() => {
-    if (!messageMenu) return;
+    if (!messageMenuId) return;
+    messageMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const close = () => setMessageMenu(null);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        messageMenuTriggerRef.current?.focus();
+      }
+    };
     // Anchored to a viewport position, so any scroll or resize invalidates it.
     window.addEventListener("pointerdown", close);
     window.addEventListener("keydown", onKey);
@@ -1179,21 +1219,38 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       window.removeEventListener("resize", close);
       document.querySelector(".message-stream")?.removeEventListener("scroll", close);
     };
-  }, [messageMenu]);
+  }, [messageMenuId]);
+
+  useLayoutEffect(() => {
+    const menu = messageMenuRef.current;
+    if (!messageMenuId || !menu) return;
+    const keepInsideViewport = () => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.top >= 8 && rect.bottom <= window.innerHeight - 8) return;
+      const top = Math.max(8, Math.min(rect.top, window.innerHeight - rect.height - 8));
+      setMessageMenu((current) => current && current.id === messageMenuId
+        ? { ...current, style: { ...current.style, top, bottom: undefined } } : current);
+    };
+    const observer = new ResizeObserver(keepInsideViewport);
+    observer.observe(menu);
+    return () => observer.disconnect();
+  }, [messageMenuId]);
 
   // Fixed rather than absolute inside the row: the stream scrolls with
   // overflow-y, which would clip a menu opened on the last message.
-  const openMessageMenu = (messageId: string, bubble: HTMLElement) => {
+  const openMessageMenu = (messageId: string, bubble: HTMLElement, trigger?: HTMLElement) => {
     const rect = bubble.getBoundingClientRect();
     const outgoing = conversation.find((message) => message.id === messageId)?.fromUserId === user?.id;
-    const above = window.innerHeight - rect.bottom < 130;
+    const above = window.innerHeight - rect.bottom < 210 && rect.top > 210;
+    const menuWidth = Math.min(360, window.innerWidth - 16);
+    messageMenuTriggerRef.current = trigger ?? bubble.querySelector<HTMLElement>(".message-reaction-trigger");
     setMessageMenu({
       id: messageId,
       above,
       style: {
-        top: above ? undefined : rect.bottom + 6,
+        top: above ? undefined : Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 210)),
         bottom: above ? window.innerHeight - rect.top + 6 : undefined,
-        ...(outgoing ? { right: Math.max(8, window.innerWidth - rect.right) } : { left: Math.max(8, rect.left) }),
+        left: Math.max(8, Math.min(outgoing ? rect.right - menuWidth : rect.left, window.innerWidth - menuWidth - 8)),
       },
     });
   };
@@ -1531,7 +1588,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                       openMessageMenu(message.id, event.currentTarget.querySelector(".message-bubble") as HTMLElement);
                     }}
                     onPointerDown={selectionMode ? undefined : (event) => {
-                      if (event.pointerType === "mouse") return;
+                      if (event.pointerType === "mouse" || (event.target as HTMLElement).closest("button")) return;
                       const bubble = event.currentTarget.querySelector(".message-bubble") as HTMLElement;
                       cancelLongPress();
                       longPressRef.current = {
@@ -1556,11 +1613,37 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
                     } : undefined}
                   >
                     <div className="message-bubble">
+                      {!selectionMode ? <button
+                        type="button"
+                        className="message-reaction-trigger"
+                        aria-label="Реакции и действия"
+                        title="Реакции и действия"
+                        aria-haspopup="menu"
+                        aria-expanded={messageMenu?.id === message.id}
+                        onClick={(event) => openMessageMenu(message.id, event.currentTarget.closest(".message-bubble") as HTMLElement, event.currentTarget)}
+                      ><Glyph name="smile" /></button> : null}
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
                       <p>{message.text}{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
                       {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</footer> : null}
+                      {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
+                        {[...new Set(message.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
+                          const label = reactionLabel(emoji);
+                          const matching = message.reactions.filter((reaction) => reaction.emoji === emoji);
+                          if (!matching.length) return null;
+                          const own = matching.some((reaction) => reaction.userId === user.id);
+                          return <button
+                            key={emoji}
+                            type="button"
+                            className={`message-reaction ${own ? "own" : ""}`}
+                            aria-pressed={own}
+                            aria-label={`${label}: ${matching.length}. ${own ? "Снять реакцию" : "Отправить реакцию"}`}
+                            disabled={selectionMode || reactingMessageIds.includes(message.id)}
+                            onClick={() => void reactToMessage(message, emoji)}
+                          ><span aria-hidden="true">{emoji}</span><span>{matching.length}</span></button>;
+                        })}
+                      </div> : null}
                     </div>
                   </article>
                   {direct && selectedPeer ? <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null}
@@ -1571,7 +1654,36 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               const target = conversation.find((message) => message.id === messageMenu.id);
               if (!target) return null;
               const editable = target.fromUserId === user.id && (!isDirectMessage(target) || target.kind === "text");
-              return <div className="conversation-actions-popover message-menu" style={messageMenu.style} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+              return <div
+                ref={messageMenuRef}
+                className="conversation-actions-popover message-menu"
+                style={messageMenu.style}
+                role="menu"
+                aria-label="Действия с сообщением"
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Tab") {
+                    setMessageMenu(null);
+                    messageMenuTriggerRef.current?.focus();
+                    return;
+                  }
+                  const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+                  if (!keys.includes(event.key)) return;
+                  event.preventDefault();
+                  const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+                  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                  const backwards = event.key === "ArrowLeft" || event.key === "ArrowUp";
+                  const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+                    : (index + (backwards ? -1 : 1) + buttons.length) % buttons.length;
+                  buttons[next]?.focus();
+                }}
+              >
+                <ReactionPicker
+                  key={target.id}
+                  ownEmoji={target.reactions.find((reaction) => reaction.userId === user.id)?.emoji}
+                  disabled={reactingMessageIds.includes(target.id)}
+                  onSelect={(emoji) => void reactToMessage(target, emoji)}
+                />
                 <button type="button" role="menuitem" onClick={() => {
                   setMessageMenu(null);
                   void navigator.clipboard.writeText(target.text)

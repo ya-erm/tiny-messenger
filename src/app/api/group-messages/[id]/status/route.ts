@@ -6,6 +6,7 @@ import { assertRateLimit } from "@/lib/rate-limit";
 import {
   advanceReadState,
   groupInclude,
+  groupMessageInclude,
   readStatesForChat,
   toGroupMessageRecord,
   toGroupRecord,
@@ -29,7 +30,7 @@ export const PATCH = route<Context>(async (request, { params }) => {
   const message = await write(async (tx) => {
     const row = await tx.groupMessage.findFirst({
       where: { id, group: { members: { some: { userId: authenticated.id } } }, ...visibleTo(authenticated.id) },
-      include: { group: { include: groupInclude } },
+      include: { ...groupMessageInclude, group: { include: groupInclude } },
     });
     if (!row) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
     await advanceReadState(tx, authenticated.id, row.groupId, {

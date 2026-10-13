@@ -24,6 +24,11 @@ export interface ChoiceOption {
   label: string;
 }
 
+export interface MessageReaction {
+  userId: string;
+  emoji: string;
+}
+
 // "Deleted for me" marks live in their own table and are applied as a query
 // filter, so a record the caller can see never carries them.
 export interface MessageRecord {
@@ -36,6 +41,7 @@ export interface MessageRecord {
   options?: ChoiceOption[];
   sentAt: string;
   editedAt?: string;
+  reactions: MessageReaction[];
   answer?: {
     id: string;
     label: string;
@@ -64,6 +70,7 @@ export interface GroupMessageRecord {
   text: string;
   sentAt: string;
   editedAt?: string;
+  reactions: MessageReaction[];
 }
 
 // Delivery and read marks are watermarks per (reader, chat) rather than fields on

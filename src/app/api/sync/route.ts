@@ -14,6 +14,7 @@ import { assertRateLimit } from "@/lib/rate-limit";
 import {
   advanceReadState,
   groupInclude,
+  groupMessageInclude,
   involving,
   memberOf,
   messageInclude,
@@ -53,6 +54,7 @@ export const POST = route(async (request) => {
       }),
       db.groupMessage.findMany({
         where: { groupId: { in: groupIds }, ...visibleTo(authenticated.id) },
+        include: groupMessageInclude,
         orderBy: { sentAt: "desc" },
         take: limit,
       }),

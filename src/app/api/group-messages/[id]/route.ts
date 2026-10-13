@@ -8,6 +8,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import {
   deleteGroupMessagesForUser,
   groupInclude,
+  groupMessageInclude,
   readStatesForChat,
   toGroupMessageRecord,
   toGroupRecord,
@@ -19,7 +20,7 @@ type Context = { params: Promise<{ id: string }> };
 async function findAccessible(tx: Prisma.TransactionClient, id: string, userId: string) {
   const row = await tx.groupMessage.findFirst({
     where: { id, group: { members: { some: { userId } } } },
-    include: { group: { include: groupInclude } },
+    include: { ...groupMessageInclude, group: { include: groupInclude } },
   });
   if (!row) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
   return { message: toGroupMessageRecord(row), group: toGroupRecord(row.group) };
@@ -45,6 +46,7 @@ export const PATCH = route<Context>(async (request, { params }) => {
       ? toGroupMessageRecord(await tx.groupMessage.update({
         where: { id },
         data: { text, editedAt: new Date().toISOString() },
+        include: groupMessageInclude,
       }))
       : found;
     const readStates = await readStatesForChat(tx, group.id);
