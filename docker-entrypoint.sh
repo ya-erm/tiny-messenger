@@ -2,7 +2,8 @@
 set -eu
 
 mkdir -p /app/data
-chown -R nextjs:nodejs /app/data
+test -r /app/.next/BUILD_ID || { echo "Missing compiled release" >&2; exit 1; }
+test -w /app/data || { echo "Data directory must be writable by uid 1001" >&2; exit 1; }
 
 # Bring the SQLite schema up to date before the app opens it. Only applies
 # migrations that have not run yet; a no-op on every later start. Litestream
@@ -11,7 +12,7 @@ chown -R nextjs:nodejs /app/data
 migration_attempt=1
 migration_attempts=6
 
-until su-exec nextjs:nodejs node_modules/.bin/prisma migrate deploy; do
+until node_modules/.bin/prisma migrate deploy; do
   if [ "$migration_attempt" -ge "$migration_attempts" ]; then
     echo "Prisma migrations failed after $migration_attempts attempts" >&2
     exit 1
@@ -22,4 +23,4 @@ until su-exec nextjs:nodejs node_modules/.bin/prisma migrate deploy; do
   sleep 5
 done
 
-exec su-exec nextjs:nodejs "$@"
+exec "$@"

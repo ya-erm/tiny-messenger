@@ -16,7 +16,7 @@
 - presence контактов: «В сети» и сохранённое время последнего подключения;
 - REST polling для ESP и веба, а также WebSocket device adapter на общем HTTP-сервере;
 - SQLite через Prisma с миграциями и непрерывным бэкапом Litestream в S3, общий minute-window rate limit и отдельная защита от слишком быстрой отправки сообщений;
-- Docker-сборка с единым Next.js custom server для VPS.
+- Готовый официальный Node.js образ с единым Next.js custom server для VPS.
 
 Текущие серверные defaults:
 
@@ -411,19 +411,60 @@ curl -sS -X POST https://example.com/api/messages/poll \
 
 ## VPS через Docker
 
+Свой Docker-образ не собирается. Сервер запускает готовый официальный
+`node:22-bookworm-slim`, закреплённый digest из локальной сборки. Приложение и
+Linux-зависимости подключаются из каталогов релиза. Зависимости переиспользуются
+пока не меняется lockfile или версия Node; обычные изменения JS/TS требуют
+передачи только `app.tar.gz` и небольших файлов метаданных.
+
+На Mac сначала запустите Colima с поддержкой x86_64 через Rosetta:
+
 ```bash
-sh scripts/build-image.sh
-docker compose up -d --no-build messenger
+colima start tm-release --cpu 2 --memory 3 --disk 20 --vz-rosetta --activate=false
+DOCKER_CONTEXT=colima-tm-release bash scripts/build-release.sh
 ```
 
-Сборка образа ограничена 0,5 CPU и 1 ГБ RAM без swap; стадии выполняются
-последовательно. До создания сборщика скрипт требует минимум 1,5 ГБ доступной
-памяти на Docker-хосте, включая запас 512 МБ для работающих сервисов. При
-недостатке памяти сборка не запускается. Прямой `docker compose build` этих
-ограничений не устанавливает. Лимиты можно задать через `BUILD_CPU_QUOTA`
-(период — 100000), `BUILD_MEMORY_MB` и `BUILD_RESERVE_MB`.
+Скрипт собирает закоммиченный HEAD в Linux amd64, используя официальный
+`node:<точная версия>-bookworm`. Контейнер сборки ограничен 1 CPU, 1,5 ГБ RAM
+без swap, Node heap — 768 МБ, Next.js — одним worker. Лимиты регулируются
+`BUILD_CPUS` и `BUILD_MEMORY_MB`. Нативные SQLite-модули собираются для Linux,
+а не копируются из macOS. Docker volume кеширует установленные зависимости.
 
-База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). При первом старте entrypoint поправит права каталога и применит миграции, а само приложение продолжит работать не от root. Перед обновлением сервера достаточно убедиться, что Litestream жив, либо снять консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
+Результат — `releases/artifacts/<commit>/`: `app.tar.gz`, `dependencies.tar.gz`,
+`runtime-image`, `dependencies-key`, `revision`, `SHA256SUMS`. На VPS загрузите
+эти файлы в отдельный входящий каталог; `dependencies.tar.gz` можно пропустить,
+если `releases/dependencies/<dependencies-key>/.complete` уже существует.
+Затем на VPS:
+
+```bash
+bash scripts/install-release.sh /path/to/uploaded-artifacts
+```
+
+Либо отправьте готовый релиз одним вызовом с локальной машины (коммит должен
+быть отправлен в remote):
+
+```bash
+bash scripts/deploy-release.sh HOST /root/tiny-messenger releases/artifacts/COMMIT
+```
+
+Этот скрипт сам сохраняет конфигурацию старого контейнера при первом переходе,
+передаёт только необходимые архивы, обновляет серверный checkout через
+`git pull --ff-only` и запускает установку. Не запускайте сборку на VPS.
+
+Перед первым переходом со старого образа, **до обновления compose-файла**,
+сохраните конфигурацию отката: `mkdir -p releases && docker compose config >
+releases/legacy-compose.yml`. Она может содержать секреты: храните её только
+на сервере, с правами 600. Для последующих релизов предыдущие пути сохраняются
+в `deploy/release.env.previous` автоматически.
+
+Установка проверяет контрольные суммы и запас памяти, затем пересоздаёт только
+Messenger, без сборки и перезапуска TURN/Litestream. Контейнер ограничен
+384 МБ RAM без swap и 0,75 CPU. Если новая версия не проходит healthcheck,
+скрипт восстанавливает предыдущий релиз. Для ручного отката скопируйте
+`deploy/release.env.previous` в `deploy/release.env` и выполните
+`docker compose --env-file .env --env-file deploy/release.env up -d --no-build --no-deps messenger`.
+
+База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). Каталог должен принадлежать uid/gid 1001:1001; приложение и Litestream работают с этим uid. Entrypoint применяет миграции. Перед обновлением убедитесь, что Litestream жив, либо снимите консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. Откат приложения не откатывает миграции, поэтому они должны быть совместимы с предыдущей версией. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
 
 Compose публикует приложение только на `127.0.0.1:3000`, чтобы порт нельзя было обойти снаружи. Контейнерный reverse proxy может подключаться к сети `<compose-project>_default` и обращаться к сервису как `messenger:3000`.
 
@@ -442,8 +483,8 @@ location /ws {
 
 TLS завершается на reverse proxy, поэтому устройство подключается к
 `wss://example.com/ws`, а приложение внутри VPS принимает обычный WebSocket. После
-обновления соберите образ через `sh scripts/build-image.sh`, выполните
-`docker compose up -d --no-build messenger` и проверьте Upgrade через
+обновления соберите релиз локально, установите через `scripts/install-release.sh`
+и проверьте Upgrade через
 `pnpm test:ws`, указав `TEST_WS_URL=wss://example.com/ws`.
 
 Настраиваемые переменные находятся в `.env.example`. Общие ограничения частоты хранятся в памяти и рассчитаны на один процесс: по умолчанию 120 публичных и 480 авторизованных запросов в минуту на комбинацию IP/токена. Для отправки сообщений действует отдельный лимит на пользователя: 6 сообщений за 10 секунд и 30 сообщений в минуту. При превышении `POST /api/messages` возвращает `429`, код `message_rate_limited` и заголовок `Retry-After`. Это защищает от случайного зажатого Enter, но не является DDoS-защитой.

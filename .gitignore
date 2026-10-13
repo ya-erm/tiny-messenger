@@ -14,5 +14,8 @@ data/*.db-*
 data/*-litestream/
 src/generated/
 *.tsbuildinfo
+releases/
+deploy/release.env
+deploy/release.env.previous
 
 .claude/settings.local.json
