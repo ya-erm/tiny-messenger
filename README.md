@@ -412,8 +412,16 @@ curl -sS -X POST https://example.com/api/messages/poll \
 ## VPS через Docker
 
 ```bash
-docker compose up -d --build
+sh scripts/build-image.sh
+docker compose up -d --no-build messenger
 ```
+
+Сборка образа ограничена 0,5 CPU и 1 ГБ RAM без swap; стадии выполняются
+последовательно. До создания сборщика скрипт требует минимум 1,5 ГБ доступной
+памяти на Docker-хосте, включая запас 512 МБ для работающих сервисов. При
+недостатке памяти сборка не запускается. Прямой `docker compose build` этих
+ограничений не устанавливает. Лимиты можно задать через `BUILD_CPU_QUOTA`
+(период — 100000), `BUILD_MEMORY_MB` и `BUILD_RESERVE_MB`.
 
 База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). При первом старте entrypoint поправит права каталога и применит миграции, а само приложение продолжит работать не от root. Перед обновлением сервера достаточно убедиться, что Litestream жив, либо снять консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
 
@@ -434,7 +442,8 @@ location /ws {
 
 TLS завершается на reverse proxy, поэтому устройство подключается к
 `wss://example.com/ws`, а приложение внутри VPS принимает обычный WebSocket. После
-обновления выполните `docker compose up -d --build` и проверьте Upgrade через
+обновления соберите образ через `sh scripts/build-image.sh`, выполните
+`docker compose up -d --no-build messenger` и проверьте Upgrade через
 `pnpm test:ws`, указав `TEST_WS_URL=wss://example.com/ws`.
 
 Настраиваемые переменные находятся в `.env.example`. Общие ограничения частоты хранятся в памяти и рассчитаны на один процесс: по умолчанию 120 публичных и 480 авторизованных запросов в минуту на комбинацию IP/токена. Для отправки сообщений действует отдельный лимит на пользователя: 6 сообщений за 10 секунд и 30 сообщений в минуту. При превышении `POST /api/messages` возвращает `429`, код `message_rate_limited` и заголовок `Retry-After`. Это защищает от случайного зажатого Enter, но не является DDoS-защитой.

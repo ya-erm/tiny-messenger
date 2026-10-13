@@ -1,0 +1,3 @@
+# Keep dependency installation and the Next.js build from competing for RAM.
+[worker.oci]
+  max-parallelism = 1
