@@ -16,6 +16,7 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
+      HOME: /tmp
       NODE_OPTIONS: --max-old-space-size=192
       HOSTNAME: 0.0.0.0
       PORT: 3000

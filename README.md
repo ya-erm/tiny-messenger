@@ -80,7 +80,7 @@ pnpm db:import-json
 версии (миграции к этому моменту уже применены):
 
 ```bash
-docker compose exec -u nextjs messenger node scripts/import-json-store.mjs
+docker compose --env-file .env --env-file deploy/release.env exec messenger node scripts/import-json-store.mjs
 ```
 
 `-u nextjs` важен: файлы WAL, созданные от root, приложение потом не сможет
@@ -107,19 +107,19 @@ LITESTREAM_ENDPOINT=https://storage.yandexcloud.net
 LITESTREAM_REGION=ru-central1
 ```
 
-После этого обычный `docker compose up -d` поднимет и Litestream.
+После этого `docker compose --env-file .env --env-file deploy/release.env up -d` поднимет и Litestream.
 
 Бакет должен быть приватным: в базе лежат хеши токенов и ключи push-подписок,
 а Litestream ничего не шифрует сам. Восстановление на новой машине до запуска
 приложения:
 
 ```bash
-docker compose run --rm litestream restore -config /etc/litestream.yml -o /app/data/messenger.db /app/data/messenger.db
+docker compose --env-file .env --env-file deploy/release.env run --rm litestream restore -config /etc/litestream.yml -o /app/data/messenger.db /app/data/messenger.db
 ```
 
 Флаг `-timestamp` восстанавливает состояние на момент внутри окна хранения.
 Посмотреть, что лежит в реплике, можно командой
-`docker compose exec litestream litestream ltx -config /etc/litestream.yml /app/data/messenger.db`,
+`docker compose --env-file .env --env-file deploy/release.env exec litestream litestream ltx -config /etc/litestream.yml /app/data/messenger.db`,
 а сводку по репликации даёт `litestream status -config /etc/litestream.yml`.
 
 Smoke-тест ожидает уже запущенный сервер на порту 3107 (либо адрес в `TEST_BASE_URL`) и создаёт двух тестовых пользователей:
@@ -420,14 +420,14 @@ Linux-зависимости подключаются из каталогов р
 На Mac сначала запустите Colima с поддержкой x86_64 через Rosetta:
 
 ```bash
-colima start tm-release --cpu 2 --memory 3 --disk 20 --vz-rosetta --activate=false
+colima start tm-release --cpu 4 --memory 6 --disk 20 --vz-rosetta --activate=false
 DOCKER_CONTEXT=colima-tm-release bash scripts/build-release.sh
 ```
 
 Скрипт собирает закоммиченный HEAD в Linux amd64, используя официальный
-`node:<точная версия>-bookworm`. Контейнер сборки ограничен 1 CPU, 1,5 ГБ RAM
-без swap, Node heap — 768 МБ, Next.js — одним worker. Лимиты регулируются
-`BUILD_CPUS` и `BUILD_MEMORY_MB`. Нативные SQLite-модули собираются для Linux,
+`node:<точная версия>-bookworm`. Контейнер сборки ограничен 4 CPU, 4 ГБ RAM
+без swap, Node heap — 2 ГБ, Next.js — одним worker. Лимиты регулируются
+`BUILD_CPUS`, `BUILD_MEMORY_MB` и `BUILD_NODE_HEAP_MB`. Нативные SQLite-модули собираются для Linux,
 а не копируются из macOS. Docker volume кеширует установленные зависимости.
 
 Результат — `releases/artifacts/<commit>/`: `app.tar.gz`, `dependencies.tar.gz`,
@@ -463,6 +463,11 @@ Messenger, без сборки и перезапуска TURN/Litestream. Кон
 скрипт восстанавливает предыдущий релиз. Для ручного отката скопируйте
 `deploy/release.env.previous` в `deploy/release.env` и выполните
 `docker compose --env-file .env --env-file deploy/release.env up -d --no-build --no-deps messenger`.
+
+Для остальных команд Compose (логи, exec, backup) также указывайте оба
+`--env-file`: первый содержит настройки сервисов, второй — пути текущего релиза
+и закреплённый образ. Пользователь `nextjs` в готовом образе не создаётся;
+контейнер уже работает с числовым uid/gid 1001:1001.
 
 База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). Каталог должен принадлежать uid/gid 1001:1001; приложение и Litestream работают с этим uid. Entrypoint применяет миграции. Перед обновлением убедитесь, что Litestream жив, либо снимите консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. Откат приложения не откатывает миграции, поэтому они должны быть совместимы с предыдущей версией. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
 
