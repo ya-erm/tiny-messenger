@@ -40,11 +40,14 @@ async function sendArchive(file, summary) {
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   const sha256 = hash.digest("hex");
   const boundary = `tm-${randomBytes(24).toString("hex")}`;
+  const records = Object.values(summary.counts).reduce((a, b) => a + b, 0);
+  const users = summary.counts.User ?? 0;
+  const messages = (summary.counts.Message ?? 0) + (summary.counts.GroupMessage ?? 0);
   const fields = {
     chat_id: chatId, disable_notification: "true",
     caption: [
       summary.createdAt,
-      `${Object.values(summary.counts).reduce((a, b) => a + b, 0)} записей`,
+      `${records} записей (users: ${users}, messages: ${messages})`,
       summary.comparison?.trim(),
     ].filter(Boolean).join("\n"),
   };
