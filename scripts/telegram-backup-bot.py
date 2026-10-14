@@ -64,6 +64,10 @@ def main():
     username = bot.api("getMe")["username"]
     if bot.api("getWebhookInfo").get("url"):
         raise RuntimeError("An existing webhook prevents polling")
+    bot.api("setMyCommands", {
+        "scope": {"type": "chat", "chat_id": admin_id},
+        "commands": [{"command": "backup", "description": "Резервная копия всей базы"}],
+    })
     print("Admin-only backup bot is polling", flush=True)
     while True:
         try:
