@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import Database from "better-sqlite3";
-import { exportDatabase, restoreDatabase } from "./sqlite-json-backup.mjs";
+import { exportDatabase, exportDatabasePair, restoreDatabase } from "./sqlite-json-backup.mjs";
 
 test("whole WAL snapshot restores schema, rows, exact integers, blobs and sequences", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "tm-json-backup-"));
@@ -63,4 +63,32 @@ test("whole WAL snapshot restores schema, rows, exact integers, blobs and sequen
     } finally { restored.close(); }
     await assert.rejects(restoreDatabase(archive, target), { code: "EEXIST" });
   } finally { db.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite gzip and JSON describe the same standalone snapshot including WAL", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "tm-backup-pair-"));
+  const source = new Database(path.join(directory, "source.db"));
+  try {
+    source.pragma("journal_mode = WAL");
+    source.pragma("wal_autocheckpoint = 0");
+    source.exec("CREATE TABLE messages(id INTEGER PRIMARY KEY, text TEXT)");
+    source.prepare("INSERT INTO messages VALUES (1,?)").run("🤷 committed in WAL");
+    assert.ok((await stat(path.join(directory, "source.db-wal"))).size > 0);
+    const pair = await exportDatabasePair(path.join(directory, "source.db"), path.join(directory, "backup"));
+    const json = JSON.parse(gunzipSync(await readFile(pair.jsonFile)));
+    const binary = gunzipSync(await readFile(pair.sqliteFile));
+    assert.equal(binary.subarray(0, 16).toString(), "SQLite format 3\0");
+    assert.equal(binary.length, pair.databaseBytes);
+    const restoredFile = path.join(directory, "restored.db");
+    await writeFile(restoredFile, binary, { mode: 0o600 });
+    const restored = new Database(restoredFile, { readonly: true });
+    try {
+      assert.equal(restored.pragma("integrity_check", { simple: true }), "ok");
+      assert.equal(restored.prepare("SELECT text FROM messages WHERE id=1").get().text, "🤷 committed in WAL");
+      assert.equal(json.tables.find((t) => t.name === "messages").rows[0][1], "🤷 committed in WAL");
+    } finally { restored.close(); }
+    assert.equal((await stat(pair.sqliteFile)).mode & 0o777, 0o600);
+    assert.equal(pair.sqliteBytes, (await stat(pair.sqliteFile)).size);
+    assert.equal((await readdir(directory)).some((name) => name.startsWith(".sqlite-snapshot-")), false);
+  } finally { source.close(); await rm(directory, { recursive: true, force: true }); }
 });

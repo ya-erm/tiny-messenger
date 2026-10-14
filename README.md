@@ -145,6 +145,17 @@ sudo journalctl -u tiny-messenger-backup.service -u tiny-messenger-backup-bot.se
 sudo systemctl start tiny-messenger-backup.service
 ```
 
+Разовое сравнение JSON и SQLite из одного снимка базы (оба архива придут в Telegram):
+
+```bash
+sudo bash scripts/run-telegram-backup.sh --compare-sqlite
+```
+
+SQLite копируется через online backup API с учётом WAL, затем сжимается gzip
+с тем же уровнем 6, что JSON. Файл `.db.gz` после распаковки открывается обычным
+SQLite; режим сравнения сохраняет лимиты ресурсов и блокировку параллельных
+запусков. Ежедневный cron и `/backup` продолжают отправлять JSON.
+
 Проверка восстановления на отдельной машине с установленными зависимостями:
 
 ```bash

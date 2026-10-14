@@ -2,6 +2,10 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --compare-sqlite ]; }; then
+  echo 'Usage: bash scripts/run-telegram-backup.sh [--compare-sqlite]' >&2
+  exit 1
+fi
 exec 9>/run/lock/tiny-messenger-telegram-backup.lock
 flock -n 9 || { echo 'Backup already running'; exit 1; }
 source deploy/release.env
@@ -37,4 +41,4 @@ timeout --signal=TERM --kill-after=15s 600s docker run --rm --pull=never \
   --mount "type=bind,src=$(pwd)/scripts,dst=/app/scripts,readonly" \
   --mount "type=bind,src=$MESSENGER_DEPENDENCIES_DIR,dst=/app/node_modules,readonly" \
   --mount "type=bind,src=$(pwd)/backups/telegram,dst=/backups" \
-  --workdir /app "$MESSENGER_RUNTIME_IMAGE" node scripts/telegram-backup.mjs
+  --workdir /app "$MESSENGER_RUNTIME_IMAGE" node scripts/telegram-backup.mjs "$@"

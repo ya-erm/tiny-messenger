@@ -2,7 +2,13 @@ import { createReadStream } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
-import { exportDatabase } from "./sqlite-json-backup.mjs";
+import { exportDatabase, exportDatabasePair } from "./sqlite-json-backup.mjs";
+
+const compareSqlite = process.argv[2] === "--compare-sqlite";
+if (process.argv.length > 3 || (process.argv[2] && !compareSqlite)) {
+  console.error("Usage: node scripts/telegram-backup.mjs [--compare-sqlite]");
+  process.exit(1);
+}
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -36,7 +42,7 @@ async function sendArchive(file, summary) {
   const boundary = `tm-${randomBytes(24).toString("hex")}`;
   const fields = {
     chat_id: chatId, disable_notification: "true",
-    caption: `Tiny Messenger: вся база\n${summary.createdAt}\n${Object.values(summary.counts).reduce((a, b) => a + b, 0)} записей\nSHA256: ${sha256}`,
+    caption: `Tiny Messenger: вся база (${file.endsWith(".db.gz") ? "SQLite" : "JSON"})\n${summary.createdAt}\n${Object.values(summary.counts).reduce((a, b) => a + b, 0)} записей\n${summary.comparison || ""}SHA256: ${sha256}`,
   };
   const prefix = Buffer.from(Object.entries(fields).map(([name, value]) =>
     `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
@@ -57,13 +63,26 @@ async function sendArchive(file, summary) {
 
 try {
   const directory = process.env.BACKUP_DIRECTORY || "/backups";
-  const file = path.join(directory, `tiny-messenger-${new Date().toISOString().replaceAll(":", "-")}.json.gz`);
-  const summary = await exportDatabase(process.env.BACKUP_DATABASE || "/data/messenger.db", file);
-  const delivered = await sendArchive(file, summary);
-  console.log(JSON.stringify({ event: "backup_delivered", file: path.basename(file), ...summary, ...delivered }));
+  const prefix = path.join(directory, `tiny-messenger-${new Date().toISOString().replaceAll(":", "-")}`);
+  const database = process.env.BACKUP_DATABASE || "/data/messenger.db";
+  let summary;
+  let files;
+  if (compareSqlite) {
+    const pair = await exportDatabasePair(database, prefix);
+    summary = { ...pair.summary, comparison: `Один снимок: JSON.gz ${pair.summary.bytes} байт; DB.gz ${pair.sqliteBytes} байт\n` };
+    files = [pair.jsonFile, pair.sqliteFile];
+    console.log(JSON.stringify({ event: "backup_comparison", jsonBytes: pair.summary.bytes, sqliteBytes: pair.sqliteBytes, databaseBytes: pair.databaseBytes }));
+  } else {
+    files = [`${prefix}.json.gz`];
+    summary = await exportDatabase(database, files[0]);
+  }
+  for (const file of files) {
+    const delivered = await sendArchive(file, summary);
+    console.log(JSON.stringify({ event: "backup_delivered", file: path.basename(file), ...summary, ...delivered }));
+  }
   // Prune only after successful delivery. Failures keep the newest archive.
   for (const name of await readdir(directory)) {
-    if (!/^tiny-messenger-.*\.json\.gz$/.test(name)) continue;
+    if (!/^tiny-messenger-.*\.(json|db)\.gz$/.test(name)) continue;
     const candidate = path.join(directory, name);
     if ((await stat(candidate)).mtimeMs < Date.now() - 14 * 86400_000) await rm(candidate);
   }

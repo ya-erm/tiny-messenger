@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rename, rm, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, createGunzip } from "node:zlib";
@@ -66,6 +66,39 @@ export async function exportDatabase(databaseFile, outputFile) {
     if (db.inTransaction) db.exec("ROLLBACK");
     db.close();
     await rm(partial, { force: true });
+  }
+}
+
+export async function exportDatabasePair(databaseFile, outputPrefix) {
+  await mkdir(path.dirname(outputPrefix), { recursive: true, mode: 0o700 });
+  const temporary = await mkdtemp(path.join(path.dirname(outputPrefix), ".sqlite-snapshot-"));
+  const snapshotFile = path.join(temporary, "snapshot.db");
+  const jsonFile = `${outputPrefix}.json.gz`;
+  const sqliteFile = `${outputPrefix}.db.gz`;
+  let source;
+  try {
+    const handle = await open(snapshotFile, "wx", 0o600);
+    await handle.close();
+    source = new Database(databaseFile, { readonly: true, fileMustExist: true, timeout: 5000 });
+    source.pragma("cache_size = -2048");
+    // SQLite's online backup API includes committed WAL data without copying
+    // the live .db file or pausing Messenger/Litestream.
+    await source.backup(snapshotFile);
+    source.close();
+    source = undefined;
+    const summary = await exportDatabase(snapshotFile, jsonFile);
+    await pipeline(createReadStream(snapshotFile), createGzip({ level: 6 }),
+      createWriteStream(`${sqliteFile}.partial`, { flags: "wx", mode: 0o600 }));
+    await rename(`${sqliteFile}.partial`, sqliteFile);
+    return {
+      summary, jsonFile, sqliteFile,
+      sqliteBytes: (await stat(sqliteFile)).size,
+      databaseBytes: (await stat(snapshotFile)).size,
+    };
+  } finally {
+    source?.close();
+    await rm(`${sqliteFile}.partial`, { force: true });
+    await rm(temporary, { recursive: true, force: true });
   }
 }
 
