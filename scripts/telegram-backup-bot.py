@@ -97,7 +97,6 @@ def main():
                 if started.returncode:
                     bot.notify("Не удалось запустить бэкап. Проверь журнал tiny-messenger-backup.service.")
                 else:
-                    bot.notify("Запускаю бэкап всей базы. Архив придёт без звука.")
                     print("Admin requested backup", flush=True)
         except Exception:
             print("Polling or command processing failed; retrying in 10 seconds", flush=True)

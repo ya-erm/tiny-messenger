@@ -25,7 +25,7 @@ class AuthorizationTest(unittest.TestCase):
         self.assertFalse(allowed({**message, "text": "backup"}))
         self.assertFalse(allowed({}))
 
-    def test_polling_dispatches_only_admin_and_notifies_silently(self):
+    def test_polling_dispatches_only_admin_without_start_notification(self):
         messages = [
             {"chat": {"id": 456, "type": "private"}, "from": {"id": 456}, "text": "/backup"},
             {"chat": {"id": 123, "type": "group"}, "from": {"id": 123}, "text": "/backup"},
@@ -60,9 +60,7 @@ class AuthorizationTest(unittest.TestCase):
                     self.assertEqual(run.call_args_list[1].args[0], ["systemctl", "start", "--no-block", "tiny-messenger-backup.service"])
             self.assertEqual(Path(directory, "telegram-offset").read_text(), "4")
         notifications = [data for method, data in calls if method == "sendMessage"]
-        self.assertEqual(len(notifications), 1)
-        self.assertEqual(notifications[0]["chat_id"], "123")
-        self.assertTrue(notifications[0]["disable_notification"])
+        self.assertEqual(notifications, [])
         menu = next(data for method, data in calls if method == "setMyCommands")
         self.assertEqual(menu["scope"], {"type": "chat", "chat_id": "123"})
 
