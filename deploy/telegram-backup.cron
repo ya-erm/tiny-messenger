@@ -1,0 +1,5 @@
+# Server timezone: Europe/Berlin (same midnight as Europe/Belgrade).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+0 0 * * * root /usr/bin/systemctl start tiny-messenger-backup.service

@@ -1,0 +1,29 @@
+[Unit]
+Description=Tiny Messenger admin-only Telegram backup commands
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/root/.config/tiny-messenger/telegram-backup.env
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I -B /root/tiny-messenger/scripts/telegram-backup-bot.py
+EnvironmentFile=/root/.config/tiny-messenger/telegram-backup.env
+StateDirectory=tiny-messenger-backup
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=15
+MemoryMax=48M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=16
+Nice=15
+OOMScoreAdjust=500
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

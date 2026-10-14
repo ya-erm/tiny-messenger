@@ -90,6 +90,72 @@ Compose выполняет `exec` от uid/gid 1001:1001. Не запускай�
 Скрипт отказывается работать, если в базе уже есть пользователи. UUID, токены и
 история сохраняются; сам `store.json` после импорта можно удалить.
 
+### JSON + gzip в Telegram
+
+`scripts/run-telegram-backup.sh` экспортирует структуру и все таблицы SQLite
+(включая миграции, реакции и внутренние таблицы) из одной согласованной WAL-транзакции.
+Записи и загрузка gzip в Telegram идут потоково; целые архивы не держатся в RAM.
+Целые числа SQLite кодируются как `{"$sqliteInteger":"..."}`, BLOB — как
+`{"$sqliteBlob":"base64..."}`. В подписи документа указан SHA256.
+
+На сервере секреты лежат отдельно от Git в
+`/root/.config/tiny-messenger/telegram-backup.env`, каталог `0700`, файл `0600`:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ADMIN_CHAT_ID=...
+```
+
+Образ и зависимости берутся из уже установленного `deploy/release.env`.
+Сборка, установка пакетов и перезапуск Messenger для бэкапа не нужны.
+Контейнер бэкапа ограничен 128 MiB RAM, без swap и 0.25 CPU; таймаут — 10 минут.
+При доступной памяти меньше 256 MiB задача отказывается стартовать. `flock`
+исключает параллельные экспорты. Локальные архивы имеют права `0600`, хранятся
+в `backups/telegram` 14 дней; очистка выполняется только после успешной отправки.
+Ошибка экспорта/отправки попадает в журнал и по возможности отправляется админу
+без звука. Отказы до запуска контейнера записываются в журнал systemd.
+Архивы свыше 49 MiB остаются локально: для них нужно отдельно настроить доставку
+частями. Запрос с неопределённым исходом автоматически не повторяется.
+
+Установка на сервере (пути в unit-файлах рассчитаны на `/root/tiny-messenger`):
+
+```bash
+sudo install -m 0644 deploy/tiny-messenger-backup.service deploy/tiny-messenger-backup-bot.service /etc/systemd/system/
+sudo install -m 0644 deploy/telegram-backup.cron /etc/cron.d/tiny-messenger-telegram-backup
+sudo systemctl daemon-reload
+sudo systemctl enable --now tiny-messenger-backup-bot.service
+sudo systemctl start tiny-messenger-backup.service
+```
+
+Cron запускает бэкап ежедневно в 00:00 по часовому поясу сервера Europe/Berlin
+(полночь совпадает с Europe/Belgrade). Не меняйте часовой пояс сервера без
+обновления расписания. Бот дополнительно принимает `/backup` или
+`/backup@TinyMessengerBackupBot` **только от админа в его личном чате**,
+проверяя одновременно `from.id` и `chat.id`. Запрос и документ отправляются
+с `disable_notification=true`. Повторная команда во время работы получает
+тихий ответ о текущем запуске. Позиция Telegram updates сохраняется между
+перезапусками; команды других пользователей игнорируются.
+Бот ограничен 48 MiB RAM / 0.1 CPU, управляющий процесс задачи — 64 MiB / 0.1 CPU.
+
+Журналы и ручной запуск:
+
+```bash
+sudo journalctl -u tiny-messenger-backup.service -u tiny-messenger-backup-bot.service
+sudo systemctl start tiny-messenger-backup.service
+```
+
+Проверка восстановления на отдельной машине с установленными зависимостями:
+
+```bash
+node scripts/restore-json-backup.mjs tiny-messenger-DATE.json.gz recovered.db
+```
+
+Скрипт создаёт только новый файл, восстанавливает схему, индексы, триггеры,
+представления, все записи и autoincrement, затем проверяет `integrity_check`
+и внешние ключи. Для замены рабочей базы сначала остановите Messenger и
+Litestream и сохраните существующие `.db`, `-wal`, `-shm` отдельно; восстановленной
+базе верните владельца `1001:1001`. Этот формат отличается от старого `store.json`.
+
 ### Litestream
 
 Сервис `litestream` в `docker-compose.yml` непрерывно реплицирует базу в любой

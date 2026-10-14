@@ -1,0 +1,22 @@
+[Unit]
+Description=Tiny Messenger JSON gzip backup to Telegram
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+ConditionPathExists=/root/.config/tiny-messenger/telegram-backup.env
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/tiny-messenger
+ExecStart=/bin/bash /root/tiny-messenger/scripts/run-telegram-backup.sh
+TimeoutStartSec=660
+TimeoutStopSec=30
+MemoryMax=64M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=32
+Nice=15
+IOSchedulingClass=idle
+OOMScoreAdjust=500
+NoNewPrivileges=true
+ProtectSystem=full
