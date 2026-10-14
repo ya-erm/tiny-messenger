@@ -75,7 +75,7 @@ if ! compose up -d --no-build --no-deps messenger; then
   rollback
   exit 1
 fi
-for attempt in {1..18}; do
+for attempt in {1..36}; do
   id=$(compose ps -q messenger)
   if [ -n "$id" ] && [ "$(docker inspect "$id" --format '{{.State.Health.Status}}')" = healthy ]; then
     echo "Release $revision is healthy. Only Messenger was recreated."

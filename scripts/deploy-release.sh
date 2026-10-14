@@ -17,4 +17,4 @@ scp "${ssh_options[@]}" "$artifact_dir/"{app.tar.gz,runtime-image,dependencies-k
 if ! ssh "${ssh_options[@]}" "$host" "test -f '$remote_repo/releases/dependencies/$dependencies_key/.complete'"; then
   scp "${ssh_options[@]}" "$artifact_dir/dependencies.tar.gz" "$host:$incoming/"
 fi
-ssh "${ssh_options[@]}" "$host" "cd '$remote_repo' && git pull --ff-only && test \"\$(git rev-parse HEAD)\" = '$revision' && bash scripts/install-release.sh '$incoming'"
+ssh "${ssh_options[@]}" "$host" "cd '$remote_repo' && git pull --ff-only && git merge-base --is-ancestor '$revision' HEAD && bash scripts/install-release.sh '$incoming'"

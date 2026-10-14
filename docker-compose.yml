@@ -50,7 +50,7 @@ services:
     tmpfs:
       - /app/.next/cache:uid=1001,gid=1001,size=32m
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
