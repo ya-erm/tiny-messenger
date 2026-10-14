@@ -9,8 +9,8 @@ fi
 corepack pnpm build
 mkdir -p /artifacts
 tar --exclude=.next/cache --exclude=.next/dev --exclude='*.tsbuildinfo' \
-  -czf /artifacts/app.tar.gz .next public package.json next.config.ts \
+  -I 'gzip -1' -cf /artifacts/app.tar.gz .next public package.json next.config.ts \
   prisma prisma.config.ts src/lib/database-url.ts scripts docker-entrypoint.sh
 if [ "$PACKAGE_DEPENDENCIES" = 1 ]; then
-  tar -czf /artifacts/dependencies.tar.gz node_modules
+  tar -I 'gzip -1' -cf /artifacts/dependencies.tar.gz node_modules
 fi

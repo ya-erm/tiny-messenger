@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+main() {
 cd "$(dirname "$0")/.."
 revision=$(git rev-parse HEAD)
 if ! git diff --quiet HEAD --; then
@@ -10,7 +11,7 @@ fi
 memory_mb=${BUILD_MEMORY_MB:-4096}
 cpus=${BUILD_CPUS:-4}
 heap_mb=${BUILD_NODE_HEAP_MB:-2048}
-runtime_tag=${RUNTIME_IMAGE:-node:22-bookworm-slim}
+runtime_tag=${RUNTIME_IMAGE:-node:22-bookworm}
 [[ "$memory_mb" =~ ^[1-9][0-9]*$ && "$heap_mb" =~ ^[1-9][0-9]*$ && "$cpus" =~ ^[0-9]+([.][0-9]+)?$ ]] || exit 1
 [ "$heap_mb" -lt "$memory_mb" ] || { echo "Node heap must be smaller than the container memory limit" >&2; exit 1; }
 docker image inspect "$runtime_tag" >/dev/null 2>&1 || docker pull --platform linux/amd64 "$runtime_tag"
@@ -62,3 +63,6 @@ printf '%s\n' "$dependencies_key" > "$output/dependencies-key"
 printf '%s\n' "$revision" > "$output/revision"
 (cd "$output" && shasum -a 256 app.tar.gz dependencies.tar.gz runtime-image dependencies-key revision > SHA256SUMS)
 echo "Release ready: $output"
+}
+
+main "$@"
