@@ -30,7 +30,8 @@
 
 ## Локальный запуск
 
-Нужны Node.js 20.9+ и pnpm 9.15.
+Нужны Node.js 22.12+ в ветке 22.x и pnpm 9.15. Требование к Node учитывает
+Prisma 7 и нативный модуль better-sqlite3; в production используется Node 22.
 
 ```bash
 pnpm install
@@ -40,12 +41,12 @@ pnpm dev
 Откройте `http://localhost:3000`. `pnpm dev` сам генерирует Prisma-клиент и
 накатывает миграции; база появится в `data/messenger.db` и не попадёт в git.
 
-Проверки:
+Проверки (smoke-тест запускается против уже работающего локального сервера):
 
 ```bash
 pnpm typecheck
 pnpm build
-TEST_BASE_URL=http://127.0.0.1:3107 pnpm test:reactions
+TEST_BASE_URL=http://127.0.0.1:3000 pnpm test:reactions
 ```
 
 ## База данных и бэкап
@@ -83,8 +84,8 @@ pnpm db:import-json
 docker compose --env-file .env --env-file deploy/release.env exec messenger node scripts/import-json-store.mjs
 ```
 
-`-u nextjs` важен: файлы WAL, созданные от root, приложение потом не сможет
-открыть на запись.
+Compose выполняет `exec` от uid/gid 1001:1001. Не запускайте импорт от root:
+созданные им файлы WAL приложение потом не сможет открыть на запись.
 
 Скрипт отказывается работать, если в базе уже есть пользователи. UUID, токены и
 история сохраняются; сам `store.json` после импорта можно удалить.
@@ -110,19 +111,48 @@ LITESTREAM_REGION=ru-central1
 После этого `docker compose --env-file .env --env-file deploy/release.env up -d` поднимет и Litestream.
 
 Бакет должен быть приватным: в базе лежат хеши токенов и ключи push-подписок,
-а Litestream ничего не шифрует сам. Восстановление на новой машине до запуска
-приложения:
+а Litestream ничего не шифрует сам.
+
+Перед восстановлением остановите Messenger и Litestream, если они уже запущены.
+Сохраняйте существующую базу вместе с её служебными файлами отдельно; в каталоге
+назначения не должно быть `messenger.db`, `messenger.db-wal` и `messenger.db-shm`.
+Каталог должен принадлежать uid/gid 1001:1001. Команды выполняются
+из корня серверного checkout. Если уже подготовлены каталоги релиза и
+`deploy/release.env`, восстановите базу без запуска зависимого Messenger:
 
 ```bash
-docker compose --env-file .env --env-file deploy/release.env run --rm litestream restore -config /etc/litestream.yml -o /app/data/messenger.db /app/data/messenger.db
+docker compose --env-file .env --env-file deploy/release.env stop messenger litestream
+docker compose --env-file .env --env-file deploy/release.env run --rm --no-deps litestream restore -config /etc/litestream.yml -o /app/data/messenger.db /app/data/messenger.db
 ```
+
+На новой машине без `deploy/release.env` используйте готовый образ Litestream
+напрямую, до первой установки приложения. Создайте `.env` по `.env.example` и
+заполните все `LITESTREAM_*`, включая путь реплики `LITESTREAM_PATH`:
+
+```bash
+mkdir -p data
+chown 1001:1001 data
+docker run --rm --user 1001:1001 --env-file .env \
+  --mount "type=bind,src=$(pwd)/data,dst=/app/data" \
+  --mount "type=bind,src=$(pwd)/deploy/litestream.yml,dst=/etc/litestream.yml,readonly" \
+  litestream/litestream:0.5.17 restore -config /etc/litestream.yml \
+  -o /app/data/messenger.db /app/data/messenger.db
+```
+
+После восстановления проверьте целостность базы, затем установите релиз через
+`scripts/install-release.sh`. Репликацию включайте после успешного старта
+Messenger. Litestream сохраняет SQLite, но не `data/realtime.json` с метаданными
+голосовых комнат и presence.
 
 Флаг `-timestamp` восстанавливает состояние на момент внутри окна хранения.
 Посмотреть, что лежит в реплике, можно командой
 `docker compose --env-file .env --env-file deploy/release.env exec litestream litestream ltx -config /etc/litestream.yml /app/data/messenger.db`,
 а сводку по репликации даёт `litestream status -config /etc/litestream.yml`.
 
-Smoke-тест ожидает уже запущенный сервер на порту 3107 (либо адрес в `TEST_BASE_URL`) и создаёт двух тестовых пользователей:
+Smoke-тесты создают пользователей, сообщения и группы и изменяют их состояние;
+тестовые профили остаются в базе. Запускайте их на локальном или отдельном
+тестовом экземпляре, а не как проверку production после деплоя. `test:api`
+ожидает уже запущенный сервер на порту 3107 (либо адрес в `TEST_BASE_URL`):
 
 ```bash
 TEST_BASE_URL=http://127.0.0.1:3107 pnpm test:api
@@ -415,13 +445,13 @@ curl -sS -X POST https://example.com/api/messages/poll \
 `node:22-bookworm`, закреплённый digest из локальной сборки. В нём уже есть
 OpenSSL для миграций Prisma; в slim-варианте этой библиотеки нет. Приложение и
 Linux-зависимости подключаются из каталогов релиза. Зависимости переиспользуются
-пока не меняется lockfile или версия Node; обычные изменения JS/TS требуют
+пока не меняется lockfile или digest образов Node; обычные изменения JS/TS требуют
 передачи только `app.tar.gz` и небольших файлов метаданных.
 
 На Mac сначала запустите Colima с поддержкой x86_64 через Rosetta:
 
 ```bash
-colima start tm-release --cpu 4 --memory 6 --disk 20 --vz-rosetta --activate=false
+colima start tm-release --arch aarch64 --vm-type vz --cpu 4 --memory 6 --disk 20 --vz-rosetta --activate=false
 DOCKER_CONTEXT=colima-tm-release bash scripts/build-release.sh
 ```
 
@@ -430,6 +460,9 @@ DOCKER_CONTEXT=colima-tm-release bash scripts/build-release.sh
 без swap, Node heap — 2 ГБ, Next.js — одним worker. Лимиты регулируются
 `BUILD_CPUS`, `BUILD_MEMORY_MB` и `BUILD_NODE_HEAP_MB`. Нативные SQLite-модули собираются для Linux,
 а не копируются из macOS. Docker volume кеширует установленные зависимости.
+Перед сборкой проверяется доступная память Docker VM: нужен лимит сборки плюс
+256 МиБ запаса. По окончании работы профиль можно остановить командой
+`colima stop tm-release`; кеши и готовые релизы сохранятся.
 
 Результат — `releases/artifacts/<commit>/`: `app.tar.gz`, `dependencies.tar.gz`,
 `runtime-image`, `dependencies-key`, `revision`, `SHA256SUMS`. На VPS загрузите
@@ -456,26 +489,92 @@ bash scripts/deploy-release.sh HOST /root/tiny-messenger releases/artifacts/COMM
 коммиту main, например при повторной установке уже проверенного релиза.
 
 Перед первым переходом со старого образа, **до обновления compose-файла**,
-сохраните конфигурацию отката: `mkdir -p releases && docker compose config >
-releases/legacy-compose.yml`. Она может содержать секреты: храните её только
+сохраните конфигурацию отката:
+
+```bash
+mkdir -p releases
+(umask 077; docker compose config > releases/legacy-compose.yml)
+```
+
+Она может содержать секреты: храните её только
 на сервере, с правами 600. Для последующих релизов предыдущие пути сохраняются
 в `deploy/release.env.previous` автоматически.
 
 Установка проверяет контрольные суммы и запас памяти, затем пересоздаёт только
 Messenger, без сборки и перезапуска TURN. Работающий Litestream временно
 останавливается на время миграций, чтобы не блокировать SQLite, и запускается
-снова при любом завершении установки, включая откат. Контейнер ограничен
-384 МБ RAM без swap и 0,75 CPU. Если новая версия не проходит healthcheck,
-скрипт восстанавливает предыдущий релиз. Для ручного отката скопируйте
-`deploy/release.env.previous` в `deploy/release.env` и выполните
-`docker compose --env-file .env --env-file deploy/release.env up -d --no-build --no-deps messenger`.
+снова при завершении установки, включая откат. При аварийном завершении
+установщика отдельно проверьте, что репликация возобновилась.
+
+Проверка памяти требует `MemAvailable + RSS процессов старого Messenger ≥
+384 МиБ + DEPLOY_RESERVE_MB`. Резерв по умолчанию — 128 МиБ, итого 512 МиБ.
+При отказе проверки работающий контейнер остаётся на месте. Устраняйте причину
+нехватки памяти перед повтором, учитывая остальные сервисы на VPS.
+
+Контейнер приложения ограничен 384 МиБ RAM без swap и 0,75 CPU, Node heap —
+192 МиБ. Установщик ожидает healthcheck до 180 секунд; если запуск не удался,
+восстанавливает предыдущий релиз или сохранённую конфигурацию старого образа.
+Обновление обычно пересоздаёт контейнер с новыми путями релиза; готовый Node-образ
+переиспользуется, а при отсутствии нужного digest скачивается один раз.
+
+Для ручного отката найдите предыдущий релиз по пути в
+`deploy/release.env.previous` и повторно установите его сохранённый архив:
+
+```bash
+bash scripts/install-release.sh releases/incoming/PREVIOUS_COMMIT
+```
+
+Это повторяет проверку памяти, остановку Litestream на время миграций и ожидание
+healthcheck. Простой перезапуск Messenger при работающем Litestream может
+закончиться ошибкой Prisma `database is locked` даже без новых миграций.
+Сохраняйте архив предыдущего релиза и его зависимости до завершения проверки
+новой версии.
 
 Для остальных команд Compose (логи, exec, backup) также указывайте оба
 `--env-file`: первый содержит настройки сервисов, второй — пути текущего релиза
 и закреплённый образ. Пользователь `nextjs` в готовом образе не создаётся;
 контейнер уже работает с числовым uid/gid 1001:1001.
 
-База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс служебные `-wal` и `-shm`). Каталог должен принадлежать uid/gid 1001:1001; приложение и Litestream работают с этим uid. Entrypoint применяет миграции. Перед обновлением убедитесь, что Litestream жив, либо снимите консистентную копию командой `sqlite3 data/messenger.db "VACUUM INTO 'backup.db'"`: копировать файлы `.db` вручную во время работы нельзя. Откат приложения не откатывает миграции, поэтому они должны быть совместимы с предыдущей версией. За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx), который передаёт `X-Forwarded-For`.
+База лежит в папке `./data` рядом с `docker-compose.yml` (`messenger.db` плюс
+служебные `-wal` и `-shm`). Каталог должен принадлежать uid/gid 1001:1001;
+приложение и Litestream работают с этим uid. Entrypoint применяет миграции.
+Перед обновлением проверьте успешную репликацию Litestream либо снимите
+консистентную копию командой
+`sqlite3 data/messenger.db "VACUUM INTO 'data/backup-before-release.db'"`
+(файл назначения ещё не должен существовать). Копировать `.db` вручную во время
+работы нельзя. Откат приложения не откатывает миграции, поэтому они должны быть
+совместимы с предыдущей версией.
+
+До и после установки сравните целостность базы и количество основных записей
+(команда требует установленного на VPS `sqlite3`):
+
+```bash
+sqlite3 -readonly data/messenger.db <<'SQL'
+PRAGMA integrity_check;
+PRAGMA foreign_key_check;
+SELECT 'User', COUNT(*) FROM "User"
+UNION ALL SELECT 'Message', COUNT(*) FROM "Message"
+UNION ALL SELECT 'Group', COUNT(*) FROM "Group"
+UNION ALL SELECT 'GroupMessage', COUNT(*) FROM "GroupMessage";
+SQL
+```
+
+Ожидается `ok` от `integrity_check` и отсутствие строк от `foreign_key_check`.
+Учитывайте записи, которые могли добавить пользователи между проверками.
+После деплоя также проверьте статус контейнеров и свежие логи репликации:
+
+```bash
+docker compose --env-file .env --env-file deploy/release.env ps
+docker compose --env-file .env --env-file deploy/release.env logs --since 5m litestream
+curl --fail --silent --show-error https://example.com/api/health
+```
+
+`/api/health` проверяет доступность приложения, но не обращается к БД и не
+подтверждает свежесть S3-бэкапа. Репликацию проверяйте отдельно по успешным
+операциям Litestream; без профиля `backup` этот сервис не запускается.
+
+За HTTPS и реальные IP клиентов должен отвечать reverse proxy (Caddy или nginx),
+который передаёт `X-Forwarded-For`.
 
 Compose публикует приложение только на `127.0.0.1:3000`, чтобы порт нельзя было обойти снаружи. Контейнерный reverse proxy может подключаться к сети `<compose-project>_default` и обращаться к сервису как `messenger:3000`.
 
@@ -493,16 +592,28 @@ location /ws {
 ```
 
 TLS завершается на reverse proxy, поэтому устройство подключается к
-`wss://example.com/ws`, а приложение внутри VPS принимает обычный WebSocket. После
-обновления соберите релиз локально, установите через `scripts/install-release.sh`
-и проверьте Upgrade через
-`pnpm test:ws`, указав `TEST_WS_URL=wss://example.com/ws`.
+`wss://example.com/ws`, а приложение внутри VPS принимает обычный WebSocket.
+После установки проверьте загрузку страницы и JS/CSS в браузере, а Upgrade
+публичного WebSocket — без создания тестовых пользователей:
+
+```bash
+curl --http1.1 --include --no-buffer --max-time 8 \
+  -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  https://example.com/ws
+```
+
+Ожидается `101 Switching Protocols`; без авторизации сервер затем закрывает
+соединение. Curl может завершиться по таймауту с кодом 28 после успешного Upgrade.
+Полную функциональную проверку `pnpm test:ws` выполняйте на тестовом экземпляре:
+`TEST_BASE_URL` и `TEST_WS_URL` должны указывать REST и WebSocket одного сервера.
 
 Настраиваемые переменные находятся в `.env.example`. Общие ограничения частоты хранятся в памяти и рассчитаны на один процесс: по умолчанию 120 публичных и 480 авторизованных запросов в минуту на комбинацию IP/токена. Для отправки сообщений действует отдельный лимит на пользователя: 6 сообщений за 10 секунд и 30 сообщений в минуту. При превышении `POST /api/messages` возвращает `429`, код `message_rate_limited` и заголовок `Retry-After`. Это защищает от случайного зажатого Enter, но не является DDoS-защитой.
 
 ## Границы текущего MVP
 
-- JSON-хранилище и внутренняя очередь записи требуют одного экземпляра Node.js. Для горизонтального масштабирования нужна настоящая БД.
+- Основные данные хранятся в локальной SQLite, метаданные realtime — в JSON. Поддерживается один экземпляр Node.js; для горизонтального масштабирования нужны общая БД и внешний pub/sub для realtime.
 - Веб раз в 5 секунд делает `POST /api/sync` для сообщений и профилей. Presence и голосовой сигналинг идут через общий WebSocket; сообщения пока сохраняют совместимый REST polling.
 - Нет восстановления утерянного токена, блокировок пользователей, антиспама и сквозного шифрования.
 - Нет горизонтального масштабирования realtime без внешней БД/pub-sub; background-звонки на iOS работают только как push-to-open.
