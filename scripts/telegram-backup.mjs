@@ -42,7 +42,11 @@ async function sendArchive(file, summary) {
   const boundary = `tm-${randomBytes(24).toString("hex")}`;
   const fields = {
     chat_id: chatId, disable_notification: "true",
-    caption: `Tiny Messenger: вся база (${file.endsWith(".db.gz") ? "SQLite" : "JSON"})\n${summary.createdAt}\n${Object.values(summary.counts).reduce((a, b) => a + b, 0)} записей\n${summary.comparison || ""}SHA256: ${sha256}`,
+    caption: [
+      summary.createdAt,
+      `${Object.values(summary.counts).reduce((a, b) => a + b, 0)} записей`,
+      summary.comparison?.trim(),
+    ].filter(Boolean).join("\n"),
   };
   const prefix = Buffer.from(Object.entries(fields).map(([name, value]) =>
     `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
