@@ -47,7 +47,8 @@ async function sendArchive(file, summary) {
     chat_id: chatId, disable_notification: "true",
     caption: [
       summary.createdAt,
-      `${records} записей (users: ${users}, messages: ${messages})`,
+      `users: ${users}, messages: ${messages}`,
+      `всего: ${records} записей`,
       summary.comparison?.trim(),
     ].filter(Boolean).join("\n"),
   };
