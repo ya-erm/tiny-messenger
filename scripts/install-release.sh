@@ -52,6 +52,25 @@ test -r "$dependencies_dir/node_modules/.bin/prisma"
 docker image inspect "$runtime_image" >/dev/null 2>&1 || docker pull --platform linux/amd64 "$runtime_image"
 test -d data || { mkdir data; chown 1001:1001 data; }
 test "$(stat -c %u data)" = 1001 || { echo "data/ must be owned by uid 1001" >&2; exit 1; }
+# Prisma's schema engine needs to change SQLite journal state. Litestream's
+# long-lived connection can block that even when no new migrations remain.
+# Stop only an already-running replica and restore it on every exit path.
+backup_id=$(docker ps -q --filter label=com.docker.compose.service=litestream --filter "label=com.docker.compose.project=$project")
+restore_backup() {
+  status=$?
+  trap - EXIT
+  if [ -n "$backup_id" ]; then
+    if ! docker start "$backup_id" >/dev/null; then
+      echo "Could not resume Litestream; restore it manually." >&2
+      status=1
+    fi
+  fi
+  exit "$status"
+}
+trap restore_backup EXIT
+if [ -n "$backup_id" ]; then
+  docker stop --time 10 "$backup_id" >/dev/null
+fi
 mkdir -p deploy
 printf 'MESSENGER_RUNTIME_IMAGE=%s\nMESSENGER_RELEASE_DIR=%s\nMESSENGER_DEPENDENCIES_DIR=%s\n' \
   "$runtime_image" "$release_dir" "$dependencies_dir/node_modules" > deploy/release.env.next
