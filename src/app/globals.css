@@ -200,7 +200,10 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 /* Let the grid item shrink to the shell height so the contact list can scroll. */
 .sidebar { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--line); }
 .sidebar-header, .conversation-header { height: 76px; flex: 0 0 76px; display: flex; align-items: center; padding: 0 22px; border-bottom: 1px solid var(--line); }
-.sidebar-header { justify-content: space-between; }
+.sidebar-header { height: auto; flex: 0 0 auto; flex-direction: column; align-items: stretch; padding: 0; }
+.sidebar-brand-row { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 14px; }
+.sidebar-header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.brand-copy { min-width: 0; display: grid; gap: 3px; }
 .brand { display: flex; align-items: center; gap: 10px; font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: -.02em; }
 .brand.light { color: #fff; }
 .brand-mark { width: 37px; height: 37px; display: inline-grid; place-items: center; flex: 0 0 auto; color: #fff; background: var(--orange); border-radius: 12px 12px 12px 3px; font-family: "Unbounded", sans-serif; font-size: 16px; font-weight: 700; box-shadow: 0 8px 20px rgba(228, 122, 69, .28); }
@@ -271,7 +274,17 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .install-app-button { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; color: var(--green-ink); background: var(--green-soft); border: 1px solid var(--green-line); border-radius: 12px; font-size: 11px; font-weight: 800; cursor: pointer; }
 .install-app-button:hover { background: var(--green-tint); }
 .install-app-button .glyph { width: 17px; height: 17px; flex: 0 0 auto; }
-.sidebar-actions .install-app-button { flex: 0 0 100%; }
+.install-app-button.install-app-text { min-height: 0; justify-content: flex-start; gap: 4px; padding: 2px 0; background: transparent; border: 0; border-radius: 0; font-family: inherit; font-size: 9px; line-height: 1.4; font-weight: 600; white-space: nowrap; }
+.install-app-text:hover { text-decoration: underline; }
+.install-app-text .glyph { width: 12px; height: 12px; }
+.push-suggestion { min-width: 0; display: flex; align-items: center; margin: -8px 14px 10px; background: var(--green-soft); border: 1px solid var(--green-line); border-radius: 10px; }
+.push-suggestion .glyph { width: 15px; height: 15px; color: var(--green-ink); }
+.push-suggestion button { height: 32px; display: grid; place-items: center; padding: 0; background: transparent; border: 0; cursor: pointer; }
+.push-suggestion button.push-suggestion-enable { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 10px; color: var(--green-ink); border-radius: 10px 0 0 10px; font-size: 10px; font-weight: 750; }
+.push-suggestion-enable:disabled { opacity: .45; cursor: default; }
+.push-suggestion-later { width: 32px; color: var(--muted); border-radius: 0 10px 10px 0; }
+.push-suggestion-later .glyph { width: 12px; height: 12px; color: inherit; }
+.push-suggestion-later:hover { color: var(--ink); }
 /* Groups share the row layout with people; the warm tint is what tells them apart. */
 .contact-avatar.group-avatar { color: var(--orange-ink); background: var(--orange-tint); }
 
@@ -380,8 +393,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .step-label { color: var(--orange); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
 .welcome-copy h1 { max-width: 720px; margin: 24px 0; font: 700 clamp(38px, 5vw, 70px)/1.05 "Unbounded", sans-serif; letter-spacing: -.055em; }
 .welcome-copy p { max-width: 610px; color: rgba(255,255,255,.68); font-size: clamp(14px, 1.5vw, 18px); line-height: 1.75; }
-.welcome-hero .install-app-button { margin-top: 24px; color: #fff; background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.24); }
-.welcome-hero .install-app-button:hover { background: rgba(255,255,255,.18); }
+.welcome-brand-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.welcome-brand-header .install-app-text { color: rgba(255,255,255,.8); font-size: 10px; }
+.welcome-brand-header .install-app-text:hover { color: #fff; }
 .welcome-card { width: min(470px, calc(100% - 48px)); align-self: center; justify-self: center; padding: 35px; background: var(--card); border-radius: 25px; box-shadow: var(--shadow); }
 .shared-link-invite { display: flex; align-items: center; gap: 10px; margin: -18px 0 24px; padding: 11px 13px; color: var(--quote-ink); background: var(--green-soft); border-radius: 11px; font-size: 10px; line-height: 1.5; }
 .shared-link-invite .glyph { width: 18px; height: 18px; flex: 0 0 auto; color: var(--green-ink); }
@@ -490,9 +504,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .member-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px 6px 10px; color: var(--green-dark-ink); background: var(--green-soft); border: 0; border-radius: 999px; font-size: 10px; font-weight: 800; cursor: pointer; }
 .member-chip:hover { background: var(--green-line); }
 .member-chip .glyph { width: 12px; height: 12px; }
-.group-rename { display: flex; align-items: flex-end; gap: 8px; }
-.group-rename .field-label { flex: 1; min-width: 0; }
-.group-rename .secondary-button { align-self: flex-end; margin-bottom: 1px; white-space: nowrap; }
 .group-section-title { margin: 18px 0 0; color: var(--label); font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .member-list { display: grid; gap: 7px; margin-top: 8px; }
 .member-row { cursor: default; }
@@ -517,6 +528,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .capability-copy p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .capability-button { min-width: 88px; align-self: center; box-shadow: none; }
 .settings-profile-card { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: start; gap: 20px; }
+.group-profile-card { margin-top: 20px; }
 .settings-avatar-column { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .settings-profile-avatar { width: 88px; height: 88px; background: var(--green-soft); font-size: 24px; }
 .avatar-edit-button { width: 88px; padding: 7px 8px; color: var(--green-ink); background: var(--raised); border: 1px solid var(--green-line); border-radius: 8px; font-size: 9px; font-weight: 800; cursor: pointer; }
@@ -647,6 +659,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
      without them, so nothing gains padding it does not need. */
   .messenger { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
   .sidebar-header, .conversation-header { height: calc(76px + env(safe-area-inset-top)); flex-basis: calc(76px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  .sidebar-header { height: auto; flex-basis: auto; }
   .composer { padding-bottom: calc(17px + env(safe-area-inset-bottom)); }
   .sidebar-actions { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .message-stream { padding: 18px 14px; }
@@ -708,6 +721,13 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .conversation-actions { gap: 4px; }
   .conversation-actions .text-button { display: none; }
   .avatar-presets { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (max-width: 360px) {
+  .sidebar-brand-row { padding-inline: 10px; gap: 4px; }
+  .sidebar-header .brand { gap: 7px; }
+  .sidebar-header-actions { gap: 3px; }
+  .sidebar-header-actions .icon-button { width: 32px; height: 32px; }
 }
 
 @media (hover: none) {

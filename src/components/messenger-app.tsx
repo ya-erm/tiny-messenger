@@ -15,6 +15,70 @@ import type { MessageReaction, MessageStatus, PublicContact, PublicGroup, Public
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
 const THEME_KEY = "tiny-messenger:v1:theme";
+const PUSH_SUGGESTION_KEY = "tiny-messenger:v1:push-suggestion:";
+const PUSH_SUGGESTION_DELAY = 30_000;
+const PUSH_SUGGESTION_INTERVAL = 24 * 60 * 60 * 1000;
+
+function postponePushSuggestion(userId: string, until = Date.now() + PUSH_SUGGESTION_INTERVAL) {
+  try {
+    window.localStorage.setItem(`${PUSH_SUGGESTION_KEY}${userId}`, String(until));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function PushNotificationSuggestion({ userId, chatOpen, busy, onEnable }: {
+  userId: string;
+  chatOpen: boolean;
+  busy: boolean;
+  onEnable: () => Promise<void>;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const mobile = window.matchMedia("(max-width: 800px)");
+    const key = `${PUSH_SUGGESTION_KEY}${userId}`;
+    let timer: number | undefined;
+    const canShow = () => {
+      if (document.visibilityState !== "visible" || (mobile.matches && chatOpen)) return false;
+      if (!("Notification" in window) || Notification.permission === "denied") return false;
+      try {
+        const saved = window.localStorage.getItem(key);
+        if (saved === null) return true;
+        const until = Number(saved);
+        return Number.isFinite(until) && until <= Date.now();
+      } catch {
+        return false;
+      }
+    };
+    const schedule = () => {
+      window.clearTimeout(timer);
+      setVisible(false);
+      if (!canShow()) return;
+      timer = window.setTimeout(() => {
+        if (canShow() && postponePushSuggestion(userId)) setVisible(true);
+      }, PUSH_SUGGESTION_DELAY);
+    };
+    const onStorage = (event: StorageEvent) => { if (event.key === key || event.key === null) schedule(); };
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    mobile.addEventListener("change", schedule);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", schedule);
+      mobile.removeEventListener("change", schedule);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [chatOpen, userId]);
+
+  if (!visible) return null;
+  return <aside className="push-suggestion" aria-label="Уведомления о сообщениях">
+    <button type="button" className="push-suggestion-enable" disabled={busy} onClick={() => { setVisible(false); void onEnable(); }}><Glyph name="bell" /> Включить уведомления</button>
+    <button type="button" className="push-suggestion-later" aria-label="Не сейчас" data-tooltip="Напомнить завтра" data-tooltip-position="bottom" data-tooltip-align="right" onClick={() => { postponePushSuggestion(userId); setVisible(false); }}><Glyph name="close" /></button>
+  </aside>;
+}
 
 type ThemePreference = "system" | "light" | "dark";
 
@@ -984,11 +1048,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   async function enablePushNotifications() {
     if (!pushPublicKey || !("Notification" in window) || !("serviceWorker" in navigator)) return;
+    if (user) postponePushSuggestion(user.id);
     setPushBusy(true);
     try {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setPushState("denied");
+        setPushState(permission === "denied" ? "denied" : "disabled");
         return;
       }
       const registration = await navigator.serviceWorker.ready;
@@ -1025,7 +1090,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
         await subscription.unsubscribe();
       }
       setPushState("disabled");
-      if (!silent) setNotice("Уведомления отключены");
+      if (!silent) {
+        if (user) postponePushSuggestion(user.id, Number.MAX_SAFE_INTEGER);
+        setNotice("Уведомления отключены");
+      }
     } catch (error) {
       if (!silent) setNotice((error as Error).message);
     } finally {
@@ -1384,8 +1452,24 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       <div className={`messenger ${selectedEntry ? "has-conversation" : ""}`}>
         <aside className="sidebar">
           <header className="sidebar-header">
-            <div className="brand"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div>
-            <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки" data-tooltip-position="bottom"><Glyph name="settings" /></button>
+            <div className="sidebar-brand-row">
+              <div className="brand">
+                <span className="brand-mark">tm</span>
+                <div className="brand-copy">
+                  <span>Tiny Messenger</span>
+                  {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить как приложение</button> : null}
+                </div>
+              </div>
+              <div className="sidebar-header-actions">
+                <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки" data-tooltip-position="bottom" data-tooltip-align="right"><Glyph name="settings" /></button>
+              </div>
+            </div>
+            {pushState === "disabled" && chats.length > 0 ? <PushNotificationSuggestion
+              userId={user.id}
+              chatOpen={Boolean(selectedEntry)}
+              busy={pushBusy}
+              onEnable={enablePushNotifications}
+            /> : null}
           </header>
           <div className="profile-strip">
             <Avatar name={user.name} avatarUrl={user.avatarUrl} avatarBackground={user.avatarBackground} className="avatar" />
@@ -1503,7 +1587,6 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
           <div className="sidebar-actions">
             <button className="add-contact-button" onClick={() => setContactFormDefaultId("")}><Glyph name="plus" /> Новый контакт</button>
             <button className="add-contact-button" onClick={() => setShowGroupForm(true)}><Glyph name="users" /> Новая группа</button>
-            {!appInstalled ? <button type="button" className="install-app-button" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить приложение</button> : null}
           </div>
         </aside>
 
@@ -2018,11 +2101,18 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
 
   return <main className="welcome-shell">
     <section className="welcome-copy">
-      <div className="brand light"><span className="brand-mark">tm</span><span>Tiny Messenger</span></div>
+      <div className="welcome-brand-header">
+        <div className="brand light">
+          <span className="brand-mark">tm</span>
+          <div className="brand-copy">
+            <span>Tiny Messenger</span>
+            {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void onInstall(); }}><Glyph name="install" /> Установить как приложение</button> : null}
+          </div>
+        </div>
+      </div>
       <div className="welcome-hero">
         <h1>Общение<br />начинается<br />здесь</h1>
         <p>Добавляйте друзей, пишите сообщения и оставайтесь на связи.</p>
-        {!appInstalled ? <button type="button" className="install-app-button" onClick={() => { void onInstall(); }}><Glyph name="install" /> Установить приложение</button> : null}
       </div>
     </section>
     <section className="welcome-card">
@@ -2275,6 +2365,60 @@ function UserSearch({ request, contacts, exclude, disabled, pickLabel, onPick }:
   );
 }
 
+function AvatarEditor({ name, avatarUrl, avatarBackground, onAvatarUrl, onAvatarBackground, onDone, imageGroupLabel = "Готовые изображения профиля" }: {
+  name: string;
+  avatarUrl: string;
+  avatarBackground: string;
+  onAvatarUrl: (value: string) => void;
+  onAvatarBackground: (value: string) => void;
+  onDone: () => void;
+  imageGroupLabel?: string;
+}) {
+  return <div className="settings-section avatar-editor-section">
+    <div className="avatar-editor-current">
+      <Avatar name={name} avatarUrl={avatarUrl.trim() || undefined} avatarBackground={avatarBackground || undefined} className="avatar avatar-editor-preview" />
+      <div><strong>{name}</strong><span>Выберите изображение и фон</span></div>
+    </div>
+    <div className="field-label avatar-field">Изображение
+      <div className="avatar-presets" role="group" aria-label={imageGroupLabel}>
+        {AVATAR_PRESETS.map((preset) => (
+          <button
+            key={preset.name}
+            type="button"
+            className={`${avatarUrl.trim() === preset.url ? "selected" : ""} ${preset.url ? "" : "no-image"}`}
+            aria-pressed={avatarUrl.trim() === preset.url}
+            aria-label={preset.name}
+            data-tooltip={preset.name}
+            onClick={() => onAvatarUrl(preset.url)}
+          >
+            {preset.url ? <Avatar name={name} avatarUrl={preset.url} avatarBackground={avatarBackground || undefined} className="avatar avatar-preset" /> : <span className="avatar avatar-preset avatar-no-image" aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
+      <span className="avatar-custom-label">Фон</span>
+      <div className="avatar-background-presets" role="group" aria-label="Цвет фона аватарки">
+        {AVATAR_BACKGROUND_PRESETS.map((preset) => (
+          <button
+            key={preset.name}
+            type="button"
+            className={`${avatarBackground === preset.value ? "selected" : ""} ${preset.value ? "" : "default"}`}
+            style={preset.value ? { backgroundColor: preset.value } : undefined}
+            aria-pressed={avatarBackground === preset.value}
+            aria-label={preset.name}
+            data-tooltip={preset.name}
+            onClick={() => onAvatarBackground(preset.value)}
+          />
+        ))}
+      </div>
+      <span className="avatar-custom-label">Своя ссылка</span>
+      <div className="inline-field avatar-url-field">
+        <input aria-label="Ссылка на своё изображение" type="url" value={avatarUrl} maxLength={LIMITS.avatarUrl} onChange={(event) => onAvatarUrl(event.target.value)} placeholder="https://example.com/avatar.jpg" />
+      </div>
+    </div>
+    <button type="button" className="primary-button wide avatar-editor-done" onClick={onDone}>Готово</button>
+  </div>;
+}
+
 function GroupDialog({ busy, request, contacts, onClose, onSubmit }: {
   busy: boolean;
   request: <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -2334,6 +2478,9 @@ function GroupMembersDialog({ group, userId, request, contacts, setNotice, onCha
 }) {
   const owner = group.ownerId === userId;
   const [name, setName] = useState(group.name);
+  const [avatarUrl, setAvatarUrl] = useState(group.avatarUrl ?? "");
+  const [avatarBackground, setAvatarBackground] = useState(group.avatarBackground ?? "");
+  const [editingAvatar, setEditingAvatar] = useState(false);
   const [busy, setBusy] = useState(false);
   const contactUsers = useMemo(() => contacts.map((contact) => contact.user), [contacts]);
   const exclude = useMemo(() => new Set(group.members.map((member) => member.id)), [group.members]);
@@ -2351,9 +2498,20 @@ function GroupMembersDialog({ group, userId, request, contacts, setNotice, onCha
     }
   }
 
-  const rename = () => run(
-    () => request(`/api/groups/${group.id}`, { method: "PATCH", body: JSON.stringify({ name: name.trim() }) }),
-    "Название изменено",
+  const groupChanged = name.trim() !== group.name
+    || avatarUrl.trim() !== (group.avatarUrl ?? "")
+    || avatarBackground !== (group.avatarBackground ?? "");
+  const updateGroup = () => run(
+    async () => {
+      const { group: updated } = await request<{ group: PublicGroup }>(`/api/groups/${group.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: name.trim(), avatarUrl: avatarUrl.trim(), avatarBackground }),
+      });
+      setName(updated.name);
+      setAvatarUrl(updated.avatarUrl ?? "");
+      setAvatarBackground(updated.avatarBackground ?? "");
+    },
+    "Группа обновлена",
   );
   const addMember = (user: PublicUser) => run(
     () => request(`/api/groups/${group.id}/members`, { method: "POST", body: JSON.stringify({ userId: user.id }) }),
@@ -2368,17 +2526,40 @@ function GroupMembersDialog({ group, userId, request, contacts, setNotice, onCha
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="modal-card group-card" role="dialog" aria-modal="true" aria-labelledby="group-members-title">
         <div className="modal-header">
-          <h2 id="group-members-title">{group.name}</h2>
+          <div className="modal-title-row">
+            {editingAvatar ? <button type="button" className="modal-back" onClick={() => setEditingAvatar(false)} aria-label="Назад к группе"><Glyph name="back" /></button> : null}
+            <h2 id="group-members-title">{editingAvatar ? "Изображение группы" : group.name}</h2>
+          </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
         </div>
+        {editingAvatar && owner ? <AvatarEditor
+          name={name.trim() || group.name}
+          avatarUrl={avatarUrl}
+          avatarBackground={avatarBackground}
+          onAvatarUrl={setAvatarUrl}
+          onAvatarBackground={setAvatarBackground}
+          onDone={() => setEditingAvatar(false)}
+          imageGroupLabel="Готовые изображения группы"
+        /> : <>
         {owner ? (
-          <form className="group-rename" onSubmit={(event) => { event.preventDefault(); if (!busy && name.trim() && name.trim() !== group.name) void rename(); }}>
-            <label className="field-label">Название
-              <input value={name} maxLength={LIMITS.groupName} onChange={(event) => setName(event.target.value)} />
-            </label>
-            <button type="submit" className="secondary-button" disabled={busy || !name.trim() || name.trim() === group.name}>Сохранить</button>
+          <form className="settings-profile-card group-profile-card" onSubmit={(event) => { event.preventDefault(); if (!busy && name.trim() && groupChanged) void updateGroup(); }}>
+            <div className="settings-avatar-column">
+              <Avatar name={name.trim() || group.name} avatarUrl={avatarUrl.trim() || undefined} avatarBackground={avatarBackground || undefined} className="avatar settings-profile-avatar" />
+              <button type="button" className="avatar-edit-button" disabled={busy} onClick={() => setEditingAvatar(true)} aria-label="Изменить изображение группы">Изменить</button>
+            </div>
+            <div className="profile-identity-fields">
+              <label className="field-label">Название
+                <input value={name} disabled={busy} maxLength={LIMITS.groupName} onChange={(event) => setName(event.target.value)} />
+              </label>
+              <div className="profile-form-actions">
+                <button type="submit" className={`${groupChanged ? "primary-button" : "secondary-button"} profile-save-button`} disabled={busy || !name.trim() || !groupChanged}>{busy ? "Сохраняем…" : "Сохранить"}</button>
+              </div>
+            </div>
           </form>
-        ) : null}
+        ) : <div className="avatar-editor-current group-profile-card">
+          <Avatar name={group.name} avatarUrl={group.avatarUrl} avatarBackground={group.avatarBackground} className="avatar avatar-editor-preview" />
+          <div><strong>{group.name}</strong><span>Изображение меняет владелец группы</span></div>
+        </div>}
         <p className="group-section-title">{pluralize(group.members.length, ["участник", "участника", "участников"])}</p>
         <div className="member-list">
           {group.members.map((member) => (
@@ -2404,6 +2585,7 @@ function GroupMembersDialog({ group, userId, request, contacts, setNotice, onCha
           onPick={(user) => { void addMember(user); }}
         />
         <button type="button" className="danger-outline-button wide" disabled={busy} onClick={onLeave}><Glyph name="logout" /> Покинуть группу</button>
+        </>}
       </section>
     </div>
   );
@@ -2574,62 +2756,14 @@ function SettingsDialog({
             </div>
           </form>
         ) : (
-          <div className="settings-section avatar-editor-section">
-            <div className="avatar-editor-current">
-              <Avatar name={name || user.name} avatarUrl={avatarUrl.trim() || undefined} avatarBackground={avatarBackground || undefined} className="avatar avatar-editor-preview" />
-              <div>
-                <strong>{name || user.name}</strong>
-                <span>Выберите изображение и фон</span>
-              </div>
-            </div>
-            <div className="field-label avatar-field">Изображение
-            <div className="avatar-presets" role="group" aria-label="Готовые изображения профиля">
-              {AVATAR_PRESETS.map((preset) => {
-                const selected = avatarUrl.trim() === preset.url;
-                return (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    className={`${selected ? "selected" : ""} ${preset.url ? "" : "no-image"}`}
-                    aria-pressed={selected}
-                    aria-label={preset.name}
-                    data-tooltip={preset.name}
-                    onClick={() => setAvatarUrl(preset.url)}
-                  >
-                    {preset.url ? (
-                      <Avatar name={name || user.name} avatarUrl={preset.url} avatarBackground={avatarBackground || undefined} className="avatar avatar-preset" />
-                    ) : (
-                      <span className="avatar avatar-preset avatar-no-image" aria-hidden="true" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <span className="avatar-custom-label">Фон</span>
-            <div className="avatar-background-presets" role="group" aria-label="Цвет фона аватарки">
-              {AVATAR_BACKGROUND_PRESETS.map((preset) => {
-                const selected = avatarBackground === preset.value;
-                return (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    className={`${selected ? "selected" : ""} ${preset.value ? "" : "default"}`}
-                    style={preset.value ? { backgroundColor: preset.value } : undefined}
-                    aria-pressed={selected}
-                    aria-label={preset.name}
-                    data-tooltip={preset.name}
-                    onClick={() => setAvatarBackground(preset.value)}
-                  />
-                );
-              })}
-            </div>
-            <span className="avatar-custom-label">Своя ссылка</span>
-            <div className="inline-field avatar-url-field">
-              <input aria-label="Ссылка на своё изображение" type="url" value={avatarUrl} maxLength={LIMITS.avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://example.com/avatar.jpg" />
-            </div>
-          </div>
-            <button type="button" className="primary-button wide avatar-editor-done" onClick={() => setView("profile")}>Готово</button>
-          </div>
+          <AvatarEditor
+            name={name || user.name}
+            avatarUrl={avatarUrl}
+            avatarBackground={avatarBackground}
+            onAvatarUrl={setAvatarUrl}
+            onAvatarBackground={setAvatarBackground}
+            onDone={() => setView("profile")}
+          />
         )}
 
         {view === "profile" ? <div className="settings-section theme-section">
