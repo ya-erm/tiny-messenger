@@ -197,7 +197,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 
 .app-shell { min-height: 100vh; padding: 22px; background: radial-gradient(circle at 8% 4%, var(--glow-warm) 0, transparent 30%), radial-gradient(circle at 92% 90%, var(--glow-cool) 0, transparent 32%), var(--paper); }
 .messenger { width: min(1180px, 100%); height: calc(100vh - 44px); min-height: 640px; margin: 0 auto; display: grid; grid-template-columns: 340px 1fr; overflow: hidden; background: var(--card); border: 1px solid var(--shell-line); border-radius: 25px; box-shadow: var(--shadow); }
-.sidebar { min-width: 0; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--line); }
+/* Let the grid item shrink to the shell height so the contact list can scroll. */
+.sidebar { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--line); }
 .sidebar-header, .conversation-header { height: 76px; flex: 0 0 76px; display: flex; align-items: center; padding: 0 22px; border-bottom: 1px solid var(--line); }
 .sidebar-header { justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: -.02em; }

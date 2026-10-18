@@ -1357,7 +1357,6 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               const openActions = () => {
                 setSelectedMessageIds(null);
                 setShowConversationActions(false);
-                setSelectedChat(ref);
               };
               return <div
                 key={chatKey(ref)}
