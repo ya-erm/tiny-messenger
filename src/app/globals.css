@@ -266,8 +266,12 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .add-contact-button:hover { background: var(--green-tint); }
 .add-contact-button .glyph { width: 16px; }
 .contacts-title-actions { display: flex; gap: 2px; }
-.sidebar-actions { display: flex; gap: 8px; margin: 10px 16px 16px; }
+.sidebar-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 8px; margin: 10px 16px 16px; }
 .sidebar-actions .add-contact-button { flex: 1; min-width: 0; margin: 0; padding: 0 8px; }
+.install-app-button { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; color: var(--green-ink); background: var(--green-soft); border: 1px solid var(--green-line); border-radius: 12px; font-size: 11px; font-weight: 800; cursor: pointer; }
+.install-app-button:hover { background: var(--green-tint); }
+.install-app-button .glyph { width: 17px; height: 17px; flex: 0 0 auto; }
+.sidebar-actions .install-app-button { flex: 0 0 100%; }
 /* Groups share the row layout with people; the warm tint is what tells them apart. */
 .contact-avatar.group-avatar { color: var(--orange-ink); background: var(--orange-tint); }
 
@@ -376,6 +380,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .step-label { color: var(--orange); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
 .welcome-copy h1 { max-width: 720px; margin: 24px 0; font: 700 clamp(38px, 5vw, 70px)/1.05 "Unbounded", sans-serif; letter-spacing: -.055em; }
 .welcome-copy p { max-width: 610px; color: rgba(255,255,255,.68); font-size: clamp(14px, 1.5vw, 18px); line-height: 1.75; }
+.welcome-hero .install-app-button { margin-top: 24px; color: #fff; background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.24); }
+.welcome-hero .install-app-button:hover { background: rgba(255,255,255,.18); }
 .welcome-card { width: min(470px, calc(100% - 48px)); align-self: center; justify-self: center; padding: 35px; background: var(--card); border-radius: 25px; box-shadow: var(--shadow); }
 .shared-link-invite { display: flex; align-items: center; gap: 10px; margin: -18px 0 24px; padding: 11px 13px; color: var(--quote-ink); background: var(--green-soft); border-radius: 11px; font-size: 10px; line-height: 1.5; }
 .shared-link-invite .glyph { width: 18px; height: 18px; flex: 0 0 auto; color: var(--green-ink); }
@@ -435,6 +441,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .rate-limit-illustration { width: 100%; height: auto; display: block; margin: 18px 0; border-radius: 16px; }
 .rate-limit-lead { margin: 0 auto 17px; max-width: 370px; color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.55; }
 .action-dialog { width: min(390px, calc(100% - 40px)); max-width: none; max-height: none; padding: 0; overflow: visible; background: transparent; border: 0; }
+.install-help-dialog { width: min(440px, calc(100% - 40px)); }
+.install-steps { display: grid; gap: 12px; padding-left: 22px; color: var(--ink); font-size: 12px; line-height: 1.6; }
 .action-dialog:focus { outline: none; }
 .action-dialog::backdrop { background: rgba(24,33,28,.6); backdrop-filter: blur(5px); }
 .action-dialog-card { width: 100%; }

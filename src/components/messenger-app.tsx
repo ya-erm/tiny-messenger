@@ -195,6 +195,48 @@ function isStandaloneApp() {
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
+function InstallHelpDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [isIos] = useState(() => typeof navigator !== "undefined" && (
+    /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  ));
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+
+  return <dialog
+    ref={dialogRef}
+    className="action-dialog install-help-dialog"
+    aria-labelledby="install-help-title"
+    onClose={onClose}
+    onClick={(event) => { if (event.target === event.currentTarget) dialogRef.current?.close(); }}
+  >
+    <section className="modal-card action-dialog-card">
+      <div className="modal-header">
+        <h2 id="install-help-title">Установить Tiny Messenger</h2>
+        <button type="button" className="modal-close" onClick={() => dialogRef.current?.close()} aria-label="Закрыть"><Glyph name="close" /></button>
+      </div>
+      <p>Открывайте чаты с иконки на главном экране, как отдельное приложение.</p>
+      {isIos ? <ol className="install-steps">
+        <li>Откройте этот сайт в Safari.</li>
+        <li>В меню браузера нажмите «Поделиться».</li>
+        <li>Выберите «На экран Домой» и нажмите «Добавить». Если есть переключатель «Открывать как веб-приложение», включите его.</li>
+      </ol> : <>
+        <ol className="install-steps">
+          <li>Откройте меню браузера.</li>
+          <li>Выберите «Установить приложение» или «Добавить на главный экран».</li>
+          <li>Подтвердите установку Tiny Messenger.</li>
+        </ol>
+        <p>В Safari на Mac: «Файл» → «Добавить в Dock».</p>
+      </>}
+      <button type="button" className="primary-button wide" autoFocus onClick={() => dialogRef.current?.close()}>Понятно</button>
+    </section>
+  </dialog>;
+}
+
 type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit" | "smile";
 
 function Glyph({ name }: { name: GlyphName }) {
@@ -552,6 +594,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   const [pushBusy, setPushBusy] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [appInstalled, setAppInstalled] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
   const conversationActionsRef = useRef<HTMLDivElement>(null);
   const sidebarActionsRef = useRef<HTMLDivElement>(null);
   const initialPeerSelectionHandledRef = useRef(false);
@@ -597,6 +640,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     const markInstalled = () => {
       setAppInstalled(true);
       setInstallPrompt(null);
+      setShowInstallHelp(false);
     };
     window.addEventListener("beforeinstallprompt", captureInstallPrompt);
     window.addEventListener("appinstalled", markInstalled);
@@ -990,13 +1034,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }
 
   async function installApplication() {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
+    if (!installPrompt) {
+      setShowInstallHelp(true);
+      return;
+    }
+    const prompt = installPrompt;
     setInstallPrompt(null);
-    if (choice.outcome === "accepted") {
-      setAppInstalled(true);
-      setNotice("Tiny Messenger установлен");
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice.outcome === "accepted") {
+        setAppInstalled(true);
+        setNotice("Tiny Messenger установлен");
+      }
+    } catch {
+      setShowInstallHelp(true);
     }
   }
 
@@ -1319,8 +1371,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
 
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "restore-error") return <SessionRestoreError />;
+  const installHelp = showInstallHelp ? <InstallHelpDialog onClose={() => setShowInstallHelp(false)} /> : null;
   if (phase === "welcome" || !user) {
-    return <WelcomeScreen busy={busy} notice={notices.at(-1)?.text ?? ""} sharedLabel={sharedLabel} onRegister={register} onLogin={login} />;
+    return <>
+      <WelcomeScreen busy={busy} notice={notices.at(-1)?.text ?? ""} sharedLabel={sharedLabel} onRegister={register} onLogin={login} appInstalled={appInstalled} onInstall={installApplication} />
+      {installHelp}
+    </>;
   }
 
   return (
@@ -1447,6 +1503,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
           <div className="sidebar-actions">
             <button className="add-contact-button" onClick={() => setContactFormDefaultId("")}><Glyph name="plus" /> Новый контакт</button>
             <button className="add-contact-button" onClick={() => setShowGroupForm(true)}><Glyph name="users" /> Новая группа</button>
+            {!appInstalled ? <button type="button" className="install-app-button" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить приложение</button> : null}
           </div>
         </aside>
 
@@ -1716,6 +1773,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       </div>
 
       <VoiceExperienceUi voice={voice} />
+      {installHelp}
 
       {contactFormDefaultId !== null && <ContactDialog defaultId={contactFormDefaultId} busy={busy} request={request} onClose={() => setContactFormDefaultId(null)} onSubmit={addContact} />}
       {showGroupForm && <GroupDialog busy={busy} request={request} contacts={contacts} onClose={() => setShowGroupForm(false)} onSubmit={createGroup} />}
@@ -1941,7 +1999,7 @@ function LoadingScreen() {
   );
 }
 
-function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { busy: boolean; notice: string; sharedLabel: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void }) {
+function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInstalled, onInstall }: { busy: boolean; notice: string; sharedLabel: string; onRegister: (name: string, nickname: string) => void; onLogin: (token: string) => void; appInstalled: boolean; onInstall: () => Promise<void> }) {
   const [mode, setMode] = useState<"new" | "login">("new");
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
@@ -1964,6 +2022,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin }: { bus
       <div className="welcome-hero">
         <h1>Общение<br />начинается<br />здесь</h1>
         <p>Добавляйте друзей, пишите сообщения и оставайтесь на связи.</p>
+        {!appInstalled ? <button type="button" className="install-app-button" onClick={() => { void onInstall(); }}><Glyph name="install" /> Установить приложение</button> : null}
       </div>
     </section>
     <section className="welcome-card">
@@ -2610,7 +2669,7 @@ function SettingsDialog({
               <strong>Приложение</strong>
               <p>{appInstalled ? "Tiny Messenger установлен на этом устройстве." : canInstall ? "Установите Tiny Messenger, чтобы открывать его как отдельное приложение." : "Установить приложение можно через меню браузера."}</p>
             </div>
-            {canInstall && !appInstalled ? <button type="button" className="secondary-button capability-button" onClick={() => { void onInstall(); }}>Установить</button> : null}
+            {!appInstalled ? <button type="button" className="secondary-button capability-button" onClick={() => { void onInstall(); }}>Установить</button> : null}
           </div>
         </div> : null}
 
