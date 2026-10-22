@@ -2,8 +2,8 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --compare-sqlite ]; }; then
-  echo 'Usage: bash scripts/run-telegram-backup.sh [--compare-sqlite]' >&2
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --compare-sqlite ] && [ "$1" != --scheduled ]; }; then
+  echo 'Usage: bash scripts/run-telegram-backup.sh [--scheduled | --compare-sqlite]' >&2
   exit 1
 fi
 exec 9>/run/lock/tiny-messenger-telegram-backup.lock

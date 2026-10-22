@@ -6,6 +6,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import Database from "better-sqlite3";
 import { exportDatabase, exportDatabasePair, restoreDatabase } from "./sqlite-json-backup.mjs";
+import { fingerprintBackup } from "./backup-content.mjs";
 
 test("whole WAL snapshot restores schema, rows, exact integers, blobs and sequences", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "tm-json-backup-"));
@@ -43,6 +44,7 @@ test("whole WAL snapshot restores schema, rows, exact integers, blobs and sequen
     assert.equal((await stat(archive)).mode & 0o777, 0o600);
     const json = JSON.parse(gunzipSync(await readFile(archive)));
     assert.equal(json.format, "tiny-messenger-sqlite-json");
+    assert.equal(result.contentHash, fingerprintBackup(json));
     assert.deepEqual(Object.keys(result.counts).sort(), db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name).sort());
     await restoreDatabase(archive, target);
     const restored = new Database(target);

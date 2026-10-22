@@ -3,10 +3,12 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { exportDatabase, exportDatabasePair } from "./sqlite-json-backup.mjs";
+import { readDeliveryState, saveDeliveryState, shouldSendBackup } from "./backup-delivery-state.mjs";
 
 const compareSqlite = process.argv[2] === "--compare-sqlite";
-if (process.argv.length > 3 || (process.argv[2] && !compareSqlite)) {
-  console.error("Usage: node scripts/telegram-backup.mjs [--compare-sqlite]");
+const scheduled = process.argv[2] === "--scheduled";
+if (process.argv.length > 3 || (process.argv[2] && !compareSqlite && !scheduled)) {
+  console.error("Usage: node scripts/telegram-backup.mjs [--scheduled | --compare-sqlite]");
   process.exit(1);
 }
 
@@ -84,11 +86,19 @@ try {
     files = [`${prefix}.json.gz`];
     summary = await exportDatabase(database, files[0]);
   }
-  for (const file of files) {
-    const delivered = await sendArchive(file, summary);
-    console.log(JSON.stringify({ event: "backup_delivered", file: path.basename(file), ...summary, ...delivered }));
+  const stateFile = path.join(directory, "last-delivery.json");
+  const previous = await readDeliveryState(stateFile);
+  if (scheduled && !shouldSendBackup(previous, summary.contentHash)) {
+    console.log(JSON.stringify({ event: "backup_skipped", reason: "unchanged", lastSentAt: previous.lastSentAt }));
+  } else {
+    for (const file of files) {
+      const delivered = await sendArchive(file, summary);
+      // Advance the weekly clock only after Telegram confirms the JSON file.
+      if (file.endsWith(".json.gz")) await saveDeliveryState(stateFile, summary.contentHash);
+      console.log(JSON.stringify({ event: "backup_delivered", file: path.basename(file), ...summary, ...delivered }));
+    }
   }
-  // Prune only after successful delivery. Failures keep the newest archive.
+  // A validated unchanged export is also safe to prune. Failures retain files.
   for (const name of await readdir(directory)) {
     if (!/^tiny-messenger-.*\.(json|db)\.gz$/.test(name)) continue;
     const candidate = path.join(directory, name);

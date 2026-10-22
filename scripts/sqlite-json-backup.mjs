@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, createGunzip } from "node:zlib";
 import path from "node:path";
+import { createContentFingerprint } from "./backup-content.mjs";
 
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const encode = (_, value) => typeof value === "bigint"
@@ -41,16 +42,20 @@ export async function exportDatabase(databaseFile, outputFile) {
       applicationId: db.pragma("application_id", { simple: true }),
       schema,
     };
+    const fingerprint = createContentFingerprint(JSON.parse(JSON.stringify(metadata, encode)));
     async function* json() {
       yield `${JSON.stringify(metadata, encode).slice(0, -1)},"tables":[`;
       let firstTable = true;
       for (const table of schema.filter((entry) => entry.type === "table")) {
         const columns = db.pragma(`table_xinfo(${quote(table.name)})`).filter((column) => column.hidden === 0n);
+        fingerprint.table(table.name, columns.map((column) => column.name));
         yield `${firstTable ? "" : ","}${JSON.stringify({ name: table.name, columns: columns.map((c) => c.name) }).slice(0, -1)},"rows":[`;
         firstTable = false;
         let count = 0;
         for (const row of db.prepare(`SELECT ${columns.map((c) => quote(c.name)).join(",")} FROM ${quote(table.name)}`).raw().iterate()) {
-          yield `${count++ ? "," : ""}${JSON.stringify(row.map(encodeCell), encode)}`;
+          const serialized = JSON.stringify(row.map(encodeCell), encode);
+          fingerprint.row(serialized);
+          yield `${count++ ? "," : ""}${serialized}`;
         }
         counts[table.name] = count;
         yield "]}";
@@ -61,7 +66,7 @@ export async function exportDatabase(databaseFile, outputFile) {
     await pipeline(Readable.from(json()), createGzip({ level: 6 }), createWriteStream(partial, { flags: "wx", mode: 0o600 }));
     db.exec("COMMIT");
     await rename(partial, outputFile);
-    return { createdAt: metadata.createdAt, counts, bytes: (await stat(outputFile)).size };
+    return { createdAt: metadata.createdAt, counts, bytes: (await stat(outputFile)).size, contentHash: fingerprint.digest() };
   } finally {
     if (db.inTransaction) db.exec("ROLLBACK");
     db.close();

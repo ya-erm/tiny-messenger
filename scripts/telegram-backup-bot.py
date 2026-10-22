@@ -84,10 +84,10 @@ def main():
                 if not is_admin_backup(update.get("message", {}), admin_id, username):
                     continue
                 active = subprocess.run(
-                    ["systemctl", "is-active", "tiny-messenger-backup.service"],
+                    ["systemctl", "is-active", "tiny-messenger-backup.service", "tiny-messenger-backup-scheduled.service"],
                     capture_output=True, text=True, timeout=10,
-                ).stdout.strip()
-                if active in ("active", "activating", "deactivating"):
+                ).stdout.splitlines()
+                if any(status in ("active", "activating", "deactivating") for status in active):
                     bot.notify("Бэкап уже выполняется. Архив придёт по завершении.")
                     continue
                 started = subprocess.run(

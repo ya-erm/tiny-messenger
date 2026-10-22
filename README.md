@@ -119,7 +119,8 @@ TELEGRAM_ADMIN_CHAT_ID=...
 Контейнер бэкапа ограничен 128 MiB RAM, без swap и 0.25 CPU; таймаут — 10 минут.
 При доступной памяти меньше 256 MiB задача отказывается стартовать. `flock`
 исключает параллельные экспорты. Локальные архивы имеют права `0600`, хранятся
-в `backups/telegram` 14 дней; очистка выполняется только после успешной отправки.
+в `backups/telegram` 14 дней; очистка выполняется после успешной отправки или
+проверки, что данные не изменились.
 Ошибка экспорта/отправки попадает в журнал и по возможности отправляется админу
 без звука. Отказы до запуска контейнера записываются в журнал systemd.
 Архивы свыше 49 MiB остаются локально: для них нужно отдельно настроить доставку
@@ -128,18 +129,27 @@ TELEGRAM_ADMIN_CHAT_ID=...
 Установка на сервере (пути в unit-файлах рассчитаны на `/root/tiny-messenger`):
 
 ```bash
-sudo install -m 0644 deploy/tiny-messenger-backup.service deploy/tiny-messenger-backup-bot.service /etc/systemd/system/
+sudo install -m 0644 deploy/tiny-messenger-backup.service deploy/tiny-messenger-backup-scheduled.service deploy/tiny-messenger-backup-bot.service /etc/systemd/system/
 sudo install -m 0644 deploy/telegram-backup.cron /etc/cron.d/tiny-messenger-telegram-backup
 sudo systemctl daemon-reload
 sudo systemctl enable --now tiny-messenger-backup-bot.service
 sudo systemctl start tiny-messenger-backup.service
 ```
 
-Cron запускает бэкап ежедневно в 00:00 по часовому поясу сервера Europe/Berlin
-(полночь совпадает с Europe/Belgrade). Не меняйте часовой пояс сервера без
+Cron запускает проверку ежедневно в 00:00 по часовому поясу сервера Europe/Berlin
+(полночь совпадает с Europe/Belgrade). Изменившиеся данные отправляются при
+ближайшей проверке; одинаковые — только через 7 суток с последней успешной
+отправки. Сравнивается содержимое всех таблиц и схема, кроме служебных таблиц
+`_litestream_*`; дата экспорта и версия SQLite также не влияют на сравнение.
+В самом архиве сохраняются все таблицы. Состояние успешной доставки хранится
+в `backups/telegram/last-delivery.json` с правами `0600` и переживает перезагрузки.
+При первой установке без состояния первая проверка отправляет архив. Ошибка
+Telegram не сдвигает дату последней доставки; пропуск не создаёт сообщения в чат.
+Не меняйте часовой пояс сервера без
 обновления расписания. Бот дополнительно принимает `/backup` или
 `/backup@TinyMessengerBackupBot` **только от админа в его личном чате**,
-проверяя одновременно `from.id` и `chat.id`. Документ отправляется
+проверяя одновременно `from.id` и `chat.id`. Ручной `/backup` всегда отправляет
+архив сразу и обновляет дату последней успешной доставки. Документ отправляется
 с `disable_notification=true`, без отдельного сообщения о запуске.
 Повторная команда во время работы получает
 тихий ответ о текущем запуске. Позиция Telegram updates сохраняется между
@@ -150,7 +160,7 @@ Cron запускает бэкап ежедневно в 00:00 по часово
 Журналы и ручной запуск:
 
 ```bash
-sudo journalctl -u tiny-messenger-backup.service -u tiny-messenger-backup-bot.service
+sudo journalctl -u tiny-messenger-backup.service -u tiny-messenger-backup-scheduled.service -u tiny-messenger-backup-bot.service
 sudo systemctl start tiny-messenger-backup.service
 ```
 

@@ -43,8 +43,10 @@ class AuthorizationTest(unittest.TestCase):
                 return {"url": ""}
             if method == "getUpdates":
                 polls += 1
-                if polls > 1:
+                if polls > 2:
                     raise KeyboardInterrupt
+                if polls == 2:
+                    return [{"update_id": 4, "message": messages[2]}]
                 return [{"update_id": i, "message": m} for i, m in enumerate(messages, 1)]
             return True
 
@@ -53,14 +55,17 @@ class AuthorizationTest(unittest.TestCase):
                 with patch.object(module.Bot, "api", api), patch.object(module.subprocess, "run", side_effect=[
                     subprocess.CompletedProcess([], 3, stdout="inactive\n"),
                     subprocess.CompletedProcess([], 0),
+                    subprocess.CompletedProcess([], 0, stdout="inactive\nactivating\n"),
                 ]) as run:
                     with self.assertRaises(KeyboardInterrupt):
                         module.main()
-                    self.assertEqual(run.call_count, 2)
+                    self.assertEqual(run.call_count, 3)
                     self.assertEqual(run.call_args_list[1].args[0], ["systemctl", "start", "--no-block", "tiny-messenger-backup.service"])
-            self.assertEqual(Path(directory, "telegram-offset").read_text(), "4")
+            self.assertEqual(Path(directory, "telegram-offset").read_text(), "5")
         notifications = [data for method, data in calls if method == "sendMessage"]
-        self.assertEqual(notifications, [])
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["text"], "Бэкап уже выполняется. Архив придёт по завершении.")
+        self.assertTrue(notifications[0]["disable_notification"])
         menu = next(data for method, data in calls if method == "setMyCommands")
         self.assertEqual(menu["scope"], {"type": "chat", "chat_id": "123"})
 
