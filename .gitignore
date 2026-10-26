@@ -15,7 +15,8 @@ data/*-litestream/
 src/generated/
 *.tsbuildinfo
 releases/
-backups/
+# Server archives and database backups (may contain secrets).
+/backups/
 __pycache__/
 deploy/release.env
 deploy/release.env.previous
