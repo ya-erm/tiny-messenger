@@ -8,6 +8,7 @@ import deleteMessagesIllustration from "../../public/delete-messages.png";
 import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { ReactionPicker } from "@/components/reaction-picker";
+import { useMessageSound } from "@/components/use-message-sound";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
@@ -607,7 +608,7 @@ function RateLimitDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, embedded = false }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; embedded?: boolean }) {
+export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, onIncomingMessage, embedded = false }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; onIncomingMessage?: () => void; embedded?: boolean }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
@@ -620,6 +621,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [selectedChat, setSelectedChat] = useState<ChatRef | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
+  const { enabled: messageSoundEnabled, choose: chooseMessageSound, observe: observeMessageSound } = useMessageSound(user?.id, onIncomingMessage);
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [membersGroupId, setMembersGroupId] = useState<string | null>(null);
@@ -769,6 +771,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       groups: PublicGroup[];
       groupMessages: PublicGroupMessage[];
       readStates: ReadState[];
+      syncedAt: string;
     }>("/api/sync", {
       method: "POST",
       body: JSON.stringify({ limit: 100 }),
@@ -779,7 +782,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     setGroups(data.groups);
     setGroupMessages(data.groupMessages);
     setReadStates(data.readStates);
-  }, [request, token]);
+    observeMessageSound(data.messages, data.groupMessages, data.syncedAt);
+  }, [observeMessageSound, request, token]);
 
   const refreshPushState = useCallback(async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
@@ -1916,6 +1920,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         onInstall={installApplication}
         theme={themePreference}
         onTheme={chooseTheme}
+        messageSoundEnabled={messageSoundEnabled}
+        onMessageSound={chooseMessageSound}
       />}
       {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
       {messageDeleteIds && <ActionDialog
@@ -2624,6 +2630,8 @@ function SettingsDialog({
   onInstall,
   theme,
   onTheme,
+  messageSoundEnabled,
+  onMessageSound,
 }: {
   user: PublicUser;
   token: string;
@@ -2642,6 +2650,8 @@ function SettingsDialog({
   onInstall: () => Promise<void>;
   theme: ThemePreference;
   onTheme: (theme: ThemePreference) => void;
+  messageSoundEnabled: boolean;
+  onMessageSound: (enabled: boolean) => void;
 }) {
   const [name, setName] = useState(user.name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
@@ -2800,6 +2810,14 @@ function SettingsDialog({
         </div> : null}
 
         {view === "profile" ? <div className="settings-section capability-section">
+          <div className="capability-row">
+            <span className={`capability-icon ${messageSoundEnabled ? "active" : ""}`}><Glyph name={messageSoundEnabled ? "bell" : "bellOff"} /></span>
+            <div className="capability-copy">
+              <strong id="message-sound-label">Звук новых сообщений</strong>
+              <p id="message-sound-description">Личные и групповые сообщения. Настройка сохраняется в этом браузере.</p>
+            </div>
+            <button type="button" role="switch" aria-checked={messageSoundEnabled} aria-labelledby="message-sound-label" aria-describedby="message-sound-description" className="secondary-button capability-button" onClick={() => onMessageSound(!messageSoundEnabled)}>{messageSoundEnabled ? "Отключить" : "Включить"}</button>
+          </div>
           <div className="capability-row">
             <span className={`capability-icon ${pushState === "enabled" ? "active" : ""}`}><Glyph name={pushState === "denied" ? "bellOff" : "bell"} /></span>
             <div className="capability-copy">
