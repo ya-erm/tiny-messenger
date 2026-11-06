@@ -89,15 +89,22 @@ export function TasksEmbed({ tasksOrigin }: { tasksOrigin: string }) {
   const [credential, setCredential] = useState("");
   const [error, setError] = useState("");
   const [hostSound, setHostSound] = useState(false);
+  const [hostVisible, setHostVisible] = useState(false);
 
   useEffect(() => {
     let disposed = false, busy = false;
     async function receive(event: MessageEvent) {
-      if (event.origin !== tasksOrigin || event.source !== window.parent || event.data?.type !== "tasks:login" || typeof event.data.assertion !== "string" || busy) return;
+      if (event.origin !== tasksOrigin || event.source !== window.parent) return;
+      if (event.data?.type === "tasks:visibility" && typeof event.data.visible === "boolean") {
+        setHostVisible(event.data.visible);
+        return;
+      }
+      if (event.data?.type !== "tasks:login" || typeof event.data.assertion !== "string" || busy) return;
       busy = true;
       setCredential("");
       setError("");
       setHostSound(event.data.messageSound === "host");
+      setHostVisible(event.data.visible === true);
       window.parent.postMessage({ type: "tm:unread", count: 0 }, tasksOrigin);
       try {
         const result = await api<{ token: string; user: User }>("/api/integrations/tasks/session", { assertion: event.data.assertion });
@@ -126,7 +133,7 @@ export function TasksEmbed({ tasksOrigin }: { tasksOrigin: string }) {
 
   const unread = useCallback((count: number) => window.parent.postMessage({ type: "tm:unread", count }, tasksOrigin), [tasksOrigin]);
   const incoming = useCallback(() => window.parent.postMessage({ type: "tm:message-sound", id: crypto.randomUUID() }, tasksOrigin), [tasksOrigin]);
-  return credential ? <MessengerApp key={credential} embedded onUnread={unread} onIncomingMessage={hostSound ? incoming : undefined} /> : <main className="tasks-connect-page"><section>
+  return credential ? <MessengerApp key={credential} embedded viewVisible={hostVisible} onUnread={unread} onIncomingMessage={hostSound ? incoming : undefined} /> : <main className="tasks-connect-page"><section>
     <h1>Tiny Messenger</h1>
     <p role={error ? "alert" : "status"}>{error || "Открываем ваш профиль…"}</p>
     {error && <button className="primary-button" onClick={() => window.parent.postMessage({ type: "tm:ready" }, tasksOrigin)}>Повторить</button>}

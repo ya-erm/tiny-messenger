@@ -608,7 +608,7 @@ function RateLimitDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, onIncomingMessage, embedded = false }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; onIncomingMessage?: () => void; embedded?: boolean }) {
+export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, onIncomingMessage, embedded = false, viewVisible = true }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; onIncomingMessage?: () => void; embedded?: boolean; viewVisible?: boolean }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
@@ -619,6 +619,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [groupMessages, setGroupMessages] = useState<PublicGroupMessage[]>([]);
   const [readStates, setReadStates] = useState<ReadState[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatRef | null>(null);
+  const [documentVisible, setDocumentVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
   const { enabled: messageSoundEnabled, choose: chooseMessageSound, observe: observeMessageSound } = useMessageSound(user?.id, onIncomingMessage);
@@ -666,6 +667,13 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const initialPeerSelectionHandledRef = useRef(false);
   const conversationHistoryRef = useRef(false);
   const readMarkInFlightRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const changed = () => setDocumentVisible(document.visibilityState === "visible");
+    changed();
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
@@ -1254,7 +1262,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   // Opening a chat reads it: the watermark moves up to the newest incoming
   // message, which covers everything before it. One request per new message.
   useEffect(() => {
-    if (!selectedChat || !user || document.visibilityState !== "visible") return;
+    if (!viewVisible || !documentVisible || !selectedChat || !user || document.visibilityState !== "visible") return;
     const latest = conversation.filter((message) => message.fromUserId !== user.id).at(-1);
     if (!latest || latest.sentAt <= (readCursors.get(selectedChat.id) ?? "")) return;
     if (readMarkInFlightRef.current === latest.id) return;
@@ -1266,7 +1274,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     })
       .then(() => refreshState())
       .catch(() => { readMarkInFlightRef.current = null; });
-  }, [conversation, readCursors, refreshState, request, selectedChat, user]);
+  }, [conversation, documentVisible, readCursors, refreshState, request, selectedChat, user, viewVisible]);
 
   async function answer(messageId: string, optionId: string) {
     try {
