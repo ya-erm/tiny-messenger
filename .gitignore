@@ -12,6 +12,7 @@ data/realtime.*.tmp
 data/*.db
 data/*.db-*
 data/*-litestream/
+/data/tasks-integration.key
 src/generated/
 *.tsbuildinfo
 releases/

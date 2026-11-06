@@ -1,4 +1,5 @@
 import "server-only";
+import {sessionClaims} from "@/lib/tasks-integration";
 
 import { createHash, randomBytes } from "node:crypto";
 import { read } from "@/lib/db";
@@ -16,7 +17,9 @@ export function createToken() {
 }
 
 export async function authenticateToken(token: string) {
-  const user = await read((db) => db.user.findUnique({ where: { tokenHash: hashToken(token) } }));
+  const claims = token.startsWith("tms_") ? sessionClaims(token) : null;
+  const user = await read((db) => db.user.findUnique({ where: claims ? {id: String(claims.tmUserId)} : { tokenHash: hashToken(token) } }));
+  if (claims && user && createHash("sha256").update(user.tokenHash).digest("hex") !== claims.version) throw new ApiError(401, "invalid_token", "Сессия отозвана");
   if (!user) throw new ApiError(401, "invalid_token", "Токен не найден или был заменён");
   return toUserRecord(user);
 }

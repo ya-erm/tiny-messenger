@@ -150,7 +150,7 @@ export class RealtimeService {
         socket.close(1008, "authentication_required");
         return;
       }
-      const token = safeString(frame.token, 256);
+      const token = safeString(frame.token, 1024);
       const instanceId = safeString(frame.instanceId, 128);
       if (!token || !instanceId) {
         socket.close(1008, "invalid_authentication");

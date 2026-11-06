@@ -22,6 +22,7 @@ model User {
   createdAt        String
   updatedAt        String
 
+  tasksAccountLink      TasksAccountLink?
   contacts              Contact[]              @relation("ContactOwner")
   contactOf             Contact[]              @relation("ContactUser")
   sentMessages          Message[]              @relation("MessageSender")
@@ -210,4 +211,16 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// Account links approved inside Tiny Messenger; token values are never stored here.
+model TasksAccountLink {
+  tasksUserId String @id
+  userId String @unique
+  linkId String @unique
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+model TasksConsumedProof {
+  nonce String @id
+  expiresAt Int
 }

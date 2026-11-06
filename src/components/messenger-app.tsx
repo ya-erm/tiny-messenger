@@ -607,7 +607,7 @@ function RateLimitDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { sharedIdentifier?: string; sharedLabel?: string }) {
+export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, embedded = false }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; embedded?: boolean }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
@@ -750,6 +750,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
       });
   }, []);
 
+  useEffect(() => {
+    function changed(event: StorageEvent) {
+      if (event.storageArea !== window.localStorage || (event.key !== TOKEN_KEY && event.key !== null)) return;
+      if (event.key === TOKEN_KEY && event.newValue === token) return;
+      window.location.reload();
+    }
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [token]);
+
   const refreshState = useCallback(async () => {
     if (!token) return;
     const data = await request<{
@@ -858,6 +868,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
     for (const message of groupMessages) note({ kind: "group", id: message.groupId }, message);
     return result;
   }, [groupMessages, messages, readCursors, user?.id]);
+  useEffect(() => { if (phase === "ready") onUnread?.([...chatSummaries.values()].reduce((sum, item) => sum + item.unread, 0)); }, [chatSummaries, onUnread, phase]);
+
 
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
@@ -1448,11 +1460,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${embedded ? " tasks-embedded" : ""}`}>
       <div className={`messenger ${selectedEntry ? "has-conversation" : ""}`}>
         <aside className="sidebar">
-          <header className="sidebar-header">
-            <div className="sidebar-brand-row">
+          {(!embedded || (pushState === "disabled" && chats.length > 0)) && <header className="sidebar-header">
+            {!embedded && <div className="sidebar-brand-row">
               <div className="brand">
                 <span className="brand-mark">tm</span>
                 <div className="brand-copy">
@@ -1463,21 +1475,24 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "" }: { shar
               <div className="sidebar-header-actions">
                 <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки" data-tooltip-position="bottom" data-tooltip-align="right"><Glyph name="settings" /></button>
               </div>
-            </div>
+            </div>}
             {pushState === "disabled" && chats.length > 0 ? <PushNotificationSuggestion
               userId={user.id}
               chatOpen={Boolean(selectedEntry)}
               busy={pushBusy}
               onEnable={enablePushNotifications}
             /> : null}
-          </header>
+          </header>}
           <div className="profile-strip">
             <Avatar name={user.name} avatarUrl={user.avatarUrl} avatarBackground={user.avatarBackground} className="avatar" />
             <div className="profile-details">
               <strong>{user.name}</strong>
               {user.nickname ? <span className="profile-nickname">@{user.nickname}</span> : null}
             </div>
+            <div className="profile-strip-actions">
             <button type="button" className="profile-strip-share" onClick={() => { void shareOwnProfile(); }} aria-label="Поделиться своим профилем" data-tooltip="Поделиться"><Glyph name="share" /></button>
+              {embedded && <button type="button" className="profile-strip-share" onClick={() => setShowSettings(true)} aria-label="Настройки" data-tooltip="Настройки"><Glyph name="settings" /></button>}
+            </div>
           </div>
           <div className="contacts-title">
             <span>Диалоги</span>

@@ -20,6 +20,8 @@ services:
       NODE_OPTIONS: --max-old-space-size=192
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      TASKS_ORIGIN: ${TASKS_ORIGIN:-https://tasks.ya-erm.ru}
+      TASKS_INTEGRATION_SECRET_FILE: ${TASKS_INTEGRATION_SECRET_FILE:-}
       DATABASE_URL: file:/app/data/messenger.db
       MESSENGER_REALTIME_FILE: /app/data/realtime.json
       RATE_LIMIT_PUBLIC: 120

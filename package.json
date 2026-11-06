@@ -17,6 +17,7 @@
     "test:ws": "node scripts/ws-smoke.mjs",
     "test:realtime": "node scripts/realtime-smoke.mjs",
     "test:reactions": "node scripts/reactions-smoke.mjs",
+    "test:tasks": "prisma generate && node scripts/test-tasks-integration.mjs",
     "push:keys": "web-push generate-vapid-keys"
   },
   "dependencies": {

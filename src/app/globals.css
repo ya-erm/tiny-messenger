@@ -796,3 +796,12 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 @media (hover: none) {
   .message-bubble { -webkit-touch-callout: none; user-select: none; }
 }
+
+.tasks-connect-page{min-height:100dvh;display:grid;place-items:center;padding:24px}.tasks-connect-page>section{width:min(420px,100%);display:grid;gap:16px;padding:24px;border:1px solid var(--border,#abb8c0);border-radius:16px}.tasks-connect-page h1,.tasks-connect-page p{margin:0}.tasks-connect-page [role=alert]{color:#b42331}
+
+.tasks-account-handle{display:block;margin-top:4px;color:var(--muted,#6b7b84);font-size:.85rem;overflow-wrap:anywhere}
+
+/* Embedded layout keeps the host window's branding and the native profile controls. */
+.profile-strip-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto}
+.tasks-embedded .profile-strip{margin-top:12px}
+.tasks-embedded .profile-strip-actions .profile-strip-share{margin-left:0}
