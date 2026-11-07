@@ -619,6 +619,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [groupMessages, setGroupMessages] = useState<PublicGroupMessage[]>([]);
   const [readStates, setReadStates] = useState<ReadState[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatRef | null>(null);
+  const messageStreamRef = useRef<HTMLDivElement>(null);
+  const [pendingSentMessage, setPendingSentMessage] = useState<{ chat: string; id: string } | null>(null);
   const [documentVisible, setDocumentVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
@@ -1231,13 +1233,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!selectedChat) return;
     setBusy(true);
     try {
+      let sent: { message: { id: string } };
       if (selectedChat.kind === "group") {
-        await request("/api/group-messages", {
+        sent = await request<{ message: { id: string } }>("/api/group-messages", {
           method: "POST",
           body: JSON.stringify({ groupId: selectedChat.id, text: input.text }),
         });
       } else {
-        await request("/api/messages", {
+        sent = await request<{ message: { id: string } }>("/api/messages", {
           method: "POST",
           body: JSON.stringify({
             toUserId: selectedChat.id,
@@ -1250,6 +1253,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
           }),
         });
       }
+      setPendingSentMessage({ chat: chatKey(selectedChat), id: sent.message.id });
       await refreshState();
     } catch (error) {
       if (!isMessageRateLimitError(error)) setNotice((error as Error).message);
@@ -1258,6 +1262,19 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       setBusy(false);
     }
   }
+
+  useLayoutEffect(() => {
+    if (!pendingSentMessage) return;
+    if (!selectedChat || chatKey(selectedChat) !== pendingSentMessage.chat) {
+      setPendingSentMessage(null);
+      return;
+    }
+    // Wait until the server-confirmed message has rendered. Scroll only this
+    // stream so sending inside an iframe cannot move the parent page.
+    if (!conversation.some((message) => message.id === pendingSentMessage.id)) return;
+    messageStreamRef.current?.scrollTo({ top: messageStreamRef.current.scrollHeight, behavior: "instant" });
+    setPendingSentMessage(null);
+  }, [conversation, pendingSentMessage, selectedChat]);
 
   // Opening a chat reads it: the watermark moves up to the newest incoming
   // message, which covers everything before it. One request per new message.
@@ -1734,7 +1751,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 </div>
               )}
             </header>
-            <div className="message-stream">
+            <div className="message-stream" ref={messageStreamRef}>
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните с короткого</h2><p>Сообщение должно удобно читаться на небольшом экране.</p></div>}
               {conversation.map((message) => {
                 const outgoing = message.fromUserId === user.id;
