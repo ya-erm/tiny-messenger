@@ -8,6 +8,14 @@
 # The bucket must be private: the database holds user token hashes and push
 # subscription keys. Litestream itself does not encrypt what it uploads.
 
+# Inspect operation counters from inside the container; no published port.
+addr: "127.0.0.1:9090"
+
+# Keep the minimum L0 age, but batch garbage collection hourly to avoid paid
+# S3 LIST requests every 15 seconds. This delays cleanup, not replication.
+l0-retention: 5m
+l0-retention-check-interval: 1h
+
 snapshot:
   interval: 24h
   retention: 168h

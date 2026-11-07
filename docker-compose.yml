@@ -62,7 +62,7 @@ services:
   # Exactly one Litestream instance may replicate a given database.
   # Opt-in: set COMPOSE_PROFILES=backup in .env once the bucket is configured.
   litestream:
-    image: litestream/litestream:0.5.17
+    image: litestream/litestream:0.5.18@sha256:513bff62a88fc0c86c73d27333c41c54c89fe890a7c32a551600adff9309b11b
     profiles: ["backup"]
     restart: unless-stopped
     user: "1001:1001"
