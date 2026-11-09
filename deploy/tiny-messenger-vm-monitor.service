@@ -1,0 +1,25 @@
+[Unit]
+Description=Check vm-2.ya-erm.ru and alert the Tiny Messenger backup admin
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/root/.config/tiny-messenger/telegram-backup.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I -B /root/tiny-messenger/scripts/check-vm.py
+EnvironmentFile=/root/.config/tiny-messenger/telegram-backup.env
+StateDirectory=tiny-messenger-vm-monitor
+StateDirectoryMode=0700
+TimeoutStartSec=120
+MemoryMax=48M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=16
+Nice=15
+OOMScoreAdjust=500
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
