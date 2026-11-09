@@ -187,47 +187,6 @@ node scripts/restore-json-backup.mjs tiny-messenger-DATE.json.gz recovered.db
 Litestream и сохраните существующие `.db`, `-wal`, `-shm` отдельно; восстановленной
 базе верните владельца `1001:1001`. Этот формат отличается от старого `store.json`.
 
-### Проверка доступности vm-2
-
-`scripts/check-vm.py` проверяет `vm-2.ya-erm.ru` каждые пять минут через
-`tiny-messenger-vm-monitor.timer`. Проверка выполняется с сервера Tiny Messenger,
-поэтому он должен работать независимо от наблюдаемой VM.
-
-Доступность подтверждает ответ на ping либо TCP-порт 22, 443 или 80. Отказ
-в TCP-соединении тоже считается ответом хоста. Перед тревогой выполняются три
-попытки с паузами по 5 секунд. Проверка определяет сетевую недоступность,
-а не облачный статус `STOPPED`: сообщение явно указывает, что возможна остановка
-VM или сетевая проблема.
-
-Уведомление со звуком получает только админ через существующего бота резервных
-копий; используются тот же защищённый `telegram-backup.env` и личный chat ID.
-Работающий polling бота не перезапускается. После подтверждения Telegram
-повторных сообщений об одном сбое нет. Состояние хранится с правами `0600` в
-`/var/lib/tiny-messenger-vm-monitor/state.json` и переживает перезагрузки.
-Восстановление доступности снимает отметку тревоги; следующий сбой снова вызовет
-уведомление. Отдельного сообщения о восстановлении нет. При ошибке Telegram
-следующий запуск повторит отправку; при потере ответа Telegram возможен дубль.
-
-Установка:
-
-```bash
-sudo install -m 0644 deploy/tiny-messenger-vm-monitor.service deploy/tiny-messenger-vm-monitor.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now tiny-messenger-vm-monitor.timer
-sudo systemctl start tiny-messenger-vm-monitor.service
-```
-
-Проверка без изменения состояния и отправки сообщений:
-
-```bash
-python3 -I -B scripts/check-vm.py --check-only
-systemctl list-timers tiny-messenger-vm-monitor.timer
-journalctl -u tiny-messenger-vm-monitor.service
-```
-
-Сервис ограничен 48 MiB RAM, без swap и 0.1 CPU, время запуска — до 120 секунд.
-Для этой доработки сборка и перезапуск Messenger не требуются.
-
 ### Litestream
 
 Сервис `litestream` в `docker-compose.yml` непрерывно реплицирует базу в любой
