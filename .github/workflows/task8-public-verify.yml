@@ -1,0 +1,27 @@
+name: Verify task 8 production delivery
+on:
+  push:
+    branches: ['build/tm-task-8-clipboard']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task8-cf897cd'))['ok']
+          body=fetch('/tasks-embed?verify=task8-cf897cd').decode()
+          assert '/_next/static/chunks/06ehvp5tachz9.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/06ehvp5tachz9.js')).hexdigest()
+          assert actual=='7bf4be40816016b6158c7f5f54c06f3aed9c3a0ee46fe0c51f97380f916e2f8a', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          PY
