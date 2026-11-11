@@ -22,6 +22,7 @@ export function attachmentPreview(type: string): AttachmentInfo["preview"] {
 
 export function formatFileSize(size: number) {
   if (size < 1024) return `${size} Б`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КиБ`;
-  return `${(size / (1024 * 1024)).toFixed(1)} МиБ`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Кб`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} Мб`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} Гб`;
 }
