@@ -1,0 +1,27 @@
+name: Verify task 9 production delivery
+on:
+  push:
+    branches: ['build/tm-task-9-attachment-theme-ready']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task9-500ebf7'))['ok']
+          body=fetch('/tasks-embed?verify=task9-500ebf7').decode()
+          assert '/_next/static/chunks/1_b2b4_dcsd34.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/1_b2b4_dcsd34.js')).hexdigest()
+          assert actual=='451264e995e7bfa326fdd2ab6098224249c0300b02e071c775b574b6da013afe', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          PY
