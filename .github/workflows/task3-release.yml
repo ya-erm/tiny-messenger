@@ -1,36 +1,27 @@
-name: Build task 3 attachments release
+name: Verify task 3 production delivery
 on:
   push:
     branches: ['build/tm-task-3-attachments']
 permissions:
   contents: read
 jobs:
-  release:
+  verify-public:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 1daf77f89ea01b446f4562ba5715b5af9dd9f792
-          persist-credentials: false
-      - name: Read-only public connectivity check
+      - name: Verify public production health and tested client bundle
         run: |
-          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
-            echo "PUBLIC_TM_HEALTH=ok"
-          else
-            echo "PUBLIC_TM_HEALTH=unreachable"
-          fi
-      - name: Build isolated Linux release
-        env:
-          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
-          BUILD_CPUS: '2'
-          BUILD_MEMORY_MB: '4096'
-          BUILD_NODE_HEAP_MB: '2048'
-        run: bash scripts/build-release.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tm-task3-1daf77f89ea0
-          path: releases/artifacts/1daf77f89ea01b446f4562ba5715b5af9dd9f792/
-          retention-days: 2
-          compression-level: 0
-          if-no-files-found: error
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task3-1daf77f'))['ok']
+          body=fetch('/tasks-embed?verify=task3-1daf77f').decode()
+          assert '/_next/static/chunks/2rrmoc06u-p6o.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/2rrmoc06u-p6o.js')).hexdigest()
+          assert actual=='6c3699d16dfb313233589969827a63314ebca7568ad5fc92ded1136263e6e09b', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          PY
