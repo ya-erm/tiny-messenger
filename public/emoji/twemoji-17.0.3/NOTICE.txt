@@ -1,0 +1,6 @@
+Twemoji 17.0.3 graphics
+Copyright Twitter, Inc. and other contributors.
+Maintained by jdecked/twemoji contributors.
+Source: https://github.com/jdecked/twemoji/tree/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b
+Graphics licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Original SVG artwork, used without modification.

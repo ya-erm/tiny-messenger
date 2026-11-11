@@ -2,6 +2,7 @@
 
 import type { EmojiMartData } from "@emoji-mart/data";
 import { useEffect, useId, useMemo, useState } from "react";
+import { Emoji } from "@/components/emoji";
 import { isReactionEmoji, POPULAR_REACTIONS, QUICK_REACTIONS, reactionLabel, type ReactionOption } from "@/lib/reactions";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -15,6 +16,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   symbols: "Символы",
   flags: "Флаги",
 };
+const SKIN_TONES = [
+  { emoji: "🖐️", label: "Обычный" },
+  { emoji: "🖐🏻", label: "Светлый" },
+  { emoji: "🖐🏼", label: "Средне-светлый" },
+  { emoji: "🖐🏽", label: "Средний" },
+  { emoji: "🖐🏾", label: "Смуглый" },
+  { emoji: "🖐🏿", label: "Тёмный" },
+];
 
 const SEARCH_TERMS: Record<string, string> = {
   "сердце": "heart", "кот": "cat", "кошка": "cat", "собака": "dog",
@@ -90,7 +99,7 @@ export function ReactionPicker({ ownEmoji, disabled, onSelect }: {
     title={label}
     disabled={disabled}
     onClick={() => onSelect(emoji)}
-  ><span aria-hidden="true">{emoji}</span></button>;
+  ><Emoji value={emoji} decorative /></button>;
 
   return <div className="reaction-picker">
     <div className="reaction-quick" role="group" aria-label="Быстрые реакции">
@@ -130,8 +139,8 @@ export function ReactionPicker({ ownEmoji, disabled, onSelect }: {
           <option value="popular">Популярные</option>
           {catalog?.categories.map(({ id }) => <option key={id} value={id}>{CATEGORY_LABELS[id] ?? id}</option>)}
         </select></div>
-        <div className="reaction-select"><select aria-label="Оттенок кожи" value={skin} onChange={(event) => setSkin(Number(event.target.value))}>
-          {["🖐️", "🖐🏻", "🖐🏼", "🖐🏽", "🖐🏾", "🖐🏿"].map((emoji, index) => <option key={index} value={index}>{emoji}</option>)}
+        <div className="reaction-select reaction-skin-select"><span className="reaction-skin-preview"><Emoji value={SKIN_TONES[skin].emoji} decorative /></span><select aria-label="Оттенок кожи" value={skin} onChange={(event) => setSkin(Number(event.target.value))}>
+          {SKIN_TONES.map(({ label }, index) => <option key={index} value={index}>{label}</option>)}
         </select></div>
       </div>
       <div className="reaction-grid" role="group" aria-label="Все эмодзи">

@@ -10,6 +10,7 @@ import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/compone
 import { ReactionPicker } from "@/components/reaction-picker";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
+import { Emoji, EmojiText } from "@/components/emoji";
 import { AttachmentCard, AttachmentPicker, useAttachmentDraft, type AttachmentRequest } from "@/components/attachments";
 import type { AttachmentLimits } from "@/lib/attachment-types";
 import { LIMITS } from "@/lib/constants";
@@ -405,11 +406,11 @@ function QuestionOptions({
         const selected = message.answer?.id === option.id;
         return canAnswer ? (
           <button key={option.id} type="button" onClick={() => onAnswer(message.id, option.id)}>
-            <span>{option.label}</span>
+            <span><EmojiText text={option.label} /></span>
           </button>
         ) : (
           <span key={option.id} className={`question-option ${selected ? "selected" : ""}`}>
-            <span>{option.label}</span>
+            <span><EmojiText text={option.label} /></span>
           </span>
         );
       })}
@@ -457,9 +458,9 @@ function AnswerBubble({
         <span className="answer-sender">{answererName}</span>
         <div className="reply-preview">
           <strong>{message.senderName}</strong>
-          <p>{message.text}</p>
+          <p><EmojiText text={message.text} /></p>
         </div>
-        <p className="answer-text">{message.answer.label}</p>
+        <p className="answer-text"><EmojiText text={message.answer.label} /></p>
         <footer><time>{formatTime(message.answer.answeredAt)}</time></footer>
       </div>
     </article>
@@ -1606,7 +1607,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                   <span className="contact-copy">
                     <strong>{entry.name}</strong>
                     {!last && peer?.nickname ? <small className="contact-nickname">@{peer.nickname}</small> : null}
-                    {preview ? <small className="contact-preview">{preview}</small> : null}
+                    {preview ? <small className="contact-preview"><EmojiText text={preview} /></small> : null}
                   </span>
                   <span className="contact-meta">
                     <time className="contact-time">{last ? formatTime(last.sentAt) : ""}</time>
@@ -1850,7 +1851,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
                       {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
-                      <p>{message.text}{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
+                      <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
                       {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</footer> : null}
                       {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
@@ -1867,7 +1868,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                             aria-label={`${label}: ${matching.length}. ${own ? "Снять реакцию" : "Отправить реакцию"}`}
                             disabled={selectionMode || reactingMessageIds.includes(message.id)}
                             onClick={() => void reactToMessage(message, emoji)}
-                          ><span aria-hidden="true">{emoji}</span><span>{matching.length}</span></button>;
+                          ><Emoji value={emoji} decorative /><span>{matching.length}</span></button>;
                         })}
                       </div> : null}
                     </div>
@@ -2980,6 +2981,7 @@ function SettingsDialog({
             </div>
           ) : null}
         </div> : null}
+        {view === "profile" ? <p className="emoji-credit">Эмодзи: <a href="/emoji/twemoji-17.0.3/NOTICE.txt" target="_blank" rel="noreferrer">Twemoji</a> · <a href="/emoji/twemoji-17.0.3/LICENSE-GRAPHICS.txt" target="_blank" rel="noreferrer">CC BY 4.0</a></p> : null}
       </section>
     </div>
   );
