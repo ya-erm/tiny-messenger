@@ -32,12 +32,13 @@ const SEARCH_TERMS: Record<string, string> = {
   "кофе": "coffee", "торт": "cake", "подарок": "gift", "деньги": "money",
 };
 
-export function ReactionPicker({ ownEmoji, disabled, onSelect }: {
+export function ReactionPicker({ ownEmoji, disabled, onSelect, mode = "reaction" }: {
   ownEmoji?: string;
   disabled: boolean;
   onSelect: (emoji: string) => void;
+  mode?: "reaction" | "insert";
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(mode === "insert");
   const [category, setCategory] = useState("popular");
   const [query, setQuery] = useState("");
   const [skin, setSkin] = useState(0);
@@ -93,23 +94,23 @@ export function ReactionPicker({ ownEmoji, disabled, onSelect }: {
   const emojiButton = ({ emoji, label }: ReactionOption) => <button
     key={emoji}
     type="button"
-    role="menuitemradio"
-    aria-checked={ownEmoji === emoji}
-    aria-label={`${ownEmoji === emoji ? "Снять" : "Отправить"} реакцию: ${label}`}
+    role={mode === "insert" ? undefined : "menuitemradio"}
+    aria-checked={mode === "insert" ? undefined : ownEmoji === emoji}
+    aria-label={mode === "insert" ? `Вставить эмодзи: ${label}` : `${ownEmoji === emoji ? "Снять" : "Отправить"} реакцию: ${label}`}
     title={label}
     disabled={disabled}
     onClick={() => onSelect(emoji)}
   ><Emoji value={emoji} decorative /></button>;
 
   return <div className="reaction-picker">
-    <div className="reaction-quick" role="group" aria-label="Быстрые реакции">
+    <div className="reaction-quick" role="group" aria-label={mode === "insert" ? "Быстрые эмодзи" : "Быстрые реакции"}>
       {QUICK_REACTIONS.map((option) => {
         const variant = catalogByNative.get(option.emoji)?.skins[skin];
         return emojiButton(variant ? { ...option, emoji: variant.native } : option);
       })}
       <button
         type="button"
-        role="menuitem"
+        role={mode === "insert" ? undefined : "menuitem"}
         className="reaction-expand"
         aria-label={expanded ? "Свернуть эмодзи" : "Все эмодзи"}
         aria-expanded={expanded}
@@ -128,6 +129,7 @@ export function ReactionPicker({ ownEmoji, disabled, onSelect }: {
         onKeyDown={(event) => {
           // Text fields keep their own cursor keys and Tab navigation.
           if (event.key !== "Escape") event.stopPropagation();
+          if (event.key === "Enter" && mode === "insert") event.preventDefault();
           if (event.key === "Enter" && pastedEmoji && !disabled) {
             event.preventDefault();
             onSelect(pastedEmoji);

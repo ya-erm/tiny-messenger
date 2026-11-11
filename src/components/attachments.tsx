@@ -125,23 +125,9 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
   return { files, select, selectionError, remove, retry, clearSent, ids: files.filter((item) => item.state === "ready" && item.id).map((item) => item.id!), blocked: files.some((item) => item.state !== "ready") };
 }
 
-export function AttachmentPicker({ draft, limits, disabled }: { draft: ReturnType<typeof useAttachmentDraft>; limits: AttachmentLimits | null; disabled: boolean }) {
-  const input = useRef<HTMLInputElement>(null);
-  const mediaInput = useRef<HTMLInputElement>(null);
-  if (!limits?.enabled) return null;
-  function selected(files: File[], mode: AttachmentMode) {
-    if (!limits) return;
-    draft.select(files, limits, mode);
-  }
-  return <div className="attachment-picker">
-    <div className="attachment-picker-heading"><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => mediaInput.current?.click()}>Фото или видео</button><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => input.current?.click()}>＋ Файл</button><small>До {formatFileSize(limits.maxFileBytes)} · {limits.maxFilesPerMessage} файла</small></div>
-    <input ref={mediaInput} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif,video/*" multiple hidden aria-label="Выбрать фото или видео" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; selected(files, "media"); }} />
-    <input ref={input} type="file" multiple hidden aria-label="Выбрать файлы" onChange={(event) => {
-      const files = Array.from(event.target.files || []);
-      event.target.value = "";
-      selected(files, "file");
-    }} />
-    <small className="attachment-mode-help">Фото сжимаются. Через «Файл» можно отправить оригинал.</small>
+export function AttachmentDrafts({ draft, disabled }: { draft: ReturnType<typeof useAttachmentDraft>; disabled: boolean }) {
+  if (!draft.files.length && !draft.selectionError) return null;
+  return <div className="attachment-drafts">
     {draft.selectionError ? <p className="attachment-error" role="alert">{draft.selectionError}</p> : null}
     {draft.files.map((item) => <div className="attachment-draft" key={item.localId}>
       <div className="attachment-copy"><strong title={item.file.name}>{item.file.name}</strong><small>{item.originalSize ? `${formatFileSize(item.originalSize)} → ` : ""}{formatFileSize(item.file.size)} · {item.state === "preparing" ? "Подготавливаем файл…" : item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.preparationNote ? <small>{item.preparationNote}</small> : null}{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
