@@ -863,6 +863,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .attachment-drafts { max-height: min(160px, 25dvh); overflow-y: auto; overscroll-behavior: contain; margin-top: 6px; }
 @media (max-width: 600px) { .composer-tools { gap: 0; } .composer-tool { width: 34px; padding: 6px; } .composer-line { gap: 5px; } }
 /* Embedded windows can be shorter than the standalone mobile layout. */
-.tasks-embedded .app-shell { height: 100dvh; min-height: 0; padding: 0; }
+.app-shell.tasks-embedded { height: 100dvh; min-height: 0; padding: 0; }
 .tasks-embedded .messenger { height: 100dvh; min-height: 0; border-radius: 0; }
 .attachment-copy small { opacity: .65; font-size: 12px; }
