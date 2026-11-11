@@ -527,6 +527,15 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .capability-copy strong { display: block; font-size: 11px; }
 .capability-copy p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .capability-button { min-width: 88px; align-self: center; box-shadow: none; }
+.notification-help-link { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--green-ink); text-decoration: underline; cursor: pointer; font: inherit; }
+.notification-help { margin-top: 18px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.notification-help h3 { margin: 0 0 12px; font-size: 15px; }
+.notification-help ol { padding-left: 22px; }
+.notification-help li + li { margin-top: 10px; }
+.notification-help a { color: var(--green-ink); }
+.notification-help-note { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.notification-help-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.notification-help-actions button { flex: 1 1 170px; }
 .settings-profile-card { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: start; gap: 20px; }
 .group-profile-card { margin-top: 20px; }
 .settings-avatar-column { display: flex; flex-direction: column; align-items: center; gap: 8px; }

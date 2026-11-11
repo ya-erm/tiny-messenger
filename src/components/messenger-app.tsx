@@ -9,6 +9,7 @@ import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { ReactionPicker } from "@/components/reaction-picker";
 import { useMessageSound } from "@/components/use-message-sound";
+import { NotificationHelp } from "@/components/notification-help";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
@@ -851,6 +852,33 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, [phase, token, refreshPushState]);
 
   useEffect(() => {
+    if (phase !== "ready" || !token || pushBusy || !("Notification" in window)) return;
+    let permission = Notification.permission;
+    let disposed = false;
+    let status: PermissionStatus | undefined;
+    const changed = () => {
+      if (document.visibilityState !== "visible" || permission === Notification.permission) return;
+      permission = Notification.permission;
+      void refreshPushState();
+    };
+    window.addEventListener("focus", changed);
+    document.addEventListener("visibilitychange", changed);
+    if (navigator.permissions) {
+      void navigator.permissions.query({ name: "notifications" }).then((value) => {
+        if (disposed) return;
+        status = value;
+        status.addEventListener("change", changed);
+      }).catch(() => undefined);
+    }
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", changed);
+      document.removeEventListener("visibilitychange", changed);
+      status?.removeEventListener("change", changed);
+    };
+  }, [phase, token, pushBusy, refreshPushState]);
+
+  useEffect(() => {
     if (phase !== "ready" || !user || !sharedIdentifier || sharedContactHandled) return;
     setSharedContactHandled(true);
     if (user.id === sharedIdentifier || (user.nickname && `@${user.nickname}` === sharedIdentifier)) {
@@ -1097,6 +1125,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     } catch (error) {
       setPushState(Notification.permission === "denied" ? "denied" : "error");
       setNotice((error as Error).message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function checkPushPermission() {
+    setPushBusy(true);
+    try {
+      await refreshPushState();
     } finally {
       setPushBusy(false);
     }
@@ -1939,6 +1976,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         pushState={pushState}
         pushBusy={pushBusy}
         onEnablePush={enablePushNotifications}
+        onCheckPush={checkPushPermission}
         onDisablePush={() => disablePushNotifications()}
         appInstalled={appInstalled}
         canInstall={Boolean(installPrompt)}
@@ -2649,6 +2687,7 @@ function SettingsDialog({
   pushState,
   pushBusy,
   onEnablePush,
+  onCheckPush,
   onDisablePush,
   appInstalled,
   canInstall,
@@ -2669,6 +2708,7 @@ function SettingsDialog({
   pushState: PushState;
   pushBusy: boolean;
   onEnablePush: () => Promise<void>;
+  onCheckPush: () => Promise<void>;
   onDisablePush: () => Promise<void>;
   appInstalled: boolean;
   canInstall: boolean;
@@ -2682,7 +2722,7 @@ function SettingsDialog({
   const [nickname, setNickname] = useState(user.nickname ?? "");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
   const [avatarBackground, setAvatarBackground] = useState(user.avatarBackground ?? "");
-  const [view, setView] = useState<"profile" | "avatar">("profile");
+  const [view, setView] = useState<"profile" | "avatar" | "notifications">("profile");
   const [showToken, setShowToken] = useState(false);
   const [confirmTokenReset, setConfirmTokenReset] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -2738,8 +2778,8 @@ function SettingsDialog({
   const pushCopy: Record<PushState, string> = {
     checking: "Проверяем поддержку браузера…",
     disabled: "Включите уведомления, чтобы не пропускать новые сообщения и ответы.",
-    enabled: "Новые сообщения и ответы будут приходить, даже когда вкладка закрыта.",
-    denied: "Браузер заблокировал уведомления. Разрешите их в настройках сайта.",
+    enabled: "Подписка включена. Для доставки также нужны разрешения браузера и устройства.",
+    denied: "Уведомления запрещены браузером или устройством. Откройте инструкцию, чтобы разрешить их.",
     unsupported: "Этот браузер не поддерживает push-уведомления.",
     unconfigured: "Push-уведомления пока не настроены на сервере.",
     error: "Не удалось проверить подписку. Попробуйте ещё раз позже.",
@@ -2750,15 +2790,24 @@ function SettingsDialog({
       <section className="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="modal-header">
           <div className="modal-title-row">
-            {view === "avatar" ? (
+            {view !== "profile" ? (
               <button type="button" className="modal-back" onClick={() => setView("profile")} aria-label="Назад к настройкам" data-tooltip="Назад" data-tooltip-position="bottom">
                 <Glyph name="back" />
               </button>
             ) : null}
-            <h2 id="settings-title">{view === "avatar" ? "Выберите аватарку" : "Ваши настройки"}</h2>
+            <h2 id="settings-title">{view === "avatar" ? "Выберите аватарку" : view === "notifications" ? "Как включить уведомления" : "Ваши настройки"}</h2>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Закрыть" data-tooltip="Закрыть" data-tooltip-position="bottom"><Glyph name="close" /></button>
         </div>
+
+        {view === "notifications" ? <NotificationHelp
+          status={pushCopy[pushState]}
+          busy={pushBusy || pushState === "checking"}
+          canEnable={["disabled", "error"].includes(pushState)}
+          onCheck={onCheckPush}
+          onEnable={onEnablePush}
+          onBack={() => setView("profile")}
+        /> : null}
 
         {view === "profile" ? (
           <form
@@ -2805,7 +2854,7 @@ function SettingsDialog({
               </div>
             </div>
           </form>
-        ) : (
+        ) : view === "avatar" ? (
           <AvatarEditor
             name={name || user.name}
             avatarUrl={avatarUrl}
@@ -2814,7 +2863,7 @@ function SettingsDialog({
             onAvatarBackground={setAvatarBackground}
             onDone={() => setView("profile")}
           />
-        )}
+        ) : null}
 
         {view === "profile" ? <div className="settings-section theme-section">
           <span className="field-label">Тема</span>
@@ -2848,8 +2897,11 @@ function SettingsDialog({
             <div className="capability-copy">
               <strong>Уведомления</strong>
               <p>{pushCopy[pushState]}</p>
+              {pushState !== "denied" ? <button type="button" className="notification-help-link" onClick={() => setView("notifications")}>Как настроить</button> : null}
             </div>
-            {pushState === "enabled" ? (
+            {pushState === "denied" ? (
+              <button type="button" className="primary-button capability-button" onClick={() => setView("notifications")}>Как разрешить</button>
+            ) : pushState === "enabled" ? (
               <button type="button" className="secondary-button capability-button" disabled={pushBusy} onClick={() => { void onDisablePush(); }}>Отключить</button>
             ) : (
               <button type="button" className="primary-button capability-button" disabled={pushBusy || !["disabled", "error"].includes(pushState)} onClick={() => { void onEnablePush(); }}>Включить</button>
