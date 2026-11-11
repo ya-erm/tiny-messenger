@@ -11,12 +11,14 @@ type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: b
 
 export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string }, request: AttachmentRequest) {
   const [files, setFiles] = useState<DraftFile[]>([]);
+  const [selectionError, setSelectionError] = useState("");
   const jobs = useRef(new Map<string, Job>());
   const preparationQueue = useRef<Promise<void>>(Promise.resolve());
   const scope = `${chat.kind}:${chat.id}`;
   useEffect(() => {
     const current = jobs.current;
     setFiles([]);
+    setSelectionError("");
     return () => {
       for (const job of current.values()) {
         job.canceled = true; job.xhr?.abort();
@@ -90,12 +92,19 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
       void run(job);
     }
   }
+  function select(selected: File[], limits: AttachmentLimits, mode: AttachmentMode = "file") {
+    if (!limits.enabled || !selected.length) return;
+    if (selected.some((file) => file.size > limits.maxFileBytes)) { setSelectionError(`Файл превышает ${formatFileSize(limits.maxFileBytes)}`); return; }
+    if (selected.length + jobs.current.size > limits.maxFilesPerMessage) { setSelectionError(`Можно прикрепить до ${limits.maxFilesPerMessage} файлов`); return; }
+    setSelectionError(""); add(selected, limits.maxFilesPerMessage, mode);
+  }
   function remove(localId: string) {
     const job = jobs.current.get(localId);
     if (!job) return;
     job.canceled = true; job.xhr?.abort();
     if (job.item.id) void request(`/api/attachments/uploads/${job.item.id}`, { method: "DELETE" }).catch(() => {});
     jobs.current.delete(localId);
+    setSelectionError("");
     setFiles((old) => old.filter((item) => item.localId !== localId));
   }
   async function retry(localId: string) {
@@ -112,20 +121,17 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     if (job.canceled) return;
     void run(job);
   }
-  function clearSent() { jobs.current.clear(); setFiles([]); }
-  return { files, add, remove, retry, clearSent, ids: files.filter((item) => item.state === "ready" && item.id).map((item) => item.id!), blocked: files.some((item) => item.state !== "ready") };
+  function clearSent() { jobs.current.clear(); setFiles([]); setSelectionError(""); }
+  return { files, select, selectionError, remove, retry, clearSent, ids: files.filter((item) => item.state === "ready" && item.id).map((item) => item.id!), blocked: files.some((item) => item.state !== "ready") };
 }
 
 export function AttachmentPicker({ draft, limits, disabled }: { draft: ReturnType<typeof useAttachmentDraft>; limits: AttachmentLimits | null; disabled: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState("");
   if (!limits?.enabled) return null;
   function selected(files: File[], mode: AttachmentMode) {
     if (!limits) return;
-    if (files.some((file) => file.size > limits.maxFileBytes)) { setError(`Файл превышает ${formatFileSize(limits.maxFileBytes)}`); return; }
-    if (files.length + draft.files.length > limits.maxFilesPerMessage) { setError(`Можно прикрепить до ${limits.maxFilesPerMessage} файлов`); return; }
-    setError(""); draft.add(files, limits.maxFilesPerMessage, mode);
+    draft.select(files, limits, mode);
   }
   return <div className="attachment-picker">
     <div className="attachment-picker-heading"><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => mediaInput.current?.click()}>Фото или видео</button><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => input.current?.click()}>＋ Файл</button><small>До {formatFileSize(limits.maxFileBytes)} · {limits.maxFilesPerMessage} файла</small></div>
@@ -136,7 +142,7 @@ export function AttachmentPicker({ draft, limits, disabled }: { draft: ReturnTyp
       selected(files, "file");
     }} />
     <small className="attachment-mode-help">Фото сжимаются. Через «Файл» можно отправить оригинал.</small>
-    {error ? <p className="attachment-error" role="alert">{error}</p> : null}
+    {draft.selectionError ? <p className="attachment-error" role="alert">{draft.selectionError}</p> : null}
     {draft.files.map((item) => <div className="attachment-draft" key={item.localId}>
       <div className="attachment-copy"><strong title={item.file.name}>{item.file.name}</strong><small>{item.originalSize ? `${formatFileSize(item.originalSize)} → ` : ""}{formatFileSize(item.file.size)} · {item.state === "preparing" ? "Подготавливаем файл…" : item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.preparationNote ? <small>{item.preparationNote}</small> : null}{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
       {item.state === "error" ? <button type="button" disabled={disabled} onClick={() => void draft.retry(item.localId)}>Повторить</button> : null}

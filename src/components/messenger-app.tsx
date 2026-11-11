@@ -1,7 +1,7 @@
 "use client";
 
 import Image, { type StaticImageData } from "next/image";
-import { CSSProperties, FormEvent, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ClipboardEvent, CSSProperties, FormEvent, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import deleteDialogIllustration from "../../public/delete-dialog.png";
 import deleteHistoryIllustration from "../../public/delete-history.png";
 import deleteMessagesIllustration from "../../public/delete-messages.png";
@@ -13,6 +13,7 @@ import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
 import { AttachmentCard, AttachmentPicker, useAttachmentDraft, type AttachmentRequest } from "@/components/attachments";
 import type { AttachmentLimits } from "@/lib/attachment-types";
+import { clipboardFiles } from "@/lib/clipboard-files";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
@@ -2284,6 +2285,14 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
   const unchanged = Boolean(editing) && text.trim() === editing?.text;
   const cooling = !editing && sendCooldownSeconds > 0;
 
+  function pasteFiles(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (editing || busy || !limits?.enabled || !event.clipboardData) return;
+    const files = clipboardFiles(event.clipboardData);
+    if (!files.length) return;
+    event.preventDefault();
+    draft.select(files, limits, "media");
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || cooling || (editing ? !text.trim() : draft.blocked || (!text.trim() && !draft.ids.length))) return;
@@ -2311,7 +2320,7 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
     ) : (
       <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button>{allowChoice ? <button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button> : null}<span>{Array.from(text).length}/{LIMITS.message}</span></div>
     )}
-    <div className="composer-line"><textarea rows={1} required={Boolean(editing) || !draft.ids.length} value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
+    <div className="composer-line"><textarea rows={1} onPaste={pasteFiles} required={Boolean(editing) || !draft.ids.length} value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
     {!editing ? <AttachmentPicker draft={draft} limits={limits} disabled={busy} /> : null}
     {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;
