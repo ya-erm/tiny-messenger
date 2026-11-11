@@ -2,15 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatFileSize, type AttachmentInfo, type AttachmentLimits } from "@/lib/attachment-types";
+import { prepareAttachment, type AttachmentMode } from "@/lib/prepare-attachment";
 
 export type AttachmentRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 type Upload = { url: string; headers: Record<string, string>; expiresAt: string };
-type DraftFile = { localId: string; file: File; requestId: string; id?: string; uploaded?: boolean; progress: number; state: "uploading" | "ready" | "error"; error?: string };
-type Job = { item: DraftFile; canceled: boolean; xhr?: XMLHttpRequest };
+type DraftFile = { localId: string; file: File; requestId: string; id?: string; uploaded?: boolean; progress: number; state: "preparing" | "uploading" | "ready" | "error"; error?: string; preparationNote?: string; originalSize?: number };
+type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: boolean; canceled: boolean; xhr?: XMLHttpRequest };
 
 export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string }, request: AttachmentRequest) {
   const [files, setFiles] = useState<DraftFile[]>([]);
   const jobs = useRef(new Map<string, Job>());
+  const preparationQueue = useRef<Promise<void>>(Promise.resolve());
   const scope = `${chat.kind}:${chat.id}`;
   useEffect(() => {
     const current = jobs.current;
@@ -29,8 +31,22 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     if (!job.canceled) setFiles((old) => old.map((item) => item.localId === job.item.localId ? { ...job.item } : item));
   }
   async function run(job: Job) {
-    update(job, { state: "uploading", error: undefined });
+    update(job, { state: job.prepared ? "uploading" : "preparing", error: undefined });
     try {
+      if (!job.prepared) {
+        // One decoder/canvas at a time, even when several photos are selected.
+        const prepare = preparationQueue.current.then(async () => {
+          if (job.canceled) return;
+          const result = await prepareAttachment(job.original, job.mode);
+          if (job.canceled) return;
+          update(job, { file: result.file, preparationNote: result.note, originalSize: result.originalSize });
+          job.prepared = true;
+        });
+        preparationQueue.current = prepare.catch(() => {});
+        await prepare;
+      }
+      if (job.canceled) return;
+      update(job, { state: "uploading" });
       if (!job.item.uploaded) {
         const response = await request<{ attachment: AttachmentInfo; upload: Upload | null }>("/api/attachments/uploads", {
           method: "POST", body: JSON.stringify({ chatKind: chat.kind, chatId: chat.id, name: job.item.file.name, size: job.item.file.size, contentType: job.item.file.type, clientRequestId: job.item.requestId }),
@@ -64,11 +80,11 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     } catch (error) { update(job, { state: "error", error: (error as Error).message }); }
     finally { job.xhr = undefined; }
   }
-  function add(selected: File[], maximum: number) {
+  function add(selected: File[], maximum: number, mode: AttachmentMode = "file") {
     const free = Math.max(0, maximum - jobs.current.size);
     for (const file of selected.slice(0, free)) {
-      const item: DraftFile = { localId: crypto.randomUUID(), requestId: crypto.randomUUID(), file, progress: 0, state: "uploading" };
-      const job: Job = { item, canceled: false };
+      const item: DraftFile = { localId: crypto.randomUUID(), requestId: crypto.randomUUID(), file, progress: 0, state: "preparing" };
+      const job: Job = { item, original: file, mode, canceled: false };
       jobs.current.set(item.localId, job);
       setFiles((old) => [...old, item]);
       void run(job);
@@ -102,20 +118,27 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
 
 export function AttachmentPicker({ draft, limits, disabled }: { draft: ReturnType<typeof useAttachmentDraft>; limits: AttachmentLimits | null; disabled: boolean }) {
   const input = useRef<HTMLInputElement>(null);
+  const mediaInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   if (!limits?.enabled) return null;
+  function selected(files: File[], mode: AttachmentMode) {
+    if (!limits) return;
+    if (files.some((file) => file.size > limits.maxFileBytes)) { setError(`Файл превышает ${formatFileSize(limits.maxFileBytes)}`); return; }
+    if (files.length + draft.files.length > limits.maxFilesPerMessage) { setError(`Можно прикрепить до ${limits.maxFilesPerMessage} файлов`); return; }
+    setError(""); draft.add(files, limits.maxFilesPerMessage, mode);
+  }
   return <div className="attachment-picker">
-    <div className="attachment-picker-heading"><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => input.current?.click()}>＋ Файл</button><small>До {formatFileSize(limits.maxFileBytes)} · {limits.maxFilesPerMessage} файла</small></div>
+    <div className="attachment-picker-heading"><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => mediaInput.current?.click()}>Фото или видео</button><button type="button" className="attachment-add" disabled={disabled || draft.files.length >= limits.maxFilesPerMessage} onClick={() => input.current?.click()}>＋ Файл</button><small>До {formatFileSize(limits.maxFileBytes)} · {limits.maxFilesPerMessage} файла</small></div>
+    <input ref={mediaInput} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif,video/*" multiple hidden aria-label="Выбрать фото или видео" onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ""; selected(files, "media"); }} />
     <input ref={input} type="file" multiple hidden aria-label="Выбрать файлы" onChange={(event) => {
-      const selected = Array.from(event.target.files || []);
+      const files = Array.from(event.target.files || []);
       event.target.value = "";
-      if (selected.some((file) => file.size > limits.maxFileBytes)) { setError(`Файл превышает ${formatFileSize(limits.maxFileBytes)}`); return; }
-      if (selected.length + draft.files.length > limits.maxFilesPerMessage) { setError(`Можно прикрепить до ${limits.maxFilesPerMessage} файлов`); return; }
-      setError(""); draft.add(selected, limits.maxFilesPerMessage);
+      selected(files, "file");
     }} />
+    <small className="attachment-mode-help">Фото сжимаются. Через «Файл» можно отправить оригинал.</small>
     {error ? <p className="attachment-error" role="alert">{error}</p> : null}
     {draft.files.map((item) => <div className="attachment-draft" key={item.localId}>
-      <div className="attachment-copy"><strong title={item.file.name}>{item.file.name}</strong><small>{formatFileSize(item.file.size)} · {item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
+      <div className="attachment-copy"><strong title={item.file.name}>{item.file.name}</strong><small>{item.originalSize ? `${formatFileSize(item.originalSize)} → ` : ""}{formatFileSize(item.file.size)} · {item.state === "preparing" ? "Подготавливаем файл…" : item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.preparationNote ? <small>{item.preparationNote}</small> : null}{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
       {item.state === "error" ? <button type="button" disabled={disabled} onClick={() => void draft.retry(item.localId)}>Повторить</button> : null}
       <button type="button" disabled={disabled} onClick={() => draft.remove(item.localId)} aria-label={`Убрать ${item.file.name}`}>×</button>
     </div>)}
