@@ -38,6 +38,7 @@ model User {
   pushSubscriptions     PushSubscription[]
   messageReactions      MessageReaction[]
   groupMessageReactions GroupMessageReaction[]
+  attachments           Attachment[]
 }
 
 model Contact {
@@ -64,13 +65,17 @@ model Message {
   answerId    String?
   answerLabel String?
   answeredAt  String?
+  clientRequestId String?
+  requestHash     String?
 
   from      User              @relation("MessageSender", fields: [fromUserId], references: [id], onDelete: Cascade)
   to        User              @relation("MessageRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
   options   ChoiceOption[]
   deletions MessageDeletion[]
   reactions MessageReaction[]
+  attachments Attachment[]
 
+  @@unique([fromUserId, clientRequestId])
   @@index([toUserId, sentAt])
   @@index([fromUserId, sentAt])
 }
@@ -144,12 +149,16 @@ model GroupMessage {
   text       String
   sentAt     String
   editedAt   String?
+  clientRequestId String?
+  requestHash     String?
 
   group     Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   from      User                   @relation(fields: [fromUserId], references: [id], onDelete: Cascade)
   deletions GroupMessageDeletion[]
   reactions GroupMessageReaction[]
+  attachments Attachment[]
 
+  @@unique([fromUserId, clientRequestId])
   @@index([groupId, sentAt])
 }
 
@@ -223,4 +232,43 @@ model TasksAccountLink {
 model TasksConsumedProof {
   nonce String @id
   expiresAt Int
+}
+
+// Object bytes and signed URLs never live in SQLite. The staging URL can only
+// write stagingKey; finalKey is populated by a conditional server-side copy.
+model Attachment {
+  id              String @id
+  uploaderId      String
+  clientRequestId String
+  chatKind        String
+  chatId          String
+  stagingKey      String @unique
+  objectKey       String @unique
+  originalName    String
+  contentType     String
+  requestedSize   BigInt
+  confirmedSize   BigInt?
+  reservedBytes   BigInt
+  etag            String?
+  sourceEtag      String?
+  status          String
+  createdAt       String
+  expiresAt       String
+  abandonAt       String
+  leaseUntil      String?
+  leaseToken      String?
+  stagingDeletedAt String?
+  deleteAfter     String?
+  messageId       String?
+  groupMessageId  String?
+
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  groupMessage GroupMessage? @relation(fields: [groupMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([uploaderId, clientRequestId])
+  @@index([uploaderId, status])
+  @@index([status, expiresAt])
+  @@index([status, abandonAt])
+  @@index([deleteAfter])
 }

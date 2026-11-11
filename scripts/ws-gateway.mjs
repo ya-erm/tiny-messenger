@@ -258,7 +258,8 @@ async function handleDeviceConnection(socket, request, { rest }) {
       id: message.id,
       fromUserId: message.fromUserId,
       senderName: message.senderName,
-      text: message.text,
+      text: message.text || (message.attachments?.length ? `📎 ${message.attachments[0].originalName}` : ""),
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       kind: message.kind,
       ...(Array.isArray(message.options) ? { options: message.options } : {}),
       status: message.status,
@@ -388,10 +389,10 @@ async function handleDeviceConnection(socket, request, { rest }) {
       } else if (frame.type === "send") {
         const toUserId = safeString(frame.toUserId, 128);
         const text = safeString(frame.text, 4096);
-        if (!toUserId || !text) throw Object.assign(new Error("Некорректное сообщение"), { code: "invalid_message" });
+        if (!toUserId || (!text && !frame.attachmentIds?.length)) throw Object.assign(new Error("Некорректное сообщение"), { code: "invalid_message" });
         await rest(token, "/api/messages", {
           method: "POST",
-          body: JSON.stringify({ toUserId, kind: "text", text }),
+          body: JSON.stringify({ toUserId, kind: "text", text, attachmentIds: frame.attachmentIds, clientRequestId: frame.clientRequestId }),
         });
         const readMessageId = safeString(frame.readMessageId, 128);
         if (readMessageId) {

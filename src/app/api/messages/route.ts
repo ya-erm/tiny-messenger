@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
+import { attachFiles, attachmentIds, messageRequestId, messageRequestHash } from "@/lib/attachments";
 import { LIMITS } from "@/lib/constants";
 import { read, write } from "@/lib/db";
 import { publicMessage } from "@/lib/domain";
@@ -67,10 +68,12 @@ export const POST = route(async (request) => {
   const toUserId = cleanString(body.toUserId);
   const text = cleanString(body.text);
   const kind = body.kind ?? "text";
+  const files = attachmentIds(body.attachmentIds);
+  const clientRequestId = messageRequestId(body.clientRequestId);
 
   if (!isUuid(toUserId)) throw new ApiError(422, "invalid_recipient", "Укажите UUID получателя");
   if (toUserId === authenticated.id) throw new ApiError(422, "self_message", "Отправка самому себе отключена");
-  if (!validLength(text, 1, LIMITS.message)) {
+  if (!validLength(text, files.length && kind === "text" ? 0 : 1, LIMITS.message)) {
     throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
   }
   if (!isMessageKind(kind)) throw new ApiError(422, "invalid_kind", "kind должен быть text или choice");
@@ -114,7 +117,15 @@ export const POST = route(async (request) => {
     }
   }
 
-  const message = await write(async (tx) => {
+  const requestHash = messageRequestHash({ toUserId, text, kind, options, files: [...files].sort() });
+  const { message, replayed } = await write(async (tx) => {
+    if (clientRequestId) {
+      const existing = await tx.message.findUnique({ where: { fromUserId_clientRequestId: { fromUserId: authenticated.id, clientRequestId } }, include: messageInclude });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new ApiError(409, "message_request_conflict", "Идентификатор отправки уже использован для другого сообщения");
+        return { message: publicMessage(toMessageRecord(existing), await readStatesForChat(tx, authenticated.id)), replayed: true };
+      }
+    }
     const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true } });
     if (!recipient) throw new ApiError(404, "recipient_not_found", "Получатель не найден");
     const row = await tx.message.create({
@@ -126,21 +137,24 @@ export const POST = route(async (request) => {
         text,
         kind,
         sentAt: new Date().toISOString(),
+        clientRequestId, requestHash,
         ...(options
           ? { options: { create: options.map((option, position) => ({ optionId: option.id, label: option.label, position })) } }
           : {}),
       },
       include: messageInclude,
     });
+    await attachFiles(tx, authenticated.id, { kind: "peer", id: toUserId }, files, row.id);
     await showConversation(tx, authenticated.id, toUserId);
     const readStates = await readStatesForChat(tx, authenticated.id);
-    return publicMessage(toMessageRecord(row), readStates);
+    const saved = files.length ? (await tx.message.findUnique({ where: { id: row.id }, include: messageInclude }))! : row;
+    return { message: publicMessage(toMessageRecord(saved), readStates), replayed: false };
   });
-  await sendPushToUser(message.toUserId, {
+  if (!replayed) await sendPushToUser(message.toUserId, {
     title: message.senderName,
     body: message.kind === "choice" && message.options
       ? `${message.text} · ${message.options.map((option) => option.label).join(" / ")}`
-      : message.text,
+      : message.text || `📎 ${message.attachments?.[0]?.originalName || "Файл"}`,
     tag: `message-${message.id}`,
     url: `/id/${message.fromUserId}`,
   }).catch((error) => console.error("Failed to notify message recipient", error));

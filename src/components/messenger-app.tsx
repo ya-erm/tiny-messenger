@@ -10,6 +10,8 @@ import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/compone
 import { ReactionPicker } from "@/components/reaction-picker";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
+import { AttachmentCard, AttachmentPicker, useAttachmentDraft, type AttachmentRequest } from "@/components/attachments";
+import type { AttachmentLimits } from "@/lib/attachment-types";
 import { LIMITS } from "@/lib/constants";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
@@ -155,6 +157,7 @@ type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; a
 type ChatRef = { kind: "peer" | "group"; id: string };
 type ChatEntry = { ref: ChatRef; name: string; avatarUrl?: string; avatarBackground?: string; peer?: Peer; group?: PublicGroup };
 type ChatMessage = PublicMessage | PublicGroupMessage;
+type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string };
 type ReadState = { chatId: string; lastDeliveredAt?: string; lastReadAt?: string };
 
 function isDirectMessage(message: ChatMessage): message is PublicMessage {
@@ -1266,7 +1269,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     }
   }
 
-  async function sendMessage(input: { text: string; kind: "text" | "choice"; left: string; right: string }) {
+  async function sendMessage(input: SendInput) {
     if (!selectedChat) return;
     setBusy(true);
     try {
@@ -1274,7 +1277,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       if (selectedChat.kind === "group") {
         sent = await request<{ message: { id: string } }>("/api/group-messages", {
           method: "POST",
-          body: JSON.stringify({ groupId: selectedChat.id, text: input.text }),
+          body: JSON.stringify({ groupId: selectedChat.id, text: input.text, attachmentIds: input.attachmentIds, clientRequestId: input.clientRequestId }),
         });
       } else {
         sent = await request<{ message: { id: string } }>("/api/messages", {
@@ -1283,6 +1286,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             toUserId: selectedChat.id,
             text: input.text,
             kind: input.kind,
+            attachmentIds: input.attachmentIds,
+            clientRequestId: input.clientRequestId,
             ...(input.kind === "choice" ? { options: [
               { id: "1", label: input.left },
               { id: "2", label: input.right },
@@ -1573,7 +1578,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               const { last, unread } = chatSummaries.get(chatKey(ref)) ?? { last: undefined, unread: 0 };
               const sidebarMenuOpen = sameChat(sidebarActionsChat, ref);
               const preview = last
-                ? group ? `${last.fromUserId === user.id ? "Вы" : last.senderName}: ${last.text}` : last.text
+                ? group ? `${last.fromUserId === user.id ? "Вы" : last.senderName}: ${last.text || (last.attachments?.length ? "📎 " + last.attachments[0].originalName : "")}` : last.text || (last.attachments?.length ? "📎 " + last.attachments[0].originalName : "")
                 : group ? pluralize(group.members.length, ["участник", "участника", "участников"]) : peer && !peer.saved ? "Не сохранён" : null;
               const openActions = () => {
                 setSelectedMessageIds(null);
@@ -1844,6 +1849,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                       ><Glyph name="smile" /></button> : null}
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {!outgoing && <span className="message-sender">{message.senderName}</span>}
+                      {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
                       <p>{message.text}{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
                       {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</footer> : null}
@@ -1924,6 +1930,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               </div>;
             })() : null}
             <Composer
+              chat={selectedEntry.ref}
+              request={request}
               busy={busy}
               sendCooldownSeconds={sendCooldownSeconds}
               allowChoice={Boolean(selectedPeer)}
@@ -2235,7 +2243,18 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
   </main>;
 }
 
-function Composer({ busy, sendCooldownSeconds, allowChoice, onSend, editing, onEdit, onCancelEdit }: { busy: boolean; sendCooldownSeconds: number; allowChoice: boolean; onSend: (input: { text: string; kind: "text" | "choice"; left: string; right: string }) => Promise<void>; editing: { text: string } | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
+function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSend, editing, onEdit, onCancelEdit }: { chat: ChatRef; request: AttachmentRequest; busy: boolean; sendCooldownSeconds: number; allowChoice: boolean; onSend: (input: SendInput) => Promise<void>; editing: { text: string } | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
+  const draft = useAttachmentDraft(chat, request);
+  const [limits, setLimits] = useState<AttachmentLimits | null>(null);
+  const sendAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
+  const currentChat = useRef(chatKey(chat));
+  currentChat.current = chatKey(chat);
+  useEffect(() => {
+    const controller = new AbortController();
+    void request<{ limits: AttachmentLimits }>("/api/attachments/config", { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setLimits(data.limits); }).catch(() => {});
+    return () => controller.abort();
+  }, [request]);
   const [text, setText] = useState("");
   const [kind, setKind] = useState<"text" | "choice">("text");
   const [left, setLeft] = useState("Да");
@@ -2266,15 +2285,18 @@ function Composer({ busy, sendCooldownSeconds, allowChoice, onSend, editing, onE
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || cooling || !text.trim()) return;
+    if (busy || cooling || (editing ? !text.trim() : draft.blocked || (!text.trim() && !draft.ids.length))) return;
     if (editing) {
       if (unchanged) { onCancelEdit(); return; }
       try { await onEdit(text); } catch { /* The parent displays the API error. */ }
       return;
     }
     try {
-      await onSend({ text, kind, left, right });
-      setText("");
+      const fingerprint = JSON.stringify({ chat, text, kind, left, right, files: draft.ids });
+      if (sendAttempt.current?.fingerprint !== fingerprint) sendAttempt.current = { fingerprint, id: crypto.randomUUID() };
+      const scope = chatKey(chat);
+      await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id });
+      if (currentChat.current === scope) { setText(""); draft.clearSent(); sendAttempt.current = null; }
     } catch { /* The parent displays the API error. */ }
   }
   return <form className="composer" onSubmit={submit}>
@@ -2288,7 +2310,8 @@ function Composer({ busy, sendCooldownSeconds, allowChoice, onSend, editing, onE
     ) : (
       <div className="template-switch"><button type="button" className={kind === "text" ? "active" : ""} onClick={() => setKind("text")}>Текст</button>{allowChoice ? <button type="button" className={kind === "choice" ? "active" : ""} onClick={() => setKind("choice")}>Вопрос</button> : null}<span>{Array.from(text).length}/{LIMITS.message}</span></div>
     )}
-    <div className="composer-line"><textarea rows={1} required value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || !text.trim()} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
+    <div className="composer-line"><textarea rows={1} required={Boolean(editing) || !draft.ids.length} value={text} maxLength={LIMITS.message} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
+    {!editing ? <AttachmentPicker draft={draft} limits={limits} disabled={busy} /> : null}
     {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;
 }

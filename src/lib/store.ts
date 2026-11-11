@@ -7,6 +7,7 @@ import type {
   User,
 } from "@/generated/prisma/client";
 import type { Db } from "@/lib/db";
+import { attachmentInfo } from "@/lib/attachments";
 import { nextReadState, type ReadMarks } from "@/lib/domain";
 import type {
   GroupMessageRecord,
@@ -35,6 +36,7 @@ export function toUserRecord(row: User): UserRecord {
 }
 
 export const messageInclude = {
+  attachments: { orderBy: { createdAt: "asc" } },
   options: { orderBy: { position: "asc" } },
   reactions: { select: { userId: true, emoji: true }, orderBy: { userId: "asc" } },
 } satisfies Prisma.MessageInclude;
@@ -43,6 +45,7 @@ export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclu
 
 export function toMessageRecord(row: MessageRow): MessageRecord {
   return {
+    ...(row.attachments?.length ? { attachments: row.attachments.map(attachmentInfo) } : {}),
     id: row.id,
     fromUserId: row.fromUserId,
     toUserId: row.toUserId,
@@ -83,6 +86,7 @@ export function toGroupRecord(row: GroupRow): GroupRecord {
 }
 
 export const groupMessageInclude = {
+  attachments: { orderBy: { createdAt: "asc" } },
   reactions: { select: { userId: true, emoji: true }, orderBy: { userId: "asc" } },
 } satisfies Prisma.GroupMessageInclude;
 
@@ -90,6 +94,7 @@ type GroupMessageRow = Prisma.GroupMessageGetPayload<{ include: typeof groupMess
 
 export function toGroupMessageRecord(row: GroupMessageRow): GroupMessageRecord {
   return {
+    ...(row.attachments?.length ? { attachments: row.attachments.map(attachmentInfo) } : {}),
     id: row.id,
     groupId: row.groupId,
     fromUserId: row.fromUserId,

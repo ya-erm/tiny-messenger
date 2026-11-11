@@ -1,3 +1,5 @@
+import type { AttachmentInfo } from "@/lib/attachment-types";
+
 export type MessageKind = "text" | "choice";
 export type MessageStatus = "sent" | "delivered" | "read" | "answered";
 
@@ -32,6 +34,7 @@ export interface MessageReaction {
 // "Deleted for me" marks live in their own table and are applied as a query
 // filter, so a record the caller can see never carries them.
 export interface MessageRecord {
+  attachments?: AttachmentInfo[];
   id: string;
   fromUserId: string;
   toUserId: string;
@@ -63,6 +66,7 @@ export interface GroupRecord {
 }
 
 export interface GroupMessageRecord {
+  attachments?: AttachmentInfo[];
   id: string;
   groupId: string;
   fromUserId: string;

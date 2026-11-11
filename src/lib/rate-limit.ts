@@ -107,3 +107,7 @@ export function assertMessageRateLimit(request: Request, userId: string) {
     windowMs: WINDOW_MS,
   });
 }
+
+export function assertAttachmentUploadRateLimit(request: Request, userId: string) {
+  consumeRateLimit({ request, identity: userId, scope: "attachment-upload", limit: positiveInteger(process.env.ATTACHMENTS_UPLOADS_PER_MINUTE, 10), windowMs: WINDOW_MS, code: "attachment_rate_limited", message: "Слишком много загрузок файлов. Повторите через минуту." });
+}

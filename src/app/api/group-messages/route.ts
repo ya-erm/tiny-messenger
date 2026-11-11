@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
+import { attachFiles, attachmentIds, messageRequestId, messageRequestHash } from "@/lib/attachments";
 import { LIMITS } from "@/lib/constants";
 import { read, write } from "@/lib/db";
 import { publicGroupMessage } from "@/lib/domain";
@@ -50,15 +51,25 @@ export const POST = route(async (request) => {
   const body = await readJson(request);
   const groupId = cleanString(body.groupId);
   const text = cleanString(body.text);
+  const files = attachmentIds(body.attachmentIds);
+  const clientRequestId = messageRequestId(body.clientRequestId);
 
   if (!isUuid(groupId)) throw new ApiError(422, "invalid_group_id", "Укажите UUID группы");
-  if (!validLength(text, 1, LIMITS.message)) {
+  if (!validLength(text, files.length ? 0 : 1, LIMITS.message)) {
     throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
   }
 
-  const { message, group } = await write(async (tx) => {
+  const requestHash = messageRequestHash({ groupId, text, files: [...files].sort() });
+  const { message, group, replayed } = await write(async (tx) => {
     const found = await findGroupForMember(tx, groupId, authenticated.id);
     if (!found) throw new ApiError(404, "group_not_found", "Группа не найдена");
+    if (clientRequestId) {
+      const existing = await tx.groupMessage.findUnique({ where: { fromUserId_clientRequestId: { fromUserId: authenticated.id, clientRequestId } }, include: groupMessageInclude });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new ApiError(409, "message_request_conflict", "Идентификатор отправки уже использован для другого сообщения");
+        return { message: publicGroupMessage(toGroupMessageRecord(existing), found, await readStatesForChat(tx, groupId)), group: found, replayed: true };
+      }
+    }
     const row = await tx.groupMessage.create({
       include: groupMessageInclude,
       data: {
@@ -68,16 +79,19 @@ export const POST = route(async (request) => {
         senderName: authenticated.name,
         text,
         sentAt: new Date().toISOString(),
+        clientRequestId, requestHash,
       },
     });
+    await attachFiles(tx, authenticated.id, { kind: "group", id: groupId }, files, row.id);
     const readStates = await readStatesForChat(tx, groupId);
-    return { message: publicGroupMessage(toGroupMessageRecord(row), found, readStates), group: found };
+    const saved = files.length ? (await tx.groupMessage.findUnique({ where: { id: row.id }, include: groupMessageInclude }))! : row;
+    return { message: publicGroupMessage(toGroupMessageRecord(saved), found, readStates), group: found, replayed: false };
   });
 
   const recipients = group.memberIds.filter((id) => id !== authenticated.id);
-  await Promise.allSettled(recipients.map((userId) => sendPushToUser(userId, {
+  if (!replayed) await Promise.allSettled(recipients.map((userId) => sendPushToUser(userId, {
     title: group.name,
-    body: `${message.senderName}: ${message.text}`,
+    body: `${message.senderName}: ${message.text || `📎 ${message.attachments?.[0]?.originalName || "Файл"}`}`,
     tag: `group-message-${message.id}`,
     url: "/",
   }).catch((error) => console.error("Failed to notify group member", error))));
