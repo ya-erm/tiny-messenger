@@ -9,7 +9,11 @@ export interface PushPayload {
   body: string;
   tag: string;
   url: string;
-  kind?: "message" | "voice_invite";
+  kind?: "message" | "voice_invite" | "message_summary";
+  userId?: string;
+  revision?: number;
+  unreadCount?: number;
+  silent?: boolean;
   sessionId?: string;
   fromUserId?: string;
 }
@@ -44,12 +48,14 @@ function configureWebPush() {
   return true;
 }
 
-export async function sendPushToUser(userId: string, payload: PushPayload) {
-  if (!configureWebPush()) return;
+export async function sendPushToUser(userId: string, payload: PushPayload, options: { topic?: string } = {}) {
+  if (!configureWebPush()) return { sent: 0, failed: 0 };
 
   const rows = await read((db) => db.pushSubscription.findMany({ where: { userId } }));
   const subscriptions = rows.map(toPushSubscriptionRecord);
-  if (!subscriptions.length) return;
+  if (!subscriptions.length) return { sent: 0, failed: 0 };
+  let sent = 0;
+  let failed = 0;
 
   const expiredEndpoints: string[] = [];
   await Promise.allSettled(subscriptions.map(async (subscription) => {
@@ -61,8 +67,9 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
           keys: subscription.keys,
         },
         JSON.stringify(payload),
-        { TTL: 60 * 60, urgency: "high", timeout: 5000 },
+        { TTL: 60 * 60, urgency: payload.silent ? "normal" : "high", timeout: 5000, ...(options.topic ? { topic: options.topic } : {}) },
       );
+      sent++;
     } catch (error) {
       const statusCode = typeof error === "object" && error && "statusCode" in error
         ? Number(error.statusCode)
@@ -71,11 +78,13 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
         expiredEndpoints.push(subscription.endpoint);
         return;
       }
-      console.error("Failed to send web push notification", error);
+      failed++;
+      console.error(JSON.stringify({ event: "web-push", status: statusCode || "unavailable" }));
     }
   }));
 
   if (expiredEndpoints.length) {
-    await write((tx) => tx.pushSubscription.deleteMany({ where: { endpoint: { in: expiredEndpoints } } }));
+    await write((tx) => tx.pushSubscription.deleteMany({ where: { userId, endpoint: { in: expiredEndpoints } } }));
   }
+  return { sent, failed };
 }

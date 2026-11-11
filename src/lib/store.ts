@@ -1,4 +1,5 @@
 import "server-only";
+import { queueMessagePush } from "@/lib/push-queue";
 
 import type {
   Prisma,
@@ -203,6 +204,7 @@ export async function advanceReadState(
     create: { userId, chatId, lastDeliveredAt: next.lastDeliveredAt, lastReadAt: next.lastReadAt },
     update: { lastDeliveredAt: next.lastDeliveredAt, lastReadAt: next.lastReadAt },
   });
+  if (row.lastReadAt && row.lastReadAt !== current?.lastReadAt) await queueMessagePush(tx, userId);
   return toReadStateRecord(row);
 }
 
@@ -219,6 +221,7 @@ export async function hideConversation(
     create: { ownerId, peerId, hiddenAt },
     update: { hiddenAt },
   });
+  await queueMessagePush(tx, ownerId);
 }
 
 export async function showConversationForUser(tx: Prisma.TransactionClient, ownerId: string, peerId: string) {

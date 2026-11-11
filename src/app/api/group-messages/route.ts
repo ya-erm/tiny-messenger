@@ -5,7 +5,7 @@ import { attachFiles, attachmentIds, messageRequestId, messageRequestHash } from
 import { LIMITS } from "@/lib/constants";
 import { read, write } from "@/lib/db";
 import { publicGroupMessage } from "@/lib/domain";
-import { sendPushToUser } from "@/lib/push";
+import { queueMessagePush } from "@/lib/push-queue";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import {
   deleteGroupMessagesForUser,
@@ -60,7 +60,7 @@ export const POST = route(async (request) => {
   }
 
   const requestHash = messageRequestHash({ groupId, text, files: [...files].sort() });
-  const { message, group, replayed } = await write(async (tx) => {
+  const { message } = await write(async (tx) => {
     const found = await findGroupForMember(tx, groupId, authenticated.id);
     if (!found) throw new ApiError(404, "group_not_found", "Группа не найдена");
     if (clientRequestId) {
@@ -85,16 +85,9 @@ export const POST = route(async (request) => {
     await attachFiles(tx, authenticated.id, { kind: "group", id: groupId }, files, row.id);
     const readStates = await readStatesForChat(tx, groupId);
     const saved = files.length ? (await tx.groupMessage.findUnique({ where: { id: row.id }, include: groupMessageInclude }))! : row;
+    for (const userId of found.memberIds) if (userId !== authenticated.id) await queueMessagePush(tx, userId, row.sentAt);
     return { message: publicGroupMessage(toGroupMessageRecord(saved), found, readStates), group: found, replayed: false };
   });
-
-  const recipients = group.memberIds.filter((id) => id !== authenticated.id);
-  if (!replayed) await Promise.allSettled(recipients.map((userId) => sendPushToUser(userId, {
-    title: group.name,
-    body: `${message.senderName}: ${message.text || `📎 ${message.attachments?.[0]?.originalName || "Файл"}`}`,
-    tag: `group-message-${message.id}`,
-    url: "/",
-  }).catch((error) => console.error("Failed to notify group member", error))));
 
   return ok({ message }, { status: 201 });
 });

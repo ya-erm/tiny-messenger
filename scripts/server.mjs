@@ -4,6 +4,7 @@ import next from "next";
 
 import { RealtimeService } from "./realtime-service.mjs";
 import { attachWebSocketTransport } from "./ws-gateway.mjs";
+import { startMessagePushDispatch } from "./message-push-dispatch.mjs";
 import { startAttachmentCleanup } from "./attachment-cleanup.mjs";
 
 function positivePort(value) {
@@ -72,6 +73,7 @@ if (listenError) {
 
 console.log(`Tiny Messenger listening on http://${hostname}:${port} (WebSocket: /ws)`);
 const stopAttachmentCleanup = startAttachmentCleanup(upstream);
+const stopMessagePushDispatch = startMessagePushDispatch(upstream);
 
 let stopping = false;
 
@@ -79,6 +81,7 @@ async function shutdown(signal) {
   if (stopping) return;
   stopping = true;
   stopAttachmentCleanup();
+  stopMessagePushDispatch();
   console.log(`Received ${signal}, shutting down`);
 
   const forceExitTimer = setTimeout(() => {

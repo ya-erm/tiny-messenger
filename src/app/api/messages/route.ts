@@ -5,7 +5,7 @@ import { attachFiles, attachmentIds, messageRequestId, messageRequestHash } from
 import { LIMITS } from "@/lib/constants";
 import { read, write } from "@/lib/db";
 import { publicMessage } from "@/lib/domain";
-import { sendPushToUser } from "@/lib/push";
+import { queueMessagePush } from "@/lib/push-queue";
 import { assertMessageRateLimit, assertRateLimit } from "@/lib/rate-limit";
 import {
   deleteMessagesForUser,
@@ -118,7 +118,7 @@ export const POST = route(async (request) => {
   }
 
   const requestHash = messageRequestHash({ toUserId, text, kind, options, files: [...files].sort() });
-  const { message, replayed } = await write(async (tx) => {
+  const { message } = await write(async (tx) => {
     if (clientRequestId) {
       const existing = await tx.message.findUnique({ where: { fromUserId_clientRequestId: { fromUserId: authenticated.id, clientRequestId } }, include: messageInclude });
       if (existing) {
@@ -148,16 +148,9 @@ export const POST = route(async (request) => {
     await showConversation(tx, authenticated.id, toUserId);
     const readStates = await readStatesForChat(tx, authenticated.id);
     const saved = files.length ? (await tx.message.findUnique({ where: { id: row.id }, include: messageInclude }))! : row;
+    await queueMessagePush(tx, toUserId, row.sentAt);
     return { message: publicMessage(toMessageRecord(saved), readStates), replayed: false };
   });
-  if (!replayed) await sendPushToUser(message.toUserId, {
-    title: message.senderName,
-    body: message.kind === "choice" && message.options
-      ? `${message.text} · ${message.options.map((option) => option.label).join(" / ")}`
-      : message.text || `📎 ${message.attachments?.[0]?.originalName || "Файл"}`,
-    tag: `message-${message.id}`,
-    url: `/id/${message.fromUserId}`,
-  }).catch((error) => console.error("Failed to notify message recipient", error));
   return ok({ message }, { status: 201 });
 });
 

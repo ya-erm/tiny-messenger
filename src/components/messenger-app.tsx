@@ -8,6 +8,7 @@ import deleteMessagesIllustration from "../../public/delete-messages.png";
 import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { ReactionPicker } from "@/components/reaction-picker";
+import { usePushActivity, usePushNotificationSync } from "@/components/use-push-coordination";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
@@ -705,7 +706,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!("serviceWorker" in navigator)) return;
 
     if (process.env.NODE_ENV === "production") {
-      void navigator.serviceWorker.register("/sw.js").catch((error) => {
+      void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((error) => {
         console.error("Failed to register service worker", error);
       });
     } else {
@@ -893,6 +894,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     }
     void addContact(sharedIdentifier);
   }, [phase, user, sharedIdentifier, sharedContactHandled]);
+
+  usePushActivity(phase === "ready" ? user?.id : undefined, viewVisible && documentVisible, request);
+  const notificationCursor = readStates.map((state) => `${state.chatId}:${state.lastReadAt ?? ""}`).sort().join("|")
+    + `:${messages.at(-1)?.id ?? ""}:${groupMessages.at(-1)?.id ?? ""}`;
+  usePushNotificationSync(phase === "ready" ? user?.id : undefined, notificationCursor, request);
 
   const readCursors = useMemo(
     () => new Map(readStates.map((state) => [state.chatId, state.lastReadAt ?? ""])),
@@ -1190,6 +1196,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }
 
   async function logout() {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration();
+      registration?.active?.postMessage({ type: "notification_logout", userId: user?.id });
+    }
     await disablePushNotifications(true);
     initialPeerSelectionHandledRef.current = false;
     window.localStorage.removeItem(TOKEN_KEY);

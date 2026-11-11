@@ -35,6 +35,7 @@ model User {
   readStates            ReadState[]
   hiddenConversations   HiddenConversation[]   @relation("HiddenOwner")
   hiddenBy              HiddenConversation[]   @relation("HiddenPeer")
+  pushNotificationState PushNotificationState?
   pushSubscriptions     PushSubscription[]
   messageReactions      MessageReaction[]
   groupMessageReactions GroupMessageReaction[]
@@ -271,4 +272,18 @@ model Attachment {
   @@index([status, expiresAt])
   @@index([status, abandonAt])
   @@index([deleteAfter])
+}
+
+// Durable, coalesced delivery cursor. Activity leases deliberately live in RAM.
+model PushNotificationState {
+  userId          String @id
+  revision        Int @default(0)
+  dueAt           String?
+  firstPendingAt  String?
+  alertAfter      String?
+  hasNotification Boolean @default(false)
+  leaseUntil      String?
+  attempts        Int @default(0)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([dueAt])
 }

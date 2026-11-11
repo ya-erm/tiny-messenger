@@ -1,4 +1,5 @@
-const CACHE_NAME = "tiny-messenger-shell-v3";
+importScripts("/notification-state.js");
+const CACHE_NAME = "tiny-messenger-shell-v4";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -21,8 +22,10 @@ self.addEventListener("activate", (event) => {
 // worker keeps serving cached assets, so its version is the first thing worth
 // checking when the app looks out of date.
 self.addEventListener("message", (event) => {
-  if (event.data?.type !== "version") return;
-  event.ports[0]?.postMessage({ version: CACHE_NAME });
+  if (event.data?.type === "version") { event.ports[0]?.postMessage({ version: CACHE_NAME }); return; }
+  if (!event.source?.url || new URL(event.source.url).origin !== self.location.origin) return;
+  if (event.data?.type === "notification_state") event.waitUntil(self.TMNotificationState.sync(event.data.state));
+  if (event.data?.type === "notification_logout") event.waitUntil(self.TMNotificationState.logout(event.data.userId));
 });
 
 self.addEventListener("fetch", (event) => {
@@ -71,6 +74,11 @@ self.addEventListener("push", (event) => {
     payload = { body: event.data?.text() };
   }
 
+  if (payload.kind === "message_summary") {
+    event.waitUntil(self.TMNotificationState.push(payload).then((shown) => shown || self.registration.showNotification("Tiny Messenger", { body: "Состояние уведомлений обновлено", tag: "tm-account-state", silent: true, renotify: false })));
+    return;
+  }
+
   event.waitUntil(self.registration.showNotification(payload.title || "Tiny Messenger", {
     body: payload.body || "У вас новое сообщение",
     icon: "/icon-192.png",
@@ -88,7 +96,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  const requested = new URL(event.notification.data?.url || "/", self.location.origin);
+  const targetUrl = requested.origin === self.location.origin ? requested.href : self.location.origin + "/";
 
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
     for (const client of clients) {
