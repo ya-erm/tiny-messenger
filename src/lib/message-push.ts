@@ -48,7 +48,7 @@ export async function messagePushState(userId: string) {
       id: row.id,
       title: shortText(row.groupName ? `${row.name} · ${row.groupName}` : row.name, 96),
       body: shortText(row.text || "Вложение", 240),
-      url: row.kind === "peer" ? `/id/${row.chat}` : "/",
+      url: `/?chat=${row.kind}:${row.chat}`,
       alert: Boolean(state?.alertAfter && row.sentAt >= state.alertAfter),
     })).reverse();
     const latest = messages.at(-1);

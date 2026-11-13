@@ -20,6 +20,7 @@ import type { AttachmentLimits } from "@/lib/attachment-types";
 import { ComposerTools } from "@/components/composer-tools";
 import { clipboardFiles } from "@/lib/clipboard-files";
 import { LIMITS } from "@/lib/constants";
+import { isUuid } from "@/lib/validation";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
 import type { MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
@@ -166,6 +167,19 @@ type ChatEntry = { ref: ChatRef; name: string; avatarUrl?: string; avatarBackgro
 type ChatMessage = PublicMessage | PublicGroupMessage;
 type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string };
 type ReadState = { chatId: string; lastDeliveredAt?: string; lastReadAt?: string };
+type NotificationOpen = { messageId: string; accountId?: string; chat?: ChatRef; nonce: number };
+
+function notificationTarget(url: URL, data?: { messageId?: unknown; userId?: unknown }): Omit<NotificationOpen, "nonce"> | null {
+  const messageId = data?.messageId ?? url.searchParams.get("message");
+  if (!isUuid(messageId)) return null;
+  const accountId = data?.userId ?? url.searchParams.get("account");
+  const [kind, id] = (url.searchParams.get("chat") ?? "").split(":");
+  const legacyPeer = /^\/id\/([a-f0-9-]{36})\/?$/i.exec(url.pathname)?.[1];
+  const chat: ChatRef | undefined = (kind === "peer" || kind === "group") && isUuid(id)
+    ? { kind, id } : isUuid(legacyPeer) ? { kind: "peer", id: legacyPeer } : undefined;
+  return { messageId, ...(isUuid(accountId) ? { accountId } : {}), ...(chat ? { chat } : {}) };
+}
+
 
 function isDirectMessage(message: ChatMessage): message is PublicMessage {
   return "toUserId" in message;
@@ -632,6 +646,16 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [readStates, setReadStates] = useState<ReadState[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatRef | null>(null);
   const messageStreamRef = useRef<HTMLDivElement>(null);
+  const [pendingNotification, setPendingNotification] = useState<NotificationOpen | null>(null);
+  const [focusedNotification, setFocusedNotification] = useState<{ chat: string; id: string; nonce: number } | null>(null);
+  const notificationFocusRef = useRef<NotificationOpen | null>(null);
+  const notificationNonce = useRef(0);
+  const syncSequence = useRef(0);
+  const activeTokenRef = useRef(token);
+  activeTokenRef.current = token;
+  const notificationOpeningRef = useRef(false);
+  notificationOpeningRef.current = Boolean(pendingNotification);
+
   const [pendingSentMessage, setPendingSentMessage] = useState<{ chat: string; id: string } | null>(null);
   const [documentVisible, setDocumentVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -786,6 +810,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
 
   const refreshState = useCallback(async () => {
     if (!token) return;
+    const sequence = ++syncSequence.current;
+    const notification = notificationFocusRef.current;
     const data = await request<{
       contacts: PublicContact[];
       messages: PublicMessage[];
@@ -798,6 +824,26 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       method: "POST",
       body: JSON.stringify({ limit: 100 }),
     });
+    if (notification && !data.messages.some((m) => m.id === notification.messageId) && !data.groupMessages.some((m) => m.id === notification.messageId)) {
+      const resources = notification.chat ? [notification.chat.kind === "group" ? "group-messages" : "messages"] : ["messages", "group-messages"];
+      for (const resource of resources) {
+        try {
+          const exact = await request<{ message: ChatMessage; group?: PublicGroup }>(`/api/${resource}/${notification.messageId}`);
+          if (isDirectMessage(exact.message)) {
+            data.messages.push(exact.message);
+            data.messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id));
+          } else {
+            data.groupMessages.push(exact.message);
+            data.groupMessages.sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id));
+            if (exact.group && !data.groups.some((g) => g.id === exact.group!.id)) data.groups.push(exact.group);
+          }
+          break;
+        } catch { /* Try the legacy other message kind, then leave an unavailable target absent. */ }
+      }
+    }
+    // A slow older poll must not overwrite the fresh notification-open snapshot
+    // or data belonging to a different login session.
+    if (sequence !== syncSequence.current || activeTokenRef.current !== token) return data;
     setContacts(data.contacts);
     setMessages(data.messages);
     setHiddenPeerIds(data.hiddenPeerIds);
@@ -805,7 +851,71 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     setGroupMessages(data.groupMessages);
     setReadStates(data.readStates);
     observeMessageSound(data.messages, data.groupMessages, data.syncedAt);
+    return data;
   }, [observeMessageSound, request, token]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const enqueue = (target: Omit<NotificationOpen, "nonce">) => setPendingNotification({ ...target, nonce: ++notificationNonce.current });
+    const incoming = (event: MessageEvent) => {
+      if (event.data?.type !== "notification_open" || event.data?.kind !== "message") return;
+      if (event.origin && event.origin !== window.location.origin) return;
+      if (!(event.source instanceof ServiceWorker)) return;
+      const url = new URL(typeof event.data.url === "string" ? event.data.url : "/", window.location.origin);
+      if (url.origin !== window.location.origin) return;
+      const target = notificationTarget(url, event.data);
+      if (target) {
+        enqueue(target);
+        event.ports[0]?.postMessage({ notificationOpenReceived: true });
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", incoming);
+    const url = new URL(window.location.href);
+    const initial = notificationTarget(url);
+    if (initial) {
+      enqueue(initial);
+      for (const key of ["chat", "message", "account"]) url.searchParams.delete(key);
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    }
+    return () => navigator.serviceWorker.removeEventListener("message", incoming);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "ready" || !user || !pendingNotification) return;
+    if (pendingNotification.accountId && pendingNotification.accountId !== user.id) {
+      setNotice("Уведомление относится к другому аккаунту");
+      setPendingNotification(null);
+      void refreshState().catch(() => {});
+      return;
+    }
+    let cancelled = false;
+    notificationFocusRef.current = { ...pendingNotification, accountId: user.id };
+    void refreshState().then((data) => {
+      if (cancelled || !data || activeTokenRef.current !== token) return;
+      const message = [...data.messages, ...data.groupMessages].find((m) => m.id === pendingNotification.messageId);
+      if (!message) throw new Error("Сообщение удалено или больше недоступно");
+      const chat: ChatRef = isDirectMessage(message)
+        ? { kind: "peer", id: message.fromUserId === user.id ? message.toUserId : message.fromUserId }
+        : { kind: "group", id: message.groupId };
+      if (chat.kind === "peer" && data.hiddenPeerIds.includes(chat.id)) throw new Error("Диалог скрыт");
+      initialPeerSelectionHandledRef.current = true;
+      setShowSettings(false);
+      setSelectedMessageIds(null);
+      setEditingMessageId(null);
+      setSelectedChat(chat);
+      setFocusedNotification({ chat: chatKey(chat), id: message.id, nonce: pendingNotification.nonce });
+    }).catch((error: Error) => {
+      if (!cancelled) { notificationFocusRef.current = null; setNotice(error.message); }
+    }).finally(() => { if (!cancelled) setPendingNotification(null); });
+    return () => { cancelled = true; };
+  }, [phase, user?.id, pendingNotification, refreshState, token]);
+
+  useEffect(() => {
+    if (focusedNotification && (!selectedChat || focusedNotification.chat !== chatKey(selectedChat))) {
+      notificationFocusRef.current = null;
+      setFocusedNotification(null);
+    }
+  }, [selectedChat, focusedNotification]);
 
   const refreshPushState = useCallback(async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
@@ -847,9 +957,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
 
   useEffect(() => {
     if (phase !== "ready" || !token) return;
-    void refreshState().catch((error: Error) => setNotice(error.message));
+    if (!notificationOpeningRef.current) void refreshState().catch((error: Error) => setNotice(error.message));
     const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !notificationOpeningRef.current) {
         void refreshState().catch(() => undefined);
       }
     }, 5000);
@@ -1063,11 +1173,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, [groupMessages, messages, selectedChat, user?.id]);
   const scrollToLatest = useConversationScroll(
     messageStreamRef,
-    selectedEntry && user ? `${user.id}:${chatKey(selectedEntry.ref)}` : null,
+    selectedEntry && user ? `${user.id}:${chatKey(selectedEntry.ref)}:${focusedNotification?.chat === chatKey(selectedEntry.ref) ? focusedNotification.nonce : ""}` : null,
     conversation,
     user?.id,
     selectedChat ? readCursors.get(selectedChat.id) ?? "" : "",
     phase === "ready" && viewVisible && documentVisible,
+    selectedChat && focusedNotification?.chat === chatKey(selectedChat) ? focusedNotification.id : undefined,
   );
   const membersGroup = groups.find((group) => group.id === membersGroupId) ?? null;
   const voicePeers = useMemo(() => peers.map((peer) => ({
@@ -1085,6 +1196,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   });
 
   function saveSession(nextUser: PublicUser, nextToken: string) {
+    activeTokenRef.current = nextToken;
+    notificationFocusRef.current = null;
+    setFocusedNotification(null);
+    syncSequence.current++;
     initialPeerSelectionHandledRef.current = false;
     window.localStorage.setItem(TOKEN_KEY, nextToken);
     setToken(nextToken);
@@ -1208,6 +1323,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }
 
   async function logout() {
+    notificationFocusRef.current = null;
+    setPendingNotification(null);
+    setFocusedNotification(null);
+    syncSequence.current++;
     if ("serviceWorker" in navigator) {
       const registration = await navigator.serviceWorker.getRegistration();
       registration?.active?.postMessage({ type: "notification_logout", userId: user?.id });

@@ -12,6 +12,7 @@ export function useConversationScroll(
   userId: string | undefined,
   readAt: string,
   active: boolean,
+  preferredMessageId?: string,
 ) {
   const position = useRef<{ scope: string | null; anchor: Anchor }>({ scope: null, anchor: null });
   const align = useCallback(() => {
@@ -37,9 +38,10 @@ export function useConversationScroll(
     // Snapshot the unread target once, before opening the chat advances its
     // read watermark. Polling/read receipts must not choose a different row.
     const unread = messages.find((message) => message.fromUserId !== userId && message.sentAt > readAt);
-    position.current = { scope, anchor: scope ? (unread ? { messageId: unread.id } : "latest") : null };
+    const preferred = messages.find((message) => message.id === preferredMessageId);
+    position.current = { scope, anchor: scope ? (preferred ? { messageId: preferred.id } : unread ? { messageId: unread.id } : "latest") : null };
     if (active) align();
-  }, [scope, messages, userId, readAt, active, align]);
+  }, [scope, messages, userId, readAt, active, align, preferredMessageId]);
 
   useLayoutEffect(() => {
     const stream = streamRef.current;

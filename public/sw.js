@@ -1,5 +1,5 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v5";
+const CACHE_NAME = "tiny-messenger-shell-v6";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -97,12 +97,34 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const requested = new URL(event.notification.data?.url || "/", self.location.origin);
+  if (requested.origin === self.location.origin && event.notification.data?.kind === "message") {
+    if (event.notification.data.messageId) requested.searchParams.set("message", event.notification.data.messageId);
+    if (event.notification.data.userId) requested.searchParams.set("account", event.notification.data.userId);
+  }
   const targetUrl = requested.origin === self.location.origin ? requested.href : self.location.origin + "/";
 
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
     for (const client of clients) {
-      if (new URL(client.url).origin === self.location.origin) {
-        client.postMessage({ type: "notification_open", ...event.notification.data });
+      if (new URL(client.url).origin === self.location.origin && client.frameType !== "nested") {
+        const data = { type: "notification_open", ...event.notification.data };
+        if (event.notification.data?.kind === "message") {
+          const received = await new Promise((resolve) => {
+            const channel = new MessageChannel();
+            const timer = setTimeout(() => { channel.port1.close(); resolve(false); }, 800);
+            channel.port1.onmessage = (reply) => {
+              clearTimeout(timer); channel.port1.close();
+              resolve(reply.data?.notificationOpenReceived === true);
+            };
+            client.postMessage(data, [channel.port2]);
+          });
+          // An old loaded client may not implement notification navigation yet.
+          // Reload it at the target instead of leaving the click unhandled.
+          if (!received) {
+            const navigated = await client.navigate(targetUrl);
+            if (navigated) return navigated.focus();
+            return self.clients.openWindow(targetUrl);
+          }
+        } else client.postMessage(data);
         return client.focus();
       }
     }

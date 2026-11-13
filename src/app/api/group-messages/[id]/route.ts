@@ -1,8 +1,8 @@
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
-import { write } from "@/lib/db";
-import { canEditGroupMessage, publicGroupMessage } from "@/lib/domain";
+import { read, write } from "@/lib/db";
+import { canEditGroupMessage, publicGroup, publicGroupMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import type { Prisma } from "@/generated/prisma/client";
 import {
@@ -12,10 +12,28 @@ import {
   readStatesForChat,
   toGroupMessageRecord,
   toGroupRecord,
+  visibleTo,
 } from "@/lib/store";
 import { cleanString, isUuid, validLength } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
+
+export const GET = route<Context>(async (request, { params }) => {
+  assertRateLimit(request, true);
+  const authenticated = await authenticate(request);
+  const { id } = await params;
+  if (!isUuid(id)) throw new ApiError(400, "invalid_message_id", "Некорректный UUID сообщения");
+  const result = await read(async (db) => {
+    const row = await db.groupMessage.findFirst({
+      where: { id, group: { members: { some: { userId: authenticated.id } } }, ...visibleTo(authenticated.id) },
+      include: { ...groupMessageInclude, group: { include: groupInclude } },
+    });
+    if (!row) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
+    const group = toGroupRecord(row.group);
+    return { message: publicGroupMessage(toGroupMessageRecord(row), group, await readStatesForChat(db, group.id)), group: publicGroup(group) };
+  });
+  return ok(result);
+});
 
 async function findAccessible(tx: Prisma.TransactionClient, id: string, userId: string) {
   const row = await tx.groupMessage.findFirst({
