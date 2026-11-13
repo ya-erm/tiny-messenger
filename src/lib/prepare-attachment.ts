@@ -26,15 +26,18 @@ export async function prepareAttachment(file: File, mode: AttachmentMode): Promi
   if (mode === "file") return { file, note: "Оригинал без сжатия" };
   // Preserve animation and already-efficient/unsupported formats verbatim.
   if (!['image/jpeg', 'image/png'].includes(file.type)) return { file, note: "Оригинал" };
-  if (file.type === "image/png" && !await staticPng(file)) return { file, note: "Оригинал" };
   let bitmap: ImageBitmap | undefined;
   let image: HTMLImageElement | undefined;
   let objectUrl: string | undefined;
   let canvas: HTMLCanvasElement | undefined;
   try {
+    if (file.type === "image/png" && !await staticPng(file)) return { file, note: "Оригинал" };
     if (typeof createImageBitmap === "function") {
-      bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-    } else {
+      // Some WebKit versions expose this API but reject images they can decode
+      // through <img>. Do not make that optional fast path a requirement.
+      try { bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }); } catch { /* try the image decoder */ }
+    }
+    if (!bitmap) {
       objectUrl = URL.createObjectURL(file);
       image = new Image(); image.src = objectUrl;
       await image.decode();
@@ -50,17 +53,28 @@ export async function prepareAttachment(file: File, mode: AttachmentMode): Promi
     const context = canvas.getContext("2d");
     if (!context) throw new Error("canvas_unavailable");
     context.drawImage(source, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, "image/webp", WEBP_QUALITY));
-    if (!blob || blob.type !== "image/webp") throw new Error("webp_unavailable");
+    const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, type, WEBP_QUALITY));
+    let blob = await encode("image/webp");
+    // Canvas may silently return PNG when WebP encoding is unsupported. Keep
+    // alpha for PNG; for JPEG use the browser's JPEG encoder at the same quality.
+    if (blob?.type !== "image/webp") {
+      blob = file.type === "image/png" && blob?.type === "image/png" ? blob : await encode(file.type);
+      if (blob?.type !== file.type) throw new Error("encoder_unavailable");
+    }
+    if (!blob) throw new Error("encoder_unavailable");
     if (blob.size >= file.size) return { file, note: "Оригинал меньше сжатой копии" };
     const stem = [...(file.name.replace(/\.[^.]+$/, "") || "image")];
     const encoder = new TextEncoder();
     while (encoder.encode(stem.join("")).length > 250) stem.pop();
-    const name = stem.join("") + ".webp";
-    const result = new File([blob], name, { type: "image/webp", lastModified: file.lastModified });
-    return { file: result, note: "WebP · качество 92%", originalSize: file.size };
+    const extension = blob.type === "image/webp" ? ".webp" : blob.type === "image/jpeg" ? ".jpg" : ".png";
+    const name = stem.join("") + extension;
+    const result = new File([blob], name, { type: blob.type, lastModified: file.lastModified });
+    const note = blob.type === "image/webp" ? "WebP · качество 92%" : blob.type === "image/jpeg" ? "JPEG · качество 92%" : "PNG · без потери прозрачности";
+    return { file: result, note, originalSize: file.size };
   } catch {
-    throw new Error("Не удалось сжать изображение. Повторите попытку или отправьте оригинал через «Файл».");
+    // Compression is optional. Existing file-size/count checks still apply to
+    // the original, so an unsupported decoder/encoder must not block sending.
+    return { file, note: "Оригинал: сжатие недоступно в этом браузере" };
   } finally {
     bitmap?.close();
     if (objectUrl) URL.revokeObjectURL(objectUrl);
