@@ -1,9 +1,13 @@
+export const JSON_BODY_LIMIT = 16_384;
+
 export const LIMITS = {
   // Names may wrap on the 80x160 display; choice captions remain deliberately tiny.
   name: 20,
   nickname: 32,
   avatarUrl: 500,
-  message: 96,
+  // Compatibility ceiling for clients reading /api/config. The composer has
+  // no character cap; the shared JSON transport budget is the effective bound.
+  message: JSON_BODY_LIMIT,
   option: 8,
   optionId: 64,
   choiceOptionsMin: 2,

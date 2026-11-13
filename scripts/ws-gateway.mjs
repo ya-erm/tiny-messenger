@@ -388,7 +388,9 @@ async function handleDeviceConnection(socket, request, { rest }) {
         });
       } else if (frame.type === "send") {
         const toUserId = safeString(frame.toUserId, 128);
-        const text = safeString(frame.text, 4096);
+        // The frame already has the shared 16 KiB transport bound. Do not add
+        // a smaller character limit or silently replace a long message.
+        const text = typeof frame.text === "string" ? frame.text : "";
         if (!toUserId || (!text && !frame.attachmentIds?.length)) throw Object.assign(new Error("Некорректное сообщение"), { code: "invalid_message" });
         await rest(token, "/api/messages", {
           method: "POST",

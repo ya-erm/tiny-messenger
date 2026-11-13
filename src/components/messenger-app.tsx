@@ -1820,7 +1820,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             </header>
             <div className="message-stream" ref={messageStreamRef}>
               <div className="message-stream-content">
-              {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните с короткого</h2><p>Сообщение должно удобно читаться на небольшом экране.</p></div>}
+              {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните разговор</h2><p>Напишите сообщение или прикрепите файл.</p></div>}
               {conversation.map((message, index) => {
                 const outgoing = message.fromUserId === user.id;
                 const previous = conversation[index - 1];
@@ -1974,7 +1974,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               onEdit={editMessage}
               onCancelEdit={() => setEditingMessageId(null)}
             />
-          </> : <div className="no-conversation"><span className="brand-mark big">tm</span><h2>Ваши короткие сообщения</h2><p>Выберите диалог или добавьте контакт.</p></div>}
+          </> : <div className="no-conversation"><span className="brand-mark big">tm</span><h2>Ваши сообщения</h2><p>Выберите диалог или добавьте контакт.</p></div>}
         </section>
       </div>
 
@@ -2281,7 +2281,6 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
   const draft = useAttachmentDraft(chat, request);
   const input = useRef<HTMLTextAreaElement>(null);
   const selection = useRef({ start: 0, end: 0 });
-  const [inputError, setInputError] = useState("");
   const [limits, setLimits] = useState<AttachmentLimits | null>(null);
   const sendAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
   const currentChat = useRef(chatKey(chat));
@@ -2332,11 +2331,6 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
   function insertEmoji(emoji: string) {
     const { start, end } = selection.current;
     const next = text.slice(0, start) + emoji + text.slice(end);
-    if (next.length > LIMITS.message) {
-      setInputError("Смайлик не помещается. Сократите сообщение.");
-      return false;
-    }
-    setInputError("");
     setText(next);
     const caret = start + emoji.length;
     selection.current = { start: caret, end: caret };
@@ -2357,7 +2351,7 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
       if (sendAttempt.current?.fingerprint !== fingerprint) sendAttempt.current = { fingerprint, id: crypto.randomUUID() };
       const scope = chatKey(chat);
       await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id });
-      if (currentChat.current === scope) { setText(""); setKind("text"); setInputError(""); selection.current = { start: 0, end: 0 }; draft.clearSent(); sendAttempt.current = null; }
+      if (currentChat.current === scope) { setText(""); setKind("text"); selection.current = { start: 0, end: 0 }; draft.clearSent(); sendAttempt.current = null; }
     } catch { /* The parent displays the API error. */ }
   }
   return <form className="composer" onSubmit={submit}>
@@ -2365,15 +2359,12 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
       <div className="editing-banner">
         <Glyph name="edit" />
         <div className="editing-copy"><strong>Изменение сообщения</strong><small>{editing.text}</small></div>
-        <span className="editing-count">{Array.from(text).length}/{LIMITS.message}</span>
         <button type="button" className="small-icon-button" onClick={onCancelEdit} aria-label="Отменить изменение" data-tooltip="Отменить"><Glyph name="close" /></button>
       </div>
     ) : kind === "choice" ? (
       <div className="composer-poll-heading"><strong>Опрос</strong><span>Два варианта ответа</span><button type="button" className="small-icon-button" aria-label="Отменить опрос" onClick={() => setKind("text")}><Glyph name="close" /></button></div>
     ) : null}
-    <div className="composer-line"><ComposerTools key={`${chatKey(chat)}:${Boolean(editing)}`} limits={limits} fileCount={draft.files.length} disabled={busy} editing={Boolean(editing)} allowChoice={allowChoice} onFiles={(files, mode) => { if (limits) draft.select(files, limits, mode); }} onPoll={() => { setKind("choice"); input.current?.focus(); }} onEmoji={insertEmoji} /><textarea ref={input} aria-label="Сообщение" rows={1} onSelect={(event) => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onPaste={pasteFiles} required={Boolean(editing) || !draft.ids.length} value={text} maxLength={LIMITS.message} onChange={(event) => { setText(event.target.value); setInputError(""); selection.current = { start: event.target.selectionStart, end: event.target.selectionEnd }; }} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте короткий вопрос…" : "Короткое сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
-    {!editing && text.length > 0 ? <small className="composer-count">{Array.from(text).length}/{LIMITS.message}</small> : null}
-    {inputError ? <p className="attachment-error" role="alert">{inputError}</p> : null}
+    <div className="composer-line"><ComposerTools key={`${chatKey(chat)}:${Boolean(editing)}`} limits={limits} fileCount={draft.files.length} disabled={busy} editing={Boolean(editing)} allowChoice={allowChoice} onFiles={(files, mode) => { if (limits) draft.select(files, limits, mode); }} onPoll={() => { setKind("choice"); input.current?.focus(); }} onEmoji={insertEmoji} /><textarea ref={input} aria-label="Сообщение" rows={1} onSelect={(event) => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onPaste={pasteFiles} required={Boolean(editing) || !draft.ids.length} value={text} onChange={(event) => { setText(event.target.value); selection.current = { start: event.target.selectionStart, end: event.target.selectionEnd }; }} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте вопрос…" : "Сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
     {!editing ? <AttachmentDrafts draft={draft} disabled={busy} /> : null}
     {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;

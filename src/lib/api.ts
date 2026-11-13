@@ -1,3 +1,5 @@
+import { JSON_BODY_LIMIT } from "@/lib/constants";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -11,16 +13,35 @@ export class ApiError extends Error {
 
 export async function readJson(request: Request): Promise<Record<string, unknown>> {
   const size = Number(request.headers.get("content-length") || 0);
-  if (size > 16_384) {
+  if (size > JSON_BODY_LIMIT) {
     throw new ApiError(413, "payload_too_large", "Тело запроса слишком большое");
   }
   try {
-    const body = (await request.json()) as unknown;
+    // Content-Length may be absent (chunked requests). Bound actual bytes too,
+    // especially now that messages no longer have the tiny character limit.
+    const reader = request.body?.getReader();
+    if (!reader) throw new Error("empty body");
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > JSON_BODY_LIMIT) {
+          await reader.cancel().catch(() => {});
+          throw new ApiError(413, "payload_too_large", "Тело запроса слишком большое");
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    const body = JSON.parse(new TextDecoder().decode(Buffer.concat(chunks))) as unknown;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new Error("not an object");
     }
     return body as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(400, "invalid_json", "Ожидался JSON-объект");
   }
 }

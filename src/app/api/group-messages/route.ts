@@ -56,7 +56,7 @@ export const POST = route(async (request) => {
 
   if (!isUuid(groupId)) throw new ApiError(422, "invalid_group_id", "Укажите UUID группы");
   if (!validLength(text, files.length ? 0 : 1, LIMITS.message)) {
-    throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
+    throw new ApiError(422, "invalid_text", "Сообщение не должно быть пустым");
   }
 
   const requestHash = messageRequestHash({ groupId, text, files: [...files].sort() });

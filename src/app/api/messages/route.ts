@@ -74,7 +74,7 @@ export const POST = route(async (request) => {
   if (!isUuid(toUserId)) throw new ApiError(422, "invalid_recipient", "Укажите UUID получателя");
   if (toUserId === authenticated.id) throw new ApiError(422, "self_message", "Отправка самому себе отключена");
   if (!validLength(text, files.length && kind === "text" ? 0 : 1, LIMITS.message)) {
-    throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
+    throw new ApiError(422, "invalid_text", "Сообщение не должно быть пустым");
   }
   if (!isMessageKind(kind)) throw new ApiError(422, "invalid_kind", "kind должен быть text или choice");
 

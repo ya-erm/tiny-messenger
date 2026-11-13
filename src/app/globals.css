@@ -766,7 +766,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .editing-copy { min-width: 0; flex: 1; }
 .editing-copy strong { display: block; color: var(--green-dark-ink); font-size: 9px; font-weight: 800; }
 .editing-copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.editing-count { flex: 0 0 auto; color: var(--muted); font-size: 9px; }
 /* Not inline-flex: the meta box takes its baseline from the first flex item, and
    a flex box wrapping an svg has none, so the whole group slid off the text
    baseline. Blockified, this keeps a line box and with it a real baseline. */
@@ -865,7 +864,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .composer-emoji .reaction-quick button, .composer-emoji .reaction-grid button { min-width: 0; min-height: 34px; padding: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 7px; font-size: 24px; cursor: pointer; }
 .composer-emoji .reaction-quick button:hover, .composer-emoji .reaction-grid button:hover { background: var(--hover); }
 .composer-emoji .reaction-grid { max-height: 160px; }
-.composer-count { display: block; margin-top: 4px; text-align: right; color: var(--muted); font-size: 9px; }
 .composer-poll-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--green-dark-ink); font-size: 11px; }
 .composer-poll-heading > span { color: var(--muted); font-size: 10px; }
 .composer-poll-heading > button { margin-left: auto; }

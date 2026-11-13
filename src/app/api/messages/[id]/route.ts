@@ -42,7 +42,7 @@ export const PATCH = route<Context>(async (request, { params }) => {
   const body = await readJson(request);
   const text = cleanString(body.text);
   if (!validLength(text, 1, LIMITS.message)) {
-    throw new ApiError(422, "invalid_text", `Сообщение: от 1 до ${LIMITS.message} символов`);
+    throw new ApiError(422, "invalid_text", "Сообщение не должно быть пустым");
   }
 
   const message = await write(async (tx) => {
