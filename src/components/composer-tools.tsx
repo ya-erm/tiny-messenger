@@ -27,10 +27,16 @@ export function ComposerTools({ limits, fileCount, disabled, editing, allowChoic
 
   useLayoutEffect(() => {
     if (!open) return;
-    const fit = () => setPopupHeight(Math.min(340, Math.max(80, (root.current?.getBoundingClientRect().top ?? 352) - 12)));
+    const fit = () => setPopupHeight(Math.min(340, Math.max(80, (root.current?.getBoundingClientRect().top ?? 352) - (window.visualViewport?.offsetTop || 0) - 12)));
     fit();
     window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
+    window.visualViewport?.addEventListener("resize", fit);
+    window.visualViewport?.addEventListener("scroll", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      window.visualViewport?.removeEventListener("resize", fit);
+      window.visualViewport?.removeEventListener("scroll", fit);
+    };
   }, [open]);
 
   useEffect(() => {

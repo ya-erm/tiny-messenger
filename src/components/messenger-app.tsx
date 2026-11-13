@@ -9,6 +9,8 @@ import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { ReactionPicker } from "@/components/reaction-picker";
 import { usePushActivity, usePushNotificationSync } from "@/components/use-push-coordination";
+import { useMobileViewport } from "@/components/use-mobile-viewport";
+import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
@@ -620,6 +622,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
+  const viewportRef = useMobileViewport(phase === "ready");
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
@@ -1544,7 +1547,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }
 
   return (
-    <main className={`app-shell${embedded ? " tasks-embedded" : ""}`}>
+    <main ref={viewportRef} className={`app-shell${embedded ? " tasks-embedded" : ""}`}>
       <div className={`messenger ${selectedEntry ? "has-conversation" : ""}`}>
         <aside className="sidebar">
           {(!embedded || (pushState === "disabled" && chats.length > 0)) && <header className="sidebar-header">
@@ -2272,6 +2275,7 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
     return () => controller.abort();
   }, [request]);
   const [text, setText] = useState("");
+  useGrowingTextarea(input, text);
   const [kind, setKind] = useState<"text" | "choice">("text");
   const [left, setLeft] = useState("Да");
   const [right, setRight] = useState("Нет");

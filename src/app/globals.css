@@ -174,10 +174,16 @@ button { color: inherit; }
 [data-tooltip]::after { position: absolute; z-index: 100; left: 50%; pointer-events: none; opacity: 0; transform: translate(-50%, 4px); transition: opacity .08s ease, transform .08s ease; transition-delay: 0s; }
 [data-tooltip]::after { content: attr(data-tooltip); width: max-content; max-width: 190px; bottom: calc(100% + 8px); padding: 6px 8px; color: #fff; background: var(--inverse); border: 1px solid rgba(255,255,255,.08); border-radius: 7px; box-shadow: 0 7px 18px rgba(24,34,28,.2); font-size: 9px; font-weight: 700; line-height: 1.25; text-align: center; text-transform: none; white-space: normal; }
 [data-tooltip]::before { content: ""; bottom: calc(100% + 4px); border: 4px solid transparent; border-top-color: var(--inverse); transform: translate(-50%, 4px); }
-[data-tooltip]:hover::before,
-[data-tooltip]:hover::after,
 [data-tooltip]:focus-visible::before,
 [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: .06s; }
+@media (hover: hover) and (pointer: fine) {
+  [data-tooltip]:hover::before, [data-tooltip]:hover::after { opacity: 1; transform: translate(-50%, 0); transition-delay: .06s; }
+}
+/* Touch browsers can retain :hover after a tap, even on a disabled send button.
+   Icon controls keep their accessible names; tooltips are for mouse/keyboard. */
+@media (hover: none), (pointer: coarse) {
+  [data-tooltip]::before, [data-tooltip]::after { display: none; }
+}
 [data-tooltip-position="bottom"]::after { top: calc(100% + 8px); bottom: auto; }
 [data-tooltip-position="bottom"]::before { top: calc(100% + 4px); bottom: auto; border-top-color: transparent; border-bottom-color: var(--inverse); }
 [data-tooltip-align="right"]::after { right: 0; left: auto; transform: translateY(4px); }
@@ -368,7 +374,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 
 .composer { flex: 0 0 auto; padding: 13px clamp(18px, 4vw, 46px) 17px; background: var(--veil-composer); border-top: 1px solid var(--line); }
 .composer-line { display: flex; gap: 8px; align-items: flex-end; }
-.composer textarea { min-width: 0; min-height: 43px; max-height: 100px; flex: 1; resize: vertical; padding: 12px 14px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 14px; outline: none; font-size: 12px; line-height: 1.5; box-shadow: inset 0 1px 2px rgba(31,45,37,.03); }
+.composer textarea { min-width: 0; min-height: 43px; max-height: 120px; flex: 1; resize: none; padding: 12px 14px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 14px; outline: none; font-size: 12px; line-height: 1.5; box-shadow: inset 0 1px 2px rgba(31,45,37,.03); }
 .composer textarea:focus { background: var(--raised); border-color: var(--green-ink); box-shadow: 0 0 0 3px rgba(47,111,87,.1); }
 .send-button { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; color: #fff; background: var(--green); border: 0; border-radius: 13px 13px 13px 4px; cursor: pointer; box-shadow: 0 8px 16px rgba(47,111,87,.22); }
 .send-button:hover { background: var(--green-dark); }
@@ -665,7 +671,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .messenger { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
   .sidebar-header, .conversation-header { height: calc(76px + env(safe-area-inset-top)); flex-basis: calc(76px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
   .sidebar-header { height: auto; flex-basis: auto; }
-  .composer { padding-bottom: calc(17px + env(safe-area-inset-bottom)); }
+  .composer { padding-bottom: calc(10px + var(--tm-safe-bottom, env(safe-area-inset-bottom))); }
   .sidebar-actions { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .message-stream { padding: 18px 14px; }
   .message-bubble { max-width: 86%; }
@@ -866,3 +872,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .app-shell.tasks-embedded { height: 100dvh; min-height: 0; padding: 0; }
 .tasks-embedded .messenger { height: 100dvh; min-height: 0; border-radius: 0; }
 .attachment-copy small { opacity: .65; font-size: 12px; }
+
+@media (max-width: 800px) {
+  .app-shell, .app-shell.tasks-embedded { position: fixed; top: var(--tm-viewport-top, 0px); inset-inline: 0; height: var(--tm-viewport-height, 100dvh); min-height: 0; overflow: hidden; }
+  .messenger, .tasks-embedded .messenger { height: 100%; min-height: 0; }
+}
