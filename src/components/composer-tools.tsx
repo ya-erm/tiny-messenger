@@ -83,7 +83,7 @@ export function ComposerTools({ limits, fileCount, disabled, editing, allowChoic
       const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next].focus({ preventScroll: true });
     }}>
-      <button type="button" role="menuitem" disabled={filesDisabled} onClick={() => choose("media")}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="8" cy="8" r="1" /><path d="m3 17 6-6 5 5 3-3 4 4" /></svg><span>Фото или видео<small>Фото сжимаются в WebP</small></span></button>
+      <button type="button" role="menuitem" disabled={filesDisabled} onClick={() => choose("media")}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="8" cy="8" r="1" /><path d="m3 17 6-6 5 5 3-3 4 4" /></svg><span>Фото или видео<small>Автоматическое сжатие фото</small></span></button>
       <button type="button" role="menuitem" disabled={filesDisabled} onClick={() => choose("file")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8Zm0 0v5h5" /></svg><span>Файл<small>Оригинал без сжатия</small></span></button>
       <button type="button" role="menuitem" disabled={disabled || !allowChoice} onClick={() => { setOpen(null); onPoll(); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10m7 10V4m7 16v-7" /></svg><span>Опрос<small>{allowChoice ? "Два варианта ответа" : "Доступен в личном чате"}</small></span></button>
       <small className="composer-file-limit">{limits?.enabled ? `До ${formatFileSize(limits.maxFileBytes)} · ${limits.maxFilesPerMessage} файла` : "Прикрепление файлов недоступно"}</small>
