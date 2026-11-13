@@ -1547,7 +1547,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
 
   useEffect(() => {
     if (!messageMenuId) return;
-    messageMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    messageMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
     const close = () => setMessageMenu(null);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1586,6 +1586,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   // Fixed rather than absolute inside the row: the stream scrolls with
   // overflow-y, which would clip a menu opened on the last message.
   const openMessageMenu = (messageId: string, bubble: HTMLElement, trigger?: HTMLElement) => {
+    if (window.matchMedia("(hover: none), (any-pointer: coarse)").matches
+      && !document.activeElement?.matches("input, textarea, [contenteditable='true']")) {
+      window.getSelection()?.removeAllRanges();
+    }
     const rect = bubble.getBoundingClientRect();
     const outgoing = conversation.find((message) => message.id === messageId)?.fromUserId === user?.id;
     const above = window.innerHeight - rect.bottom < 210 && rect.top > 210;

@@ -812,9 +812,19 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 @media (hover: none) {
   .message-reaction-trigger { opacity: 1; }
 }
-/* A long press would otherwise raise the native selection callout first. */
-@media (hover: none) {
-  .message-bubble { -webkit-touch-callout: none; user-select: none; }
+/* Touch holds open our message menu instead of selecting its labels or tools.
+   Keep the prefixed policy for Safari and explicitly restore editable fields. */
+@media (hover: none), (any-pointer: coarse) {
+  .message-stream, .message-menu, .composer-tools {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  :is(.message-stream, .message-menu, .composer-tools) :is(input, textarea, [contenteditable="true"]) {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 .tasks-connect-page{min-height:100dvh;display:grid;place-items:center;padding:24px}.tasks-connect-page>section{width:min(420px,100%);display:grid;gap:16px;padding:24px;border:1px solid var(--border,#abb8c0);border-radius:16px}.tasks-connect-page h1,.tasks-connect-page p{margin:0}.tasks-connect-page [role=alert]{color:#b42331}
