@@ -1,0 +1,33 @@
+name: Verify task 20 production delivery
+on:
+  push:
+    branches: ['build/tm-task-20-touch-message-menu']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task20'))['ok']
+          body=fetch('/tasks-embed?verify=task20').decode()
+          assert '/_next/static/chunks/3n1w4mli0avq9.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/3n1w4mli0avq9.js')).hexdigest()
+          assert actual=='9db7569d6802ff303dee1b313f864301c716878a5e860fe8eb0e600ca8eab0ed', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='c665d7599557550fa536d2680b108aceebcc72d71b4372e20c74782a0090eab6'
+          assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='e2f7c202abcf36fd998b7a15095a858cc44e80d4cd6fe33a6303ebb33eee7621'
+          assert '/_next/static/chunks/0r4adxti_6r6_.css' in body, 'Public HTML does not reference new CSS'
+          assert hashlib.sha256(fetch('/_next/static/chunks/0r4adxti_6r6_.css')).hexdigest()=='182d956e2c7ae1cbae54b006849524f8841fd40b0eb8f9a3898cf1ffc13023cc', 'Public CSS differs from tested release'
+          print('PUBLIC_CSS_OK: exact stylesheet verified')
+          assert '0.3.2' in fetch('/').decode(), 'Public shell version differs'
+          PY
