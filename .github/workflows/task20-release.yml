@@ -1,0 +1,41 @@
+name: Build task 20 touch-message-menu release
+on:
+  push:
+    branches: ['build/tm-task-20-touch-message-menu']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2a3bec27729d6f447b6e8af546ff938d8c8d562c
+          persist-credentials: false
+      - name: Read-only public connectivity check
+        run: |
+          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
+            echo "PUBLIC_TM_HEALTH=ok"
+          else
+            echo "PUBLIC_TM_HEALTH=unreachable"
+          fi
+      - name: Build isolated Linux release
+        env:
+          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          BUILD_CPUS: '2'
+          BUILD_MEMORY_MB: '4096'
+          BUILD_NODE_HEAP_MB: '2048'
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tm-task20-2a3bec27729d
+          path: |
+            releases/artifacts/2a3bec27729d6f447b6e8af546ff938d8c8d562c/app.tar.gz
+            releases/artifacts/2a3bec27729d6f447b6e8af546ff938d8c8d562c/runtime-image
+            releases/artifacts/2a3bec27729d6f447b6e8af546ff938d8c8d562c/dependencies-key
+            releases/artifacts/2a3bec27729d6f447b6e8af546ff938d8c8d562c/revision
+            releases/artifacts/2a3bec27729d6f447b6e8af546ff938d8c8d562c/SHA256SUMS
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
