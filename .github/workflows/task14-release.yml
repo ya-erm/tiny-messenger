@@ -1,0 +1,41 @@
+name: Build task 14 conversation-scroll release
+on:
+  push:
+    branches: ['build/tm-task-14-conversation-scroll']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4c0cb6b3ffc7059031333c72577c334296c29f2c
+          persist-credentials: false
+      - name: Read-only public connectivity check
+        run: |
+          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
+            echo "PUBLIC_TM_HEALTH=ok"
+          else
+            echo "PUBLIC_TM_HEALTH=unreachable"
+          fi
+      - name: Build isolated Linux release
+        env:
+          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          BUILD_CPUS: '2'
+          BUILD_MEMORY_MB: '4096'
+          BUILD_NODE_HEAP_MB: '2048'
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tm-task14-4c0cb6b3ffc7
+          path: |
+            releases/artifacts/4c0cb6b3ffc7059031333c72577c334296c29f2c/app.tar.gz
+            releases/artifacts/4c0cb6b3ffc7059031333c72577c334296c29f2c/runtime-image
+            releases/artifacts/4c0cb6b3ffc7059031333c72577c334296c29f2c/dependencies-key
+            releases/artifacts/4c0cb6b3ffc7059031333c72577c334296c29f2c/revision
+            releases/artifacts/4c0cb6b3ffc7059031333c72577c334296c29f2c/SHA256SUMS
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
