@@ -1,0 +1,33 @@
+name: Verify task 17 r2 production delivery
+on:
+  push:
+    branches: ['build/tm-task-17-notification-open-types']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task17-r2'))['ok']
+          body=fetch('/tasks-embed?verify=task17-r2').decode()
+          assert '/_next/static/chunks/0dq71se5jxewa.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/0dq71se5jxewa.js')).hexdigest()
+          assert actual=='6fb1d74efb4a4fcf39600988751715c7b908de768c56e4ddb839c012a97bc810', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='c665d7599557550fa536d2680b108aceebcc72d71b4372e20c74782a0090eab6'
+          assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='e2f7c202abcf36fd998b7a15095a858cc44e80d4cd6fe33a6303ebb33eee7621'
+          assert '/_next/static/chunks/3i4chkjborg5c.css' in body, 'Public HTML does not reference new CSS'
+          assert hashlib.sha256(fetch('/_next/static/chunks/3i4chkjborg5c.css')).hexdigest()=='76a90edc835fb3d8cadebedece2a2565b26955eb5d08aec85d43b9ac0e6e30af', 'Public CSS differs from tested release'
+          print('PUBLIC_CSS_OK: exact stylesheet verified')
+          assert '0.3.1' in fetch('/').decode(), 'Public shell version differs'
+          PY
