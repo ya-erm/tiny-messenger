@@ -213,6 +213,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .sidebar-brand-row { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 14px; }
 .sidebar-header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
 .brand-copy { min-width: 0; display: grid; gap: 3px; }
+.brand-title { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.brand-version { color: var(--muted); font: 500 10px/1.4 "Manrope", system-ui, sans-serif; letter-spacing: 0; white-space: nowrap; }
+.brand.light .brand-version { color: rgba(255,255,255,.6); }
 .brand { display: flex; align-items: center; gap: 10px; font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: -.02em; }
 .brand.light { color: #fff; }
 .brand-mark { width: 37px; height: 37px; display: inline-grid; place-items: center; flex: 0 0 auto; color: #fff; background: var(--orange); border-radius: 12px 12px 12px 3px; font-family: "Unbounded", sans-serif; font-size: 16px; font-weight: 700; box-shadow: 0 8px 20px rgba(228, 122, 69, .28); }

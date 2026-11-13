@@ -1564,7 +1564,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               <div className="brand">
                 <span className="brand-mark">tm</span>
                 <div className="brand-copy">
-                  <span>Tiny Messenger</span>
+                  <span className="brand-title">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></span>
                   {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить как приложение</button> : null}
                 </div>
               </div>
@@ -2231,7 +2231,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
         <div className="brand light">
           <span className="brand-mark">tm</span>
           <div className="brand-copy">
-            <span>Tiny Messenger</span>
+            <span className="brand-title">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></span>
             {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void onInstall(); }}><Glyph name="install" /> Установить как приложение</button> : null}
           </div>
         </div>
