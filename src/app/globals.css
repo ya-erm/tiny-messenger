@@ -169,6 +169,9 @@ html, body { min-height: 100%; }
 body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Manrope", system-ui, sans-serif; }
 button, input, textarea { font: inherit; }
 button { color: inherit; }
+/* Repeated taps activate controls without the browser's double-tap zoom.
+   Panning and deliberate pinch zoom remain available. */
+button, a, input, textarea, select, [role="button"] { touch-action: manipulation; }
 [data-tooltip] { position: relative; }
 [data-tooltip]::before,
 [data-tooltip]::after { position: absolute; z-index: 100; left: 50%; pointer-events: none; opacity: 0; transform: translate(-50%, 4px); transition: opacity .08s ease, transform .08s ease; transition-delay: 0s; }
@@ -652,10 +655,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .voice-dock .voice-leave { color: #fff; background: var(--danger); }
 
 @media (max-width: 800px) {
-  /* iOS zooms the page when a focused field is under 16px. The element-level
-     rule lost to these class selectors, so the fields it mattered for kept 12px
-     and every focus enlarged the interface. */
-  input, textarea, .composer textarea, .field-label input, .option-fields input { font-size: 16px; }
   /* iOS resolves 100vh against the large viewport, taller than what is actually
      visible, so the shell overflowed and the whole document scrolled. */
   .app-shell { padding: 0; min-height: 100dvh; }
@@ -874,6 +873,17 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .attachment-copy small { opacity: .65; font-size: 12px; }
 
 @media (max-width: 800px) {
+  /* Lock the document only after login. The welcome form still scrolls as a
+     normal page; messages, contacts and sheets own their internal scrolling. */
+  html:has(.app-shell), html:has(.app-shell) body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html:has(.app-shell) body { position: fixed; inset: 0; }
   .app-shell, .app-shell.tasks-embedded { position: fixed; top: var(--tm-viewport-top, 0px); inset-inline: 0; height: var(--tm-viewport-height, 100dvh); min-height: 0; overflow: hidden; }
+  .app-shell { touch-action: manipulation; }
   .messenger, .tasks-embedded .messenger { height: 100%; min-height: 0; }
+  .message-stream, .contact-list, .modal-card, .message-menu, .contact-search-results, .composer textarea { overscroll-behavior: contain; }
+  /* Keep this after the picker styles: its 12px search and 11px selects used
+     to override the generic mobile rule and trigger iOS focus zoom. */
+  input:not([type="file"]):not([type="range"]), textarea, select,
+  .composer textarea, .field-label input, .option-fields input,
+  .reaction-search, .reaction-catalog-controls select { font-size: 16px; }
 }
