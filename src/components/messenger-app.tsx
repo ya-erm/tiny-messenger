@@ -2108,7 +2108,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         request={request}
         contacts={contacts}
         setNotice={setNotice}
-        onChanged={refreshState}
+        onChanged={async () => { await refreshState(); }}
         onLeave={() => setLeaveGroupId(membersGroup.id)}
         onClose={() => setMembersGroupId(null)}
       />}
