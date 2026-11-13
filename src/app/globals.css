@@ -326,7 +326,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .conversation-actions-popover button:disabled:hover { color: inherit; background: transparent; }
 .conversation-actions-popover .glyph { width: 15px; height: 15px; flex: 0 0 15px; }
 .mobile-back { display: none; }
-.message-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(20px, 5vw, 66px); scroll-behavior: smooth; }
+.message-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(20px, 5vw, 66px); overflow-anchor: none; }
+.message-stream-content { display: flow-root; }
 .message-row { display: flex; margin: 10px 0; }
 .message-row.outgoing { justify-content: flex-end; }
 .message-bubble { max-width: min(520px, 76%); position: relative; padding: 12px 14px 8px; background: var(--raised); border: 1px solid var(--bubble-line); border-radius: 4px 17px 17px 17px; box-shadow: 0 6px 20px rgba(31, 45, 37, .06); }

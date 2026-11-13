@@ -11,6 +11,7 @@ import { ReactionPicker } from "@/components/reaction-picker";
 import { usePushActivity, usePushNotificationSync } from "@/components/use-push-coordination";
 import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
+import { useConversationScroll } from "@/components/use-conversation-scroll";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
@@ -1060,6 +1061,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         (message.toUserId === user?.id && message.fromUserId === selectedChat.id),
     );
   }, [groupMessages, messages, selectedChat, user?.id]);
+  const scrollToLatest = useConversationScroll(
+    messageStreamRef,
+    selectedEntry && user ? `${user.id}:${chatKey(selectedEntry.ref)}` : null,
+    conversation,
+    user?.id,
+    selectedChat ? readCursors.get(selectedChat.id) ?? "" : "",
+    phase === "ready" && viewVisible && documentVisible,
+  );
   const membersGroup = groups.find((group) => group.id === membersGroupId) ?? null;
   const voicePeers = useMemo(() => peers.map((peer) => ({
     id: peer.id,
@@ -1330,9 +1339,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     // Wait until the server-confirmed message has rendered. Scroll only this
     // stream so sending inside an iframe cannot move the parent page.
     if (!conversation.some((message) => message.id === pendingSentMessage.id)) return;
-    messageStreamRef.current?.scrollTo({ top: messageStreamRef.current.scrollHeight, behavior: "instant" });
+    scrollToLatest();
     setPendingSentMessage(null);
-  }, [conversation, pendingSentMessage, selectedChat]);
+  }, [conversation, pendingSentMessage, selectedChat, scrollToLatest]);
 
   // Opening a chat reads it: the watermark moves up to the newest incoming
   // message, which covers everything before it. One request per new message.
@@ -1810,6 +1819,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               )}
             </header>
             <div className="message-stream" ref={messageStreamRef}>
+              <div className="message-stream-content">
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните с короткого</h2><p>Сообщение должно удобно читаться на небольшом экране.</p></div>}
               {conversation.map((message) => {
                 const outgoing = message.fromUserId === user.id;
@@ -1820,6 +1830,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 const plainText = !direct || direct.kind === "text";
                 return <Fragment key={message.id}>
                   <article
+                    data-message-id={message.id}
                     className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
                     role={selectionMode ? "button" : undefined}
                     tabIndex={selectionMode ? 0 : undefined}
@@ -1891,6 +1902,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                   {direct && selectedPeer ? <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null}
                 </Fragment>;
               })}
+              </div>
             </div>
             {messageMenu ? (() => {
               const target = conversation.find((message) => message.id === messageMenu.id);
