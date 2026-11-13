@@ -26,4 +26,7 @@ jobs:
           print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
           assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='958e8e93783085a60666bcb4e931479f80b9c11fcfb264acd671eedf613bcc4a'
           assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='0268cfd0ca959361aed89b0f5b2fe88f3b76d4221f83e6e064819f1fdeaf653f'
+          assert '/_next/static/chunks/3ojtgo6rn2rqf.css' in body, 'Public HTML does not reference new CSS'
+          assert hashlib.sha256(fetch('/_next/static/chunks/3ojtgo6rn2rqf.css')).hexdigest()=='71aac9b048b8405d30d0bc522f46cdd54c9961d9faaaedd4a1d402fca906ab60', 'Public CSS differs from tested release'
+          print('PUBLIC_CSS_OK: exact stylesheet verified')
           PY
