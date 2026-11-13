@@ -1,0 +1,29 @@
+name: Verify task 13 production delivery
+on:
+  push:
+    branches: ['build/tm-task-13-ios-scroll-zoom']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task13-cf897cd'))['ok']
+          body=fetch('/tasks-embed?verify=task13-cf897cd').decode()
+          assert '/_next/static/chunks/3bz26urneitgf.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/3bz26urneitgf.js')).hexdigest()
+          assert actual=='6e88a13e85030ae26f4ea54c753c686ef8668117b4d82d54b178d139d42a158f', 'Public JS differs from tested release'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='958e8e93783085a60666bcb4e931479f80b9c11fcfb264acd671eedf613bcc4a'
+          assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='0268cfd0ca959361aed89b0f5b2fe88f3b76d4221f83e6e064819f1fdeaf653f'
+          PY
