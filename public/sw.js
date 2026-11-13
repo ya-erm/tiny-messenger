@@ -1,5 +1,5 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v4";
+const CACHE_NAME = "tiny-messenger-shell-v5";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -75,7 +75,7 @@ self.addEventListener("push", (event) => {
   }
 
   if (payload.kind === "message_summary") {
-    event.waitUntil(self.TMNotificationState.push(payload).then((shown) => shown || self.registration.showNotification("Tiny Messenger", { body: "Состояние уведомлений обновлено", tag: "tm-account-state", silent: true, renotify: false })));
+    event.waitUntil(self.TMNotificationState.push(payload).then((shown) => shown || self.registration.showNotification("Уведомления обновлены", { tag: "tm-account-state", silent: true, renotify: false })));
     return;
   }
 

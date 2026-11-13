@@ -14,6 +14,7 @@ export interface PushPayload {
   revision?: number;
   unreadCount?: number;
   silent?: boolean;
+  messages?: Array<{ id: string; title: string; body: string; url: string; alert: boolean }>;
   sessionId?: string;
   fromUserId?: string;
 }

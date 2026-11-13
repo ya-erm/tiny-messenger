@@ -6,44 +6,63 @@ import { hasPushActivity } from "@/lib/push-activity";
 import { pushConfiguration, sendPushToUser } from "@/lib/push";
 
 
+function shortText(value: string, bytes: number) {
+  if (Buffer.byteLength(value, "utf8") <= bytes) return value;
+  let result = "";
+  for (const character of value) {
+    if (Buffer.byteLength(result + character, "utf8") > bytes - 3) break;
+    result += character;
+  }
+  return result + "…";
+}
+
 async function snapshot(db: Db, userId: string, alertAfter: string | null) {
-  // COUNT runs in SQLite, not over a truncated /sync page or loaded history.
-  const rows = await db.$queryRaw<Array<{ unread: bigint; alerts: bigint; latestChat: string | null; latestKind: string | null; latestText: string | null; latestName: string | null }>>(Prisma.sql`
+  // Window aggregates count all accessible unread messages before LIMIT. Only
+  // a bounded preview travels in a push; it is not a truncated /sync count.
+  return db.$queryRaw<Array<{ id: string; chat: string; kind: string; text: string; name: string; groupName: string | null; sentAt: string; unread: bigint; alerts: bigint }>>(Prisma.sql`
     WITH unread AS (
-      SELECT m.sentAt, m.fromUserId AS chat, 'peer' AS kind, m.text, m.senderName AS name
+      SELECT m.id, m.sentAt, m.fromUserId AS chat, 'peer' AS kind, m.text, m.senderName AS name, NULL AS groupName
       FROM Message m LEFT JOIN ReadState r ON r.userId = ${userId} AND r.chatId = m.fromUserId
       WHERE m.toUserId = ${userId} AND m.sentAt > COALESCE(r.lastReadAt, '')
         AND NOT EXISTS (SELECT 1 FROM MessageDeletion d WHERE d.messageId = m.id AND d.userId = ${userId})
         AND NOT EXISTS (SELECT 1 FROM HiddenConversation h WHERE h.ownerId = ${userId} AND h.peerId = m.fromUserId AND m.sentAt <= h.hiddenAt)
       UNION ALL
-      SELECT m.sentAt, m.groupId, 'group', m.text, m.senderName
+      SELECT m.id, m.sentAt, m.groupId, 'group', m.text, m.senderName, g.name
       FROM GroupMessage m JOIN GroupMember gm ON gm.groupId = m.groupId AND gm.userId = ${userId}
+      JOIN "Group" g ON g.id = m.groupId
       LEFT JOIN ReadState r ON r.userId = ${userId} AND r.chatId = m.groupId
       WHERE m.fromUserId != ${userId} AND m.sentAt > COALESCE(r.lastReadAt, '')
         AND NOT EXISTS (SELECT 1 FROM GroupMessageDeletion d WHERE d.messageId = m.id AND d.userId = ${userId})
-    ) SELECT COUNT(*) AS unread,
-      COALESCE(SUM(CASE WHEN ${alertAfter} IS NOT NULL AND sentAt >= ${alertAfter} THEN 1 ELSE 0 END),0) AS alerts,
-      (SELECT chat FROM unread ORDER BY sentAt DESC, chat DESC LIMIT 1) AS latestChat,
-      (SELECT kind FROM unread ORDER BY sentAt DESC, chat DESC LIMIT 1) AS latestKind,
-      (SELECT text FROM unread ORDER BY sentAt DESC, chat DESC LIMIT 1) AS latestText,
-      (SELECT name FROM unread ORDER BY sentAt DESC, chat DESC LIMIT 1) AS latestName
-    FROM unread
+    ) SELECT *, COUNT(*) OVER () AS unread,
+      SUM(CASE WHEN ${alertAfter} IS NOT NULL AND sentAt >= ${alertAfter} THEN 1 ELSE 0 END) OVER () AS alerts
+      FROM unread ORDER BY sentAt DESC, id DESC LIMIT 12
   `);
-  return rows[0];
 }
 
 export async function messagePushState(userId: string) {
   return write(async (tx) => {
     const state = await tx.pushNotificationState.findUnique({ where: { userId } });
-    const count = await snapshot(tx, userId, state?.alertAfter ?? null);
-    const unreadCount = Number(count.unread);
-    return {
+    const rows = await snapshot(tx, userId, state?.alertAfter ?? null);
+    const unreadCount = Number(rows[0]?.unread ?? 0);
+    const messages = rows.map((row) => ({
+      id: row.id,
+      title: shortText(row.groupName ? `${row.name} · ${row.groupName}` : row.name, 96),
+      body: shortText(row.text || "Вложение", 240),
+      url: row.kind === "peer" ? `/id/${row.chat}` : "/",
+      alert: Boolean(state?.alertAfter && row.sentAt >= state.alertAfter),
+    })).reverse();
+    const latest = messages.at(-1);
+    const payload = {
       kind: "message_summary" as const, userId, revision: state?.revision ?? 0, unreadCount,
-      title: "Tiny Messenger", tag: `tm-messages-${userId}`,
-      body: unreadCount ? `Непрочитанных сообщений: ${unreadCount}\n${count.latestName}: ${count.latestText || "Вложение"}` : "Все сообщения прочитаны",
-      url: count.latestKind === "peer" ? `/id/${count.latestChat}` : "/",
-      hasAlerts: Number(count.alerts) > 0,
+      title: latest?.title || "Сообщения прочитаны", tag: `tm-messages-${userId}`,
+      body: latest?.body || "", url: latest?.url || "/",
+      hasAlerts: Number(rows[0]?.alerts ?? 0) > 0,
+      messages,
     };
+    // Web Push has a small payload budget. Bound both previews and UTF-8 bytes,
+    // including 4-byte emoji; retain the newest cards and the exact total count.
+    while (Buffer.byteLength(JSON.stringify(payload), "utf8") > 3400 && messages.length > 1) messages.shift();
+    return payload;
   });
 }
 
