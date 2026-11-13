@@ -1821,8 +1821,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             <div className="message-stream" ref={messageStreamRef}>
               <div className="message-stream-content">
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните с короткого</h2><p>Сообщение должно удобно читаться на небольшом экране.</p></div>}
-              {conversation.map((message) => {
+              {conversation.map((message, index) => {
                 const outgoing = message.fromUserId === user.id;
+                const previous = conversation[index - 1];
+                // A choice answer is rendered as a separate bubble after its
+                // question, so it can interrupt a run by the original sender.
+                const previousSenderId = previous && isDirectMessage(previous) && previous.answer
+                  ? previous.toUserId : previous?.fromUserId;
+                const showSender = !outgoing && previousSenderId !== message.fromUserId;
                 const selected = selectedMessageIds?.includes(message.id) ?? false;
                 const selectionMode = selectedMessageIds !== null;
                 const toggleSelection = () => toggleMessageSelection(message.id);
@@ -1875,7 +1881,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         onClick={(event) => openMessageMenu(message.id, event.currentTarget.closest(".message-bubble") as HTMLElement, event.currentTarget)}
                       ><Glyph name="smile" /></button> : null}
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
-                      {!outgoing && <span className="message-sender">{message.senderName}</span>}
+                      {showSender && <span className="message-sender">{message.senderName}</span>}
                       {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
                       <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
