@@ -48,9 +48,12 @@ export const POST = route<Context>(async (request, { params }) => {
     return { message: publicMessage(toMessageRecord(row), readStates), answeredNow };
   });
   if (result.answeredNow && result.message.answer) {
+    const prompt = Array.from(result.message.text);
     await sendPushToUser(result.message.fromUserId, {
       title: `${authenticated.name} ответил`,
-      body: `${result.message.text} — ${result.message.answer.label}`,
+      // A long question must not exceed the Web Push payload budget. Keep the
+      // chosen answer visible even when its question needs a short preview.
+      body: `${prompt.slice(0, 80).join("")}${prompt.length > 80 ? "…" : ""} — ${result.message.answer.label}`,
       tag: `answer-${result.message.id}`,
       url: `/id/${authenticated.id}`,
     }).catch((error) => console.error("Failed to notify question sender", error));
