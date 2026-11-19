@@ -303,8 +303,8 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 /* Groups share the row layout with people; the warm tint is what tells them apart. */
 .contact-avatar.group-avatar { color: var(--orange-ink); background: var(--orange-tint); }
 
-.conversation-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--veil), var(--veil)), radial-gradient(var(--green-line) 1px, transparent 1px); background-size: auto, 22px 22px; }
-.conversation-header { position: relative; z-index: 20; gap: 12px; overflow: visible; background: var(--veil-header); backdrop-filter: blur(10px); }
+.conversation-panel { --conversation-inline-inset: 22px; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--veil), var(--veil)), radial-gradient(var(--green-line) 1px, transparent 1px); background-size: auto, 22px 22px; }
+.conversation-header { padding-inline: var(--conversation-inline-inset); position: relative; z-index: 20; gap: 12px; overflow: visible; background: var(--veil-header); backdrop-filter: blur(10px); }
 .conversation-title { min-width: 0; flex: 1; }
 .conversation-title strong, .conversation-title span { display: block; }
 .conversation-title strong { font-size: 14px; }
@@ -382,7 +382,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .tiny-device i { width: 5px; height: 5px; position: absolute; bottom: 5px; background: var(--orange); border-radius: 50%; box-shadow: 14px 0 var(--orange), -14px 0 var(--orange); }
 .no-conversation { display: grid; place-items: center; align-content: center; height: 100%; }
 
-.composer { flex: 0 0 auto; padding: 13px clamp(18px, 4vw, 46px) 17px; background: var(--veil-composer); border-top: 1px solid var(--line); }
+.composer { flex: 0 0 auto; padding: 13px var(--conversation-inline-inset) 17px; background: var(--veil-composer); border-top: 1px solid var(--line); }
 .composer-line { display: flex; gap: 8px; align-items: flex-end; }
 .composer textarea { min-width: 0; min-height: 43px; max-height: 120px; flex: 1; resize: none; padding: 12px 14px; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 14px; outline: none; font-size: 12px; line-height: 1.5; box-shadow: inset 0 1px 2px rgba(31,45,37,.03); }
 .composer textarea:focus { background: var(--raised); border-color: var(--green-ink); box-shadow: 0 0 0 3px rgba(47,111,87,.1); }
@@ -683,7 +683,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .sidebar-actions { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .message-stream { padding: 18px 14px; }
   .message-bubble { max-width: 86%; }
-  .conversation-header { padding-left: 14px; padding-right: 14px; }
+  .conversation-panel { --conversation-inline-inset: 14px; }
   .selection-toolbar > strong { display: none; }
   .welcome-shell { min-height: 100svh; grid-template-columns: 1fr; grid-template-rows: auto 1fr; align-content: start; }
   .welcome-copy { min-height: auto; padding: 20px 20px 34px; }
@@ -736,7 +736,6 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .avatar-edit-button { width: 68px; padding-left: 4px; padding-right: 4px; }
   .profile-share-icon { justify-self: end; }
   .profile-save-button { flex: 1; }
-  .composer { padding-left: 12px; padding-right: 12px; }
   .conversation-actions { gap: 4px; }
   .conversation-actions .text-button { display: none; }
   .avatar-presets { grid-template-columns: repeat(5, minmax(0, 1fr)); }
