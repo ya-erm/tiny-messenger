@@ -1,0 +1,13 @@
+{
+  "name": "tiny-messenger-yandex-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {"node": ">=22.15.0"},
+  "dependencies": {
+    "@ydbjs/auth": "6.3.1",
+    "@ydbjs/core": "6.3.1",
+    "@ydbjs/query": "6.3.0",
+    "@ydbjs/value": "6.0.8",
+    "emoji-regex": "11.0.0"
+  }
+}

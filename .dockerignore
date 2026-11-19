@@ -1,6 +1,7 @@
 node_modules
 .next
 .git
+.secrets
 .env*
 !.env.example
 data/store.json

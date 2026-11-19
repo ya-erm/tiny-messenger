@@ -23,3 +23,8 @@ deploy/release.env
 deploy/release.env.previous
 
 .claude/settings.local.json
+
+# Local cloud credentials; never include in Git or function archives.
+.secrets/
+cloud/yandex/shared/
+cloud/yandex/dist/

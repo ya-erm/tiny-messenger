@@ -25,6 +25,18 @@ import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
 import type { MessageReply, MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
+import { ApiChannelSelector } from "@/components/api-channel-selector";
+import { CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, type ChannelId } from "@/lib/client-transport";
+import { applyCloudChanges, cacheProfile, cachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
+import type { Mutation } from "@/lib/mutations/protocol";
+
+function mutationBase(actorId: string) {
+  const key = "tiny-messenger:v2:device";
+  let deviceId = window.localStorage.getItem(key);
+  if (!deviceId || !isUuid(deviceId)) { deviceId = crypto.randomUUID(); window.localStorage.setItem(key, deviceId); }
+  return { protocolVersion: 1 as const, operationId: crypto.randomUUID(), actorId, deviceId, occurredAt: new Date().toISOString() };
+}
+
 const TOKEN_KEY = "tiny-messenger:v1:token";
 const THEME_KEY = "tiny-messenger:v1:theme";
 const PUSH_SUGGESTION_KEY = "tiny-messenger:v1:push-suggestion:";
@@ -226,16 +238,19 @@ function isMessageRateLimitError(error: unknown): error is ApiClientError {
     && error.code === "message_rate_limited";
 }
 
-async function fetchApi<T>(path: string, init: RequestInit = {}, token = "") {
-  const response = await fetch(path, {
+async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", channel = selectedChannel()) {
+  const response = await fetchChannel(path, {
+    signal: init.signal || AbortSignal.timeout(25_000),
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
-  });
-  const payload = (await response.json()) as ApiEnvelope<T>;
+  }, channel);
+  let payload: ApiEnvelope<T>;
+  try { payload = await response.json(); }
+  catch { throw new ApiClientError("Сервер вернул неожиданный ответ", response.status, "invalid_response"); }
   if (!payload.ok) {
     const retryAfter = Number(response.headers.get("Retry-After"));
     throw new ApiClientError(
@@ -635,6 +650,14 @@ function RateLimitDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread, onIncomingMessage, embedded = false, viewVisible = true }: { sharedIdentifier?: string; sharedLabel?: string; onUnread?: (count: number) => void; onIncomingMessage?: () => void; embedded?: boolean; viewVisible?: boolean }) {
+  const [channel, setChannel] = useState<ChannelId>("default");
+  const [installationId, setInstallationId] = useState("vps-1");
+  useEffect(() => {
+    const update = () => { syncSequence.current++; setChannel(selectedChannel()); };
+    const storage = (event: StorageEvent) => { if (event.key === CHANNEL_KEY) update(); };
+    update(); window.addEventListener(CHANNEL_EVENT, update); window.addEventListener("storage", storage);
+    return () => { window.removeEventListener(CHANNEL_EVENT, update); window.removeEventListener("storage", storage); };
+  }, []);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
@@ -721,7 +744,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
     const currentToken = explicitToken ?? token;
     try {
-      return await fetchApi<T>(path, init, currentToken);
+      return await fetchApi<T>(path, init, currentToken, channel);
     } catch (error) {
       if (isMessageRateLimitError(error)) {
         setNotice("");
@@ -733,7 +756,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       }
       throw error;
     }
-  }, [token]);
+  }, [token, channel]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -801,25 +824,33 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       setPhase("welcome");
       return;
     }
+    let cancelled = false;
     fetchApi<{ user: PublicUser }>("/api/auth/session", {
       method: "POST",
       body: JSON.stringify({ token: savedToken }),
     }, savedToken)
       .then(({ user: restored }) => {
+        if (cancelled) return;
+        void cacheProfile(savedToken, restored).catch(() => {});
         setToken(savedToken);
         setUser(restored);
         setPhase("ready");
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        if (cancelled) return;
         if (error instanceof ApiClientError && error.status === 401 && error.code === "invalid_token") {
           window.localStorage.removeItem(TOKEN_KEY);
           setPhase("welcome");
           setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
           return;
         }
-        setPhase("restore-error");
+        const restored = await cachedProfile(savedToken).catch(() => undefined);
+        if (cancelled) return;
+        if (restored) { setToken(savedToken); setUser(restored); setPhase("ready"); }
+        else setPhase("restore-error");
       });
-  }, []);
+    return () => { cancelled = true; };
+  }, [channel]);
 
   useEffect(() => {
     function changed(event: StorageEvent) {
@@ -835,18 +866,28 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!token) return;
     const sequence = ++syncSequence.current;
     const notification = notificationFocusRef.current;
-    const data = await request<{
-      contacts: PublicContact[];
-      messages: PublicMessage[];
-      hiddenPeerIds: string[];
-      groups: PublicGroup[];
-      groupMessages: PublicGroupMessage[];
-      readStates: ReadState[];
-      syncedAt: string;
-    }>("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({ limit: 100 }),
-    });
+    let data: CachedSnapshot;
+    let fullSnapshot = true;
+    const saved = user ? await channelSnapshot(user.id, channel).catch(() => undefined) : undefined;
+    if (saved?.installationId === "yandex-1" && saved.cursor && !notification) {
+      try {
+        fullSnapshot = false;
+        data = saved;
+        for (let page = 0; page < 10; page++) {
+          const batch = await request<Parameters<typeof applyCloudChanges>[1] & { hasMore: boolean }>("/api/changes", {
+            method: "POST", body: JSON.stringify({ cursor: data.cursor, limit: 100 }),
+          });
+          const applied = applyCloudChanges(data, batch);
+          data = applied.snapshot;
+          if (applied.deletedIds.length && user) await hideCachedMessages(user.id, applied.deletedIds);
+          if (!batch.hasMore) break;
+        }
+      } catch (error) {
+        if (!(error instanceof ApiClientError) || ![404, 409, 501].includes(error.status)) throw error;
+        fullSnapshot = true;
+        data = await request<CachedSnapshot>("/api/sync", { method: "POST", body: JSON.stringify({ limit: 100 }) });
+      }
+    } else data = await request<CachedSnapshot>("/api/sync", { method: "POST", body: JSON.stringify({ limit: 100 }) });
     if (notification && !data.messages.some((m) => m.id === notification.messageId) && !data.groupMessages.some((m) => m.id === notification.messageId)) {
       const resources = notification.chat ? [notification.chat.kind === "group" ? "group-messages" : "messages"] : ["messages", "group-messages"];
       for (const resource of resources) {
@@ -867,6 +908,20 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     // A slow older poll must not overwrite the fresh notification-open snapshot
     // or data belonging to a different login session.
     if (sequence !== syncSequence.current || activeTokenRef.current !== token) return data;
+    if (user) {
+      try {
+        if (fullSnapshot && saved && saved.installationId === (data.installationId || "vps-1")) {
+          const boundary = data.messages.length >= 100 ? data.messages[0]?.sentAt || "" : "";
+          const present = new Set(data.messages.map((message) => message.id));
+          const removed = saved.messages.filter((message) => message.sentAt >= boundary && !present.has(message.id)).map((message) => message.id);
+          if (removed.length) await hideCachedMessages(user.id, removed);
+        }
+        await saveSnapshot(user.id, channel, { ...data, installationId: data.installationId || "vps-1" });
+        data = await readCachedSnapshot(user.id, channel) || data;
+      } catch { /* Online messages remain usable if browser storage is unavailable. */ }
+      if (sequence !== syncSequence.current || activeTokenRef.current !== token) return data;
+    }
+    setInstallationId(data.installationId || "vps-1");
     setContacts(data.contacts);
     setMessages(data.messages);
     setHiddenPeerIds(data.hiddenPeerIds);
@@ -875,7 +930,40 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     setReadStates(data.readStates);
     observeMessageSound(data.messages, data.groupMessages, data.syncedAt);
     return data;
-  }, [observeMessageSound, request, token]);
+  }, [observeMessageSound, request, token, user, channel]);
+
+  const restoreLocalState = useCallback(async () => {
+    if (!user || !token) return;
+    const data = await readCachedSnapshot(user.id, channel);
+    if (!data || activeTokenRef.current !== token || selectedChannel() !== channel) return;
+    setInstallationId(data.installationId || "vps-1");
+    setContacts(data.contacts); setMessages(data.messages); setGroups(data.groups);
+    setGroupMessages(data.groupMessages); setHiddenPeerIds(data.hiddenPeerIds); setReadStates(data.readStates);
+  }, [user, token, channel]);
+  const flushOutbox = useCallback(async () => {
+    if (!user || !token || !navigator.onLine) return;
+    const processed = await flushMutations(user.id, (operation, target) => fetchApi<{ status?: string }>("/api/mutations", {
+      method: "POST", body: JSON.stringify(operation),
+    }, token, target));
+    if (processed) await refreshState();
+  }, [user, token, refreshState]);
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const restore = () => { void restoreLocalState().catch(() => {}); };
+    const flush = () => { void flushOutbox().catch(() => {}); };
+    const changed = () => { restore(); flush(); };
+    restore(); flush();
+    const interval = window.setInterval(flush, 5000);
+    window.addEventListener(STORAGE_EVENT, changed); window.addEventListener("online", flush);
+    return () => { window.clearInterval(interval); window.removeEventListener(STORAGE_EVENT, changed); window.removeEventListener("online", flush); };
+  }, [phase, restoreLocalState, flushOutbox]);
+  async function enqueueOperation(operation: Mutation) {
+    if (!user) throw Error("Необходимо войти");
+    await queueMutation(user.id, channel, operation, user.name);
+    await restoreLocalState();
+    void flushOutbox().catch(() => {});
+  }
+  const cloudChannel = channel === "yandex-1" || (channel === "default" && installationId === "yandex-1");
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -1050,7 +1138,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       const key = chatKey(ref);
       const summary = result.get(key) ?? { last: undefined, unread: 0 };
       summary.last = message;
-      if (message.fromUserId !== user?.id && message.sentAt > (readCursors.get(ref.id) ?? "")) summary.unread += 1;
+      if (message.fromUserId !== user?.id && (cloudChannel && isDirectMessage(message) ? message.status !== "read" && message.status !== "answered" : message.sentAt > (readCursors.get(ref.id) ?? ""))) summary.unread += 1;
       result.set(key, summary);
     };
     for (const message of messages) {
@@ -1058,7 +1146,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     }
     for (const message of groupMessages) note({ kind: "group", id: message.groupId }, message);
     return result;
-  }, [groupMessages, messages, readCursors, user?.id]);
+  }, [groupMessages, messages, readCursors, user?.id, cloudChannel]);
   useEffect(() => { if (phase === "ready") onUnread?.([...chatSummaries.values()].reduce((sum, item) => sum + item.unread, 0)); }, [chatSummaries, onUnread, phase]);
 
 
@@ -1225,6 +1313,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     syncSequence.current++;
     initialPeerSelectionHandledRef.current = false;
     window.localStorage.setItem(TOKEN_KEY, nextToken);
+    void cacheProfile(nextToken, nextUser).catch(() => {});
     setToken(nextToken);
     setUser(nextUser);
     setPhase("ready");
@@ -1440,6 +1529,15 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!selectedChat) return;
     setBusy(true);
     try {
+      if (selectedChat.kind === "peer" && input.kind === "text" && !input.attachmentIds?.length && !input.replyToId && user) {
+        const existing = await storedMutation(input.clientRequestId);
+        const base = mutationBase(user.id);
+        const operation: Mutation = existing?.operation || { ...base, operationId: input.clientRequestId, type: "message.create",
+          message: { id: input.clientRequestId, fromUserId: user.id, toUserId: selectedChat.id, kind: "text", text: input.text, sentAt: base.occurredAt } };
+        await enqueueOperation(operation);
+        setPendingSentMessage({ chat: chatKey(selectedChat), id: input.clientRequestId });
+        return;
+      }
       let sent: { message: { id: string } };
       if (selectedChat.kind === "group") {
         sent = await request<{ message: { id: string } }>("/api/group-messages", {
@@ -1490,8 +1588,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   // message, which covers everything before it. One request per new message.
   useEffect(() => {
     if (!viewVisible || !documentVisible || !selectedChat || !user || document.visibilityState !== "visible") return;
-    const latest = conversation.filter((message) => message.fromUserId !== user.id).at(-1);
-    if (!latest || latest.sentAt <= (readCursors.get(selectedChat.id) ?? "")) return;
+    const explicitReceipts = cloudChannel && selectedChat.kind === "peer";
+    const latest = conversation.filter((message) => message.fromUserId !== user.id && (!explicitReceipts || message.status !== "read")).at(-1);
+    if (!latest || (!explicitReceipts && latest.sentAt <= (readCursors.get(selectedChat.id) ?? ""))) return;
     if (readMarkInFlightRef.current === latest.id) return;
     readMarkInFlightRef.current = latest.id;
     const resource = selectedChat.kind === "group" ? "group-messages" : "messages";
@@ -1501,7 +1600,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     })
       .then(() => refreshState())
       .catch(() => { readMarkInFlightRef.current = null; });
-  }, [conversation, documentVisible, readCursors, refreshState, request, selectedChat, user, viewVisible]);
+  }, [conversation, documentVisible, readCursors, refreshState, request, selectedChat, user, viewVisible, cloudChannel]);
 
   async function answer(messageId: string, optionId: string) {
     try {
@@ -1524,6 +1623,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     const ownReaction = message.reactions.find((reaction) => reaction.userId === user?.id);
     const resource = isDirectMessage(message) ? "messages" : "group-messages";
     try {
+      if (cloudChannel && isDirectMessage(message) && user) {
+        await enqueueOperation({ ...mutationBase(user.id), type: "reaction.set", reaction: { messageId: message.id, userId: user.id, emoji: ownReaction?.emoji === emoji ? null : emoji } });
+        return;
+      }
       const { reactions } = await request<{ reactions: MessageReaction[] }>(`/api/${resource}/${message.id}/reaction`, {
         method: "PUT",
         body: JSON.stringify({ emoji: ownReaction?.emoji === emoji ? null : emoji }),
@@ -1554,10 +1657,13 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!messageDeleteIds?.length) return;
     setBusy(true);
     try {
-      await request(selectedChat?.kind === "group" ? "/api/group-messages" : "/api/messages", {
+      if (cloudChannel && selectedChat?.kind === "peer" && user) {
+        for (const messageId of messageDeleteIds) await enqueueOperation({ ...mutationBase(user.id), type: "message.delete", deletion: { messageId, scope } });
+      } else await request(selectedChat?.kind === "group" ? "/api/group-messages" : "/api/messages", {
         method: "DELETE",
         body: JSON.stringify({ ids: messageDeleteIds, scope }),
       });
+      if (user && !cloudChannel) await hideCachedMessages(user.id, messageDeleteIds).catch(() => {});
       setMessageDeleteIds(null);
       setSelectedMessageIds(null);
       await refreshState();
@@ -1657,7 +1763,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!editingMessageId) return;
     setBusy(true);
     try {
-      await request(`/api/${selectedChat?.kind === "group" ? "group-messages" : "messages"}/${editingMessageId}`, {
+      const target = messages.find((message) => message.id === editingMessageId);
+      if (cloudChannel && selectedChat?.kind === "peer" && user && target) {
+        await enqueueOperation({ ...mutationBase(user.id), type: "message.edit", message: {
+          id: target.id, fromUserId: target.fromUserId, toUserId: target.toUserId, kind: "text", text, sentAt: target.sentAt,
+        } });
+      } else await request(`/api/${selectedChat?.kind === "group" ? "group-messages" : "messages"}/${editingMessageId}`, {
         method: "PATCH",
         body: JSON.stringify({ text }),
       });
@@ -1680,6 +1791,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         method: "DELETE",
         body: JSON.stringify({ mode, ...(scope ? { scope } : {}) }),
       });
+      if (mode === "delete_history" && user) await hideCachedMessages(user.id, messages.filter((message) => [message.fromUserId, message.toUserId].includes(selectedChat.id)).map((message) => message.id)).catch(() => {});
       setDialogDeleteStage(null);
       setSelectedMessageIds(null);
       setSelectedChat(null);
@@ -2035,9 +2147,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         {message.reply?.available ? <><strong>{message.reply.senderName}</strong><span><EmojiText text={message.reply.text || "Вложение"} /></span></> : <span>Сообщение удалено или недоступно</span>}
                       </button> : null}
                       {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
-                      <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
+                      <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
-                      {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</footer> : null}
+                      {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
                       {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
                         {[...new Set(message.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
                           const label = reactionLabel(emoji);
@@ -2326,7 +2438,7 @@ function SessionRestoreError() {
         <span className="brand-mark big">tm</span>
         <h1>Сервер временно недоступен</h1>
         <p>Сохранённый токен не удалён. Проверьте соединение и попробуйте ещё раз.</p>
-        <button type="button" className="primary-button wide" onClick={() => window.location.reload()}>Повторить</button>
+        <ApiChannelSelector /><button type="button" className="primary-button wide" onClick={() => window.location.reload()}>Повторить</button>
       </section>
     </main>
   );
@@ -2434,6 +2546,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
           <button className="primary-button wide login-button" disabled={busy}>{busy ? "Проверяем…" : "Войти по токену"}</button>
         </form>
       )}
+      <ApiChannelSelector />
       {notice && <p className="inline-error">{notice}</p>}
     </section>
   </main>;
@@ -3112,6 +3225,8 @@ function SettingsDialog({
             onDone={() => setView("profile")}
           />
         ) : null}
+
+        {view === "profile" ? <ApiChannelSelector userId={user.id} /> : null}
 
         {view === "profile" ? <div className="settings-section theme-section">
           <span className="field-label">Тема</span>

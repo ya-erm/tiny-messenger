@@ -908,3 +908,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .message-reply:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .reply-banner .editing-copy { min-width: 0; }
 .reply-banner .editing-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.api-channel-settings { margin: 16px 0; padding: 16px; border: 1px solid var(--border, #8884); border-radius: 16px; }
+.api-channel-settings select { width: 100%; padding: 10px; border-radius: 10px; color: inherit; background: var(--surface, Canvas); border: 1px solid var(--border, #8884); font: inherit; }
+.api-channel-measurements { padding: 0; list-style: none; font-size: .8rem; opacity: .8; }
+.api-channel-measurements li { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
+.api-channel-queue { font-size: .85rem; }
+.api-channel-queue button { margin-top: 8px; }
+.message-local-state { font-size: 10px; white-space: nowrap; }

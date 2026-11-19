@@ -37,31 +37,31 @@ function harness(fetchImpl = async () => new Response("fresh")) {
 
 test("activation keeps the previous shell and unrelated application caches", async () => {
   const app = harness();
-  for (const name of ["another-app", "tiny-messenger-shell-v7", "tiny-messenger-shell-v8", "tiny-messenger-shell-v9"]) await app.open(name);
+  for (const name of ["another-app", "tiny-messenger-shell-v7", "tiny-messenger-shell-v9", "tiny-messenger-shell-v10"]) await app.open(name);
   let done;
   app.listeners.get("activate")({ waitUntil: (promise) => { done = promise; } });
   await done;
-  assert.deepEqual([...app.stores.keys()], ["another-app", "tiny-messenger-shell-v8", "tiny-messenger-shell-v9"]);
+  assert.deepEqual([...app.stores.keys()], ["another-app", "tiny-messenger-shell-v9", "tiny-messenger-shell-v10"]);
 });
 
 test("a new navigation fetches and caches the fresh shell without browser HTTP cache", async () => {
   const app = harness();
-  await (await app.open("tiny-messenger-shell-v8")).put("/", new Response("old"));
+  await (await app.open("tiny-messenger-shell-v9")).put("/", new Response("old"));
   assert.equal(await (await app.navigate()).text(), "fresh");
   assert.equal(app.fetches[0].init.cache, "no-store");
-  assert.equal(await (await (await app.open("tiny-messenger-shell-v9")).match("/")).text(), "fresh");
+  assert.equal(await (await (await app.open("tiny-messenger-shell-v10")).match("/")).text(), "fresh");
 });
 
 test("offline launch prefers the current shell over the previous version", async () => {
   const app = harness(async () => { throw Error("offline"); });
-  await (await app.open("tiny-messenger-shell-v8")).put("/", new Response("old"));
-  await (await app.open("tiny-messenger-shell-v9")).put("/", new Response("current"));
+  await (await app.open("tiny-messenger-shell-v9")).put("/", new Response("old"));
+  await (await app.open("tiny-messenger-shell-v10")).put("/", new Response("current"));
   assert.equal(await (await app.navigate()).text(), "current");
 });
 
 test("temporary server errors use the cached shell rather than an error page", async () => {
   const app = harness(async () => new Response("unavailable", { status: 503 }));
-  await (await app.open("tiny-messenger-shell-v9")).put("/", new Response("current"));
+  await (await app.open("tiny-messenger-shell-v10")).put("/", new Response("current"));
   assert.equal(await (await app.navigate()).text(), "current");
 });
 

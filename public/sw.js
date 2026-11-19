@@ -1,5 +1,5 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v9";
+const CACHE_NAME = "tiny-messenger-shell-v10";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 async function cachedNavigation(request) {

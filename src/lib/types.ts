@@ -129,6 +129,7 @@ export interface PublicContact {
 
 export interface PublicMessage extends MessageRecord {
   status: MessageStatus;
+  localState?: "queued" | "failed";
 }
 
 export interface PublicGroup {
