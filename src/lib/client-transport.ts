@@ -3,8 +3,8 @@ export const CHANNEL_EVENT = "tiny-messenger:channel";
 export type ChannelId = "default" | "vps-1" | "yandex-1";
 export const API_CHANNELS = [
   { id: "default", name: "По умолчанию", origin: "https://api.tm.ya-erm.ru" },
-  { id: "vps-1", name: "VPS", origin: "https://ch-1.api.tm.ya-erm.ru" },
-  { id: "yandex-1", name: "Яндекс Облако", origin: "https://ch-2.api.tm.ya-erm.ru" },
+  { id: "vps-1", name: "Канал 1", origin: "https://ch-1.api.tm.ya-erm.ru" },
+  { id: "yandex-1", name: "Канал 2", origin: "https://ch-2.api.tm.ya-erm.ru" },
 ] as const;
 // The same Yandex installation is also reachable while its custom-domain
 // quota/certificate is being configured. Never fail over to another contour.

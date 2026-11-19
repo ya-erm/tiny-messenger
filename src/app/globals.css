@@ -910,7 +910,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .reply-banner .editing-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .api-channel-settings { margin: 16px 0; padding: 16px; border: 1px solid var(--border, #8884); border-radius: 16px; }
-.api-channel-settings select { width: 100%; padding: 10px; border-radius: 10px; color: inherit; background: var(--surface, Canvas); border: 1px solid var(--border, #8884); font: inherit; }
+.api-channel-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.api-channel-controls select { flex: 1; min-width: 0; height: 40px; padding: 0 10px; border-radius: 10px; color: inherit; background: var(--surface, Canvas); border: 1px solid var(--border, #8884); font: inherit; }
+.api-channel-controls > button { flex: 0 0 auto; height: 40px; padding: 0 14px; white-space: nowrap; }
 .api-channel-measurements { padding: 0; list-style: none; font-size: .8rem; opacity: .8; }
 .api-channel-measurements li { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
 .api-channel-queue { font-size: .85rem; }
