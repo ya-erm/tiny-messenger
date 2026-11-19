@@ -69,7 +69,7 @@ export function ComposerTools({ limits, fileCount, disabled, editing, allowChoic
     if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); closeWithFocus(); }
   }}>
     {!editing ? <button ref={attachmentButton} type="button" className="composer-tool" aria-label="Прикрепить" aria-haspopup="menu" aria-expanded={open === "attachments"} aria-controls={open === "attachments" ? popupId : undefined} disabled={disabled} onClick={(event) => { focusOnOpen.current = event.detail === 0 || window.matchMedia("(hover: hover) and (pointer: fine)").matches; setOpen(open === "attachments" ? null : "attachments"); }}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 7.5-7.5a3 3 0 0 1 4.2 4.2L9.4 20a5 5 0 0 1-7.1-7.1L13 2.2" /><path d="m5 15 9-9" /></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10 11 19a4.95 4.95 0 0 1-7-7L14 2a2.83 2.83 0 0 1 4 4L8 16a1.42 1.42 0 0 1-2-2l9-9" /></svg>
     </button> : null}
     <button ref={emojiButton} type="button" className="composer-tool" aria-label="Смайлики" aria-haspopup="dialog" aria-expanded={open === "emoji"} aria-controls={open === "emoji" ? popupId : undefined} disabled={disabled} onClick={(event) => { focusOnOpen.current = event.detail === 0 || window.matchMedia("(hover: hover) and (pointer: fine)").matches; setOpen(open === "emoji" ? null : "emoji"); }}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14a4.5 4.5 0 0 0 8 0M8.5 9h.01M15.5 9h.01" /></svg>
