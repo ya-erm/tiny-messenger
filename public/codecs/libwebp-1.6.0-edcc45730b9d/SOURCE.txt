@@ -1,0 +1,2 @@
+libwebp 1.6.0 4fa21912338357f89e4fd51cf2368325b59e9bd9
+Emscripten 3.1.70

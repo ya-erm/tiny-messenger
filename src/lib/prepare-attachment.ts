@@ -1,3 +1,4 @@
+import { encodeWebpPixels } from "@/lib/webp-worker-client";
 // Client-only: image bytes never pass through the application server.
 export type AttachmentMode = "media" | "file";
 export type PreparedAttachment = { file: File; note?: string; originalSize?: number };
@@ -22,7 +23,8 @@ async function staticPng(file: File) {
   return false;
 }
 
-export async function prepareAttachment(file: File, mode: AttachmentMode): Promise<PreparedAttachment> {
+export async function prepareAttachment(file: File, mode: AttachmentMode, signal?: AbortSignal): Promise<PreparedAttachment> {
+  if (signal?.aborted) throw new DOMException("Подготовка отменена", "AbortError");
   if (mode === "file") return { file, note: "Оригинал без сжатия" };
   // Preserve animation and already-efficient/unsupported formats verbatim.
   if (!['image/jpeg', 'image/png'].includes(file.type)) return { file, note: "Оригинал" };
@@ -54,9 +56,14 @@ export async function prepareAttachment(file: File, mode: AttachmentMode): Promi
     if (!context) throw new Error("canvas_unavailable");
     context.drawImage(source, 0, 0, canvas.width, canvas.height);
     const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, type, WEBP_QUALITY));
-    let blob = await encode("image/webp");
-    // Canvas may silently return PNG when WebP encoding is unsupported. Keep
-    // alpha for PNG; for JPEG use the browser's JPEG encoder at the same quality.
+    let blob: Blob | null = null;
+    try { blob = await encode("image/webp"); } catch { /* Try the independent WASM encoder. */ }
+    if (blob?.type !== "image/webp") {
+      if (signal?.aborted) throw new DOMException("Подготовка отменена", "AbortError");
+      try { blob = await encodeWebpPixels(context.getImageData(0, 0, canvas.width, canvas.height), signal); }
+      catch { if (signal?.aborted) throw new DOMException("Подготовка отменена", "AbortError"); }
+    }
+    // A failed/blocked codec still keeps the existing JPEG/PNG/original path.
     if (blob?.type !== "image/webp") {
       blob = file.type === "image/png" && blob?.type === "image/png" ? blob : await encode(file.type);
       if (blob?.type !== file.type) throw new Error("encoder_unavailable");
@@ -72,6 +79,7 @@ export async function prepareAttachment(file: File, mode: AttachmentMode): Promi
     const note = blob.type === "image/webp" ? "WebP · качество 92%" : blob.type === "image/jpeg" ? "JPEG · качество 92%" : "PNG · без потери прозрачности";
     return { file: result, note, originalSize: file.size };
   } catch {
+    if (signal?.aborted) throw new DOMException("Подготовка отменена", "AbortError");
     // Compression is optional. Existing file-size/count checks still apply to
     // the original, so an unsupported decoder/encoder must not block sending.
     return { file, note: "Оригинал: сжатие недоступно в этом браузере" };

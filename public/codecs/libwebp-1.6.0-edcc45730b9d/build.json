@@ -1,0 +1,42 @@
+{
+  "version": "1.6.0",
+  "libwebpCommit": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
+  "emscripten": "3.1.70",
+  "emsdkCommit": "2514ec738de72cebbba7f4fdba0cf2fabcb779a5",
+  "buildRun": 44531106291,
+  "path": "public/codecs/libwebp-1.6.0-edcc45730b9d",
+  "files": {
+    "SOURCE.txt": {
+      "bytes": 73,
+      "sha256": "192ed2d22aec5d8ec99d0a941fa536a3dcb07c64e14fccf36cc1ae791d1753b6"
+    },
+    "encoder.mjs": {
+      "bytes": 8326,
+      "sha256": "af70bc61b561ad12b41e7216beca412b973e5a370f65b95d207482faa7dffe28"
+    },
+    "LICENSE.libwebp": {
+      "bytes": 1496,
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    "AUTHORS": {
+      "bytes": 3279,
+      "sha256": "f251be89fd442bd9d701360730aea163cc8e2076ff03528f59267dc2c4f8b60a"
+    },
+    "LICENSE.emscripten": {
+      "bytes": 5093,
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+    },
+    "SHA256SUMS": {
+      "bytes": 549,
+      "sha256": "c3dd3f8b0aaf34ff5db0d11bedf93411b18562b62277f3325007b0c2e8142d0a"
+    },
+    "encoder.wasm": {
+      "bytes": 184335,
+      "sha256": "b652e5f9fb8681b7057da5089345b0703234c99b82973b9b8c48cc133f8f944e"
+    },
+    "PATENTS": {
+      "bytes": 1436,
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    }
+  }
+}

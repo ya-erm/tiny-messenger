@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     const origin = new URL(process.env.TASKS_ORIGIN || "https://tasks.ya-erm.ru").origin;
     return [
       {source:"/tasks-embed",headers:[{key:"Content-Security-Policy",value:`frame-ancestors 'self' ${origin}`}]},
+      {source:"/codecs/:path*",headers:[{key:"Cache-Control",value:"public, max-age=31536000, immutable"}]},
+      {source:"/webp-encoder-worker.js",headers:[{key:"Cache-Control",value:"no-cache"}]},
       {source:"/emoji/twemoji-17.0.3/:path*",headers:[{key:"Cache-Control",value:"public, max-age=31536000, immutable"}]},
     ];
   },

@@ -7,7 +7,7 @@ import { prepareAttachment, type AttachmentMode } from "@/lib/prepare-attachment
 export type AttachmentRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 type Upload = { url: string; headers: Record<string, string>; expiresAt: string };
 type DraftFile = { localId: string; file: File; requestId: string; id?: string; uploaded?: boolean; progress: number; state: "preparing" | "uploading" | "ready" | "error"; error?: string; preparationNote?: string; originalSize?: number };
-type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: boolean; canceled: boolean; xhr?: XMLHttpRequest };
+type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: boolean; canceled: boolean; preparation: AbortController; xhr?: XMLHttpRequest };
 
 export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string }, request: AttachmentRequest) {
   const [files, setFiles] = useState<DraftFile[]>([]);
@@ -21,7 +21,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     setSelectionError("");
     return () => {
       for (const job of current.values()) {
-        job.canceled = true; job.xhr?.abort();
+        job.canceled = true; job.preparation.abort(); job.xhr?.abort();
         if (job.item.id) void request(`/api/attachments/uploads/${job.item.id}`, { method: "DELETE" }).catch(() => {});
       }
       current.clear();
@@ -39,7 +39,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
         // One decoder/canvas at a time, even when several photos are selected.
         const prepare = preparationQueue.current.then(async () => {
           if (job.canceled) return;
-          const result = await prepareAttachment(job.original, job.mode);
+          const result = await prepareAttachment(job.original, job.mode, job.preparation.signal);
           if (job.canceled) return;
           update(job, { file: result.file, preparationNote: result.note, originalSize: result.originalSize });
           job.prepared = true;
@@ -86,7 +86,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     const free = Math.max(0, maximum - jobs.current.size);
     for (const file of selected.slice(0, free)) {
       const item: DraftFile = { localId: crypto.randomUUID(), requestId: crypto.randomUUID(), file, progress: 0, state: "preparing" };
-      const job: Job = { item, original: file, mode, canceled: false };
+      const job: Job = { item, original: file, mode, canceled: false, preparation: new AbortController() };
       jobs.current.set(item.localId, job);
       setFiles((old) => [...old, item]);
       void run(job);
@@ -101,7 +101,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
   function remove(localId: string) {
     const job = jobs.current.get(localId);
     if (!job) return;
-    job.canceled = true; job.xhr?.abort();
+    job.canceled = true; job.preparation.abort(); job.xhr?.abort();
     if (job.item.id) void request(`/api/attachments/uploads/${job.item.id}`, { method: "DELETE" }).catch(() => {});
     jobs.current.delete(localId);
     setSelectionError("");

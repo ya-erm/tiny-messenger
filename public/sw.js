@@ -1,5 +1,5 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v7";
+const CACHE_NAME = "tiny-messenger-shell-v8";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -51,7 +51,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const isStaticAsset = url.pathname.startsWith("/_next/static/")
-    || /\.(?:css|js|png|svg|webp|ico|woff2?)$/i.test(url.pathname);
+    || /\.(?:css|js|mjs|wasm|png|svg|webp|ico|woff2?)$/i.test(url.pathname);
 
   if (isStaticAsset) {
     event.respondWith(
