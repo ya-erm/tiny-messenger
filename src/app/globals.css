@@ -218,6 +218,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .brand.light .brand-version { color: rgba(255,255,255,.6); }
 .brand { display: flex; align-items: center; gap: 10px; font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: -.02em; }
 .brand.light { color: #fff; }
+.brand-reload { padding: 0; border: 0; cursor: pointer; font: inherit; letter-spacing: inherit; text-align: left; }
+.brand-title.brand-reload { color: inherit; background: transparent; }
+.brand-reload:focus-visible { outline: 2px solid var(--green-ink); outline-offset: 4px; }
 .brand-mark { width: 37px; height: 37px; display: inline-grid; place-items: center; flex: 0 0 auto; color: #fff; background: var(--orange); border-radius: 12px 12px 12px 3px; font-family: "Unbounded", sans-serif; font-size: 16px; font-weight: 700; box-shadow: 0 8px 20px rgba(228, 122, 69, .28); }
 .brand-mark.big { width: 62px; height: 62px; border-radius: 19px 19px 19px 5px; font-size: 21px; }
 .icon-button, .small-icon-button, .mobile-back { display: inline-grid; place-items: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -536,7 +539,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .capability-copy strong { display: block; font-size: 11px; }
 .capability-copy p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .capability-button { min-width: 88px; align-self: center; box-shadow: none; }
-.notification-help-link { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--green-ink); text-decoration: underline; cursor: pointer; font: inherit; }
+.notification-inline-actions { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
+.notification-help-link { padding: 2px 0; border: 0; background: none; color: var(--green-ink); text-decoration: underline; cursor: pointer; font: inherit; font-size: 10px; line-height: 1.4; }
+.notification-help-link:disabled { color: var(--muted); cursor: default; }
 .notification-help { margin-top: 18px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .notification-help h3 { margin: 0 0 12px; font-size: 15px; }
 .notification-help ol { padding-left: 22px; }

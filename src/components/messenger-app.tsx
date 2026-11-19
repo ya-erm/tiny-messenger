@@ -9,6 +9,7 @@ import rateLimitSpeeding from "../../public/rate-limit-speeding.png";
 import { formatPresence, useVoiceExperience, VoiceExperienceUi } from "@/components/voice-experience";
 import { ReactionPicker } from "@/components/reaction-picker";
 import { usePushActivity, usePushNotificationSync } from "@/components/use-push-coordination";
+import { reloadApplication, useAppUpdates } from "@/components/use-app-updates";
 import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useConversationScroll } from "@/components/use-conversation-scroll";
@@ -1306,6 +1307,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     onNotice: setNotice,
   });
 
+  useAppUpdates(phase !== "ready" || busy || showSettings || Boolean(editingMessageId || replyTarget) || selectedMessageIds !== null
+    || Boolean(voice.session || voice.invitation) || voice.setupOpen || voice.setupBusy);
+
   function saveSession(nextUser: PublicUser, nextToken: string) {
     activeTokenRef.current = nextToken;
     notificationFocusRef.current = null;
@@ -1821,9 +1825,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
           {(!embedded || (pushState === "disabled" && chats.length > 0)) && <header className="sidebar-header">
             {!embedded && <div className="sidebar-brand-row">
               <div className="brand">
-                <span className="brand-mark">tm</span>
+                <button type="button" className="brand-mark brand-reload" onClick={reloadApplication} aria-label="Обновить Tiny Messenger" title="Обновить Tiny Messenger">tm</button>
                 <div className="brand-copy">
-                  <span className="brand-title">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></span>
+                  <button type="button" className="brand-title brand-reload" onClick={reloadApplication} title="Обновить Tiny Messenger">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></button>
                   {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить как приложение</button> : null}
                 </div>
               </div>
@@ -3226,8 +3230,6 @@ function SettingsDialog({
           />
         ) : null}
 
-        {view === "profile" ? <ApiChannelSelector userId={user.id} /> : null}
-
         {view === "profile" ? <div className="settings-section theme-section">
           <span className="field-label">Тема</span>
           <div className="theme-switch" role="radiogroup" aria-label="Тема">
@@ -3260,7 +3262,10 @@ function SettingsDialog({
             <div className="capability-copy">
               <strong>Уведомления</strong>
               <p>{pushCopy[pushState]}</p>
-              {pushState !== "denied" ? <button type="button" className="notification-help-link" onClick={() => setView("notifications")}>Как настроить</button> : null}
+              <div className="notification-inline-actions">
+                {pushState !== "denied" ? <button type="button" className="notification-help-link" onClick={() => setView("notifications")}>Как настроить?</button> : null}
+                <button type="button" className="notification-help-link" aria-label="Проверить уведомления" disabled={pushBusy || pushState === "checking"} onClick={() => { void onCheckPush(); }}>{pushBusy || pushState === "checking" ? "Проверяем…" : "Проверить"}</button>
+              </div>
             </div>
             {pushState === "denied" ? (
               <button type="button" className="primary-button capability-button" onClick={() => setView("notifications")}>Как разрешить</button>
@@ -3320,6 +3325,7 @@ function SettingsDialog({
             </div>
           ) : null}
         </div> : null}
+        {view === "profile" ? <ApiChannelSelector userId={user.id} /> : null}
         {view === "profile" ? <p className="emoji-credit">Эмодзи: <a href="/emoji/twemoji-17.0.3/NOTICE.txt" target="_blank" rel="noreferrer">Twemoji</a> · <a href="/emoji/twemoji-17.0.3/LICENSE-GRAPHICS.txt" target="_blank" rel="noreferrer">CC BY 4.0</a></p> : null}
       </section>
     </div>
