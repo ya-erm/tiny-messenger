@@ -930,7 +930,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .api-channel-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .api-channel-select { position: relative; flex: 1; min-width: 0; }
 .api-channel-select > svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
-.api-channel-controls select { appearance: none; width: 100%; min-width: 0; height: 40px; padding: 0 36px 0 12px; border-radius: 10px; color: var(--ink); background: var(--field); border: 1px solid var(--line); font: inherit; }
+.api-channel-controls select { appearance: none; width: 100%; min-width: 0; height: 40px; padding: 0 36px 0 12px; border-radius: 10px; color: var(--ink); background: var(--field); border: 1px solid var(--line); font: inherit; font-size: 12px; }
 .api-channel-controls > button { flex: 0 0 100px; width: 100px; height: 40px; padding: 0 12px; white-space: nowrap; }
 .api-channel-measurements { padding: 0; list-style: none; font-size: .8rem; opacity: .8; }
 .api-channel-measurements li { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
