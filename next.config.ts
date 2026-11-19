@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   async headers() {
     const origin = new URL(process.env.TASKS_ORIGIN || "https://tasks.ya-erm.ru").origin;
     return [
+      {source:"/sw.js",headers:[{key:"Cache-Control",value:"no-cache"}]},
+      {source:"/notification-state.js",headers:[{key:"Cache-Control",value:"no-cache"}]},
+      {source:"/manifest.webmanifest",headers:[{key:"Cache-Control",value:"no-cache"}]},
       {source:"/tasks-embed",headers:[{key:"Content-Security-Policy",value:`frame-ancestors 'self' ${origin}`}]},
       {source:"/codecs/:path*",headers:[{key:"Cache-Control",value:"public, max-age=31536000, immutable"}]},
       {source:"/webp-encoder-worker.js",headers:[{key:"Cache-Control",value:"no-cache"}]},

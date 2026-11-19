@@ -1,4 +1,4 @@
-// Used only by the isolated Tasks integration test, never by the app server.
+// Used by isolated TypeScript integration tests, never by the app server.
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";

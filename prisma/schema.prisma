@@ -7,6 +7,26 @@ datasource db {
   provider = "sqlite"
 }
 
+// Initial local mutation journal. No cascade: replay protection survives legacy
+// message deletion. seq is local to this installation, never a global version.
+// Peer export, snapshots and retention require a separate replication protocol.
+model MutationOperation {
+  seq             Int    @id @default(autoincrement())
+  operationId     String @unique
+  protocolVersion Int
+  actorId         String
+  deviceId        String
+  occurredAt      String
+  type            String
+  entityId        String
+  body            String
+  receivedAt      String
+  status          String @default("applied")
+
+  @@index([actorId, seq])
+  @@index([entityId])
+}
+
 // Timestamps are ISO-8601 strings rather than DateTime on purpose. The API
 // already speaks ISO strings, the read/delivery watermarks are compared as
 // strings, and SQLite has no native datetime type anyway: ISO text sorts

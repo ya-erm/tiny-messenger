@@ -1,4 +1,5 @@
 import { withReplies } from "@/lib/message-replies";
+import { applyLegacyChange } from "@/lib/mutations/legacy";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
@@ -55,7 +56,10 @@ export const PATCH = route<Context>(async (request, { params }) => {
     if (!canEditMessage(authenticated, toMessageRecord(found))) {
       throw new ApiError(403, "message_not_editable", "Можно менять только свои текстовые сообщения");
     }
-    const row = found.text !== text
+    const managed = found.text !== text && await applyLegacyChange(tx, id, authenticated, { type: "message.edit", text });
+    const row = managed
+      ? await tx.message.findUniqueOrThrow({ where: { id }, include: messageInclude })
+      : found.text !== text
       ? await tx.message.update({
         where: { id },
         data: { text, editedAt: new Date().toISOString() },
@@ -86,6 +90,7 @@ export const DELETE = route<Context>(async (request, { params }) => {
       select: { id: true },
     });
     if (!message) throw new ApiError(404, "message_not_found", "Сообщение не найдено");
+    if (await applyLegacyChange(tx, id, authenticated, { type: "message.delete", scope })) return;
     if (scope === "everyone") {
       await tx.message.delete({ where: { id } });
       return;

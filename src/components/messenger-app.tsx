@@ -738,10 +738,25 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    let disposed = false;
+    let lastWorkerCheck = 0;
+    let workerRegistration: ServiceWorkerRegistration | undefined;
+    const checkWorkerUpdate = () => {
+      if (document.visibilityState !== "visible" || !workerRegistration || Date.now() - lastWorkerCheck < 60_000) return;
+      lastWorkerCheck = Date.now();
+      void workerRegistration.update().catch(() => {});
+    };
+
     if (process.env.NODE_ENV === "production") {
-      void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((error) => {
+      void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then((registration) => {
+        if (disposed) return;
+        workerRegistration = registration;
+        checkWorkerUpdate();
+      }).catch((error) => {
         console.error("Failed to register service worker", error);
       });
+      document.addEventListener("visibilitychange", checkWorkerUpdate);
+      window.addEventListener("pageshow", checkWorkerUpdate);
     } else {
       // The worker caches /_next/static/ first-hit-wins, and Turbopack keeps dev
       // chunk URLs stable across edits, so in development it pins the first
@@ -762,6 +777,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     window.addEventListener("beforeinstallprompt", captureInstallPrompt);
     window.addEventListener("appinstalled", markInstalled);
     return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", checkWorkerUpdate);
+      window.removeEventListener("pageshow", checkWorkerUpdate);
       window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
       window.removeEventListener("appinstalled", markInstalled);
     };

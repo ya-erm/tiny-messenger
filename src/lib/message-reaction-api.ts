@@ -5,6 +5,7 @@ import { assertRateLimit } from "@/lib/rate-limit";
 import { isReactionEmoji } from "@/lib/reactions";
 import { involving, memberOf, visibleTo } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
+import { applyLegacyChange } from "@/lib/mutations/legacy";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -33,6 +34,9 @@ export function messageReactionHandler(kind: "direct" | "group") {
 
       const key = { messageId: id, userId: user.id };
       if (kind === "direct") {
+        if (await applyLegacyChange(tx, id, user, { type: "reaction.set", emoji: emoji as string | null })) {
+          return tx.messageReaction.findMany({ where: { messageId: id }, select: { userId: true, emoji: true }, orderBy: { userId: "asc" } });
+        }
         if (emoji === null) {
           await tx.messageReaction.deleteMany({ where: key });
         } else {

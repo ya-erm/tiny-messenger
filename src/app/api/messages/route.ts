@@ -1,5 +1,6 @@
 import { withReplies, assertReplyTarget, replyId } from "@/lib/message-replies";
 import { randomUUID } from "node:crypto";
+import { journalLegacyCreation, applyLegacyChange } from "@/lib/mutations/legacy";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { attachFiles, attachmentIds, messageRequestId, messageRequestHash } from "@/lib/attachments";
@@ -147,6 +148,10 @@ export const POST = route(async (request) => {
       },
       include: messageInclude,
     });
+    if (kind === "text" && !files.length && !replyToId) {
+      await journalLegacyCreation(tx, { id: row.id, fromUserId: row.fromUserId, toUserId: row.toUserId,
+        kind: "text", text: row.text, sentAt: row.sentAt });
+    }
     await attachFiles(tx, authenticated.id, { kind: "peer", id: toUserId }, files, row.id);
     await showConversation(tx, authenticated.id, toUserId);
     const readStates = await readStatesForChat(tx, authenticated.id);
@@ -189,10 +194,14 @@ export const DELETE = route(async (request) => {
       throw new ApiError(404, "message_not_found", "Одно или несколько сообщений не найдены");
     }
 
+    const unmanaged = [];
+    for (const id of uniqueIds) {
+      if (!await applyLegacyChange(tx, id, authenticated, { type: "message.delete", scope })) unmanaged.push(id);
+    }
     if (scope === "everyone") {
-      await tx.message.deleteMany({ where: { id: { in: uniqueIds } } });
+      await tx.message.deleteMany({ where: { id: { in: unmanaged } } });
     } else {
-      await deleteMessagesForUser(tx, uniqueIds, authenticated.id);
+      await deleteMessagesForUser(tx, unmanaged, authenticated.id);
     }
     return uniqueIds;
   });

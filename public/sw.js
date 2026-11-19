@@ -1,6 +1,12 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v8";
+const CACHE_NAME = "tiny-messenger-shell-v9";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+
+async function cachedNavigation(request) {
+  const current = await caches.open(CACHE_NAME);
+  return await current.match(request) || await current.match("/")
+    || await caches.match(request) || await caches.match("/");
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -10,9 +16,11 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
-      caches.keys().then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
-      )),
+      caches.keys().then((keys) => {
+        // Preserve one old shell for already-open tabs and their lazy chunks.
+        const previous = keys.filter((key) => key.startsWith("tiny-messenger-shell-") && key !== CACHE_NAME);
+        return Promise.all(previous.slice(0, -1).map((key) => caches.delete(key)));
+      }),
       self.clients.claim(),
     ]),
   );
@@ -37,15 +45,15 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
             event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)));
           }
-          return response;
+          return response.ok ? response : cachedNavigation(request).then((cached) => cached || response);
         })
-        .catch(async () => (await caches.match(request)) || caches.match("/")),
+        .catch(() => cachedNavigation(request)),
     );
     return;
   }
