@@ -2097,6 +2097,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 const toggleSelection = () => toggleMessageSelection(message.id);
                 const direct = isDirectMessage(message) ? message : null;
                 const plainText = !direct || direct.kind === "text";
+                const imageMetaId = message.attachments?.find((file) => file.preview === "image")?.id;
+                const messageMeta = <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span>;
                 return <Fragment key={message.id}>
                   <article
                     data-message-id={message.id}
@@ -2150,10 +2152,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         onClick={() => setPendingNotification({ messageId: message.replyToId!, accountId: user.id, chat: selectedEntry.ref, nonce: ++notificationNonce.current })}>
                         {message.reply?.available ? <><strong>{message.reply.senderName}</strong><span><EmojiText text={message.reply.text || "Вложение"} /></span></> : <span>Сообщение удалено или недоступно</span>}
                       </button> : null}
-                      {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
-                      <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span> : null}</p>
+                      {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} meta={file.id === imageMetaId ? messageMeta : undefined} />)}
+                      {message.text || !imageMetaId ? <p><EmojiText text={message.text} />{plainText && !imageMetaId ? messageMeta : null}</p> : null}
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
-                      {!plainText ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
+                      {!plainText && !imageMetaId ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
                       {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
                         {[...new Set(message.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
                           const label = reactionLabel(emoji);

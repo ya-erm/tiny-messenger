@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatFileSize, type AttachmentInfo, type AttachmentLimits } from "@/lib/attachment-types";
 import { prepareAttachment, type AttachmentMode } from "@/lib/prepare-attachment";
 
@@ -137,7 +137,7 @@ export function AttachmentDrafts({ draft, disabled }: { draft: ReturnType<typeof
   </div>;
 }
 
-export function AttachmentCard({ file, request, disabled }: { file: AttachmentInfo; request: AttachmentRequest; disabled: boolean }) {
+export function AttachmentCard({ file, request, disabled, meta }: { file: AttachmentInfo; request: AttachmentRequest; disabled: boolean; meta?: ReactNode }) {
   const card = useRef<HTMLDivElement>(null);
   const [thumbnail, setThumbnail] = useState("");
   const [url, setUrl] = useState("");
@@ -185,12 +185,26 @@ export function AttachmentCard({ file, request, disabled }: { file: AttachmentIn
     retried.current = true; resumeAt.current = video.current?.currentTime || 0; void preview(true);
   }
   function close() { video.current?.pause(); dialog.current?.close(); setUrl(""); }
-  return <div ref={card} className="attachment-card" onClick={(event) => { if (!disabled) event.stopPropagation(); }} onContextMenu={(event) => event.stopPropagation()} onPointerDown={(event) => { if (!disabled) event.stopPropagation(); }}>
-    {thumbnail ? <button type="button" className="attachment-thumbnail" disabled={disabled || busy} aria-label={`Открыть ${file.originalName}`} onClick={() => void preview()}><img src={thumbnail} alt="" referrerPolicy="no-referrer" onError={() => setThumbnail("")} /></button> : <span className="attachment-symbol" aria-hidden="true">{file.preview === "image" ? "▧" : file.preview === "video" ? "▷" : "↧"}</span>}
-    <div className="attachment-copy"><strong title={file.originalName}>{file.originalName}</strong><small>{formatFileSize(file.size)}</small><div className="attachment-actions">
-      {file.preview ? <button type="button" disabled={disabled || busy} onClick={() => void preview()}>{file.preview === "image" ? "Открыть изображение" : "Смотреть видео"}</button> : null}
-      <button type="button" disabled={disabled || busy} onClick={() => void download()}>Скачать</button>
-    </div>{error ? <p className="attachment-error" role="alert">{error}</p> : null}</div>
+  return <div ref={card} className={`attachment-card${file.preview === "image" ? " attachment-image-card" : ""}`} onClick={(event) => { if (!disabled) event.stopPropagation(); }} onContextMenu={(event) => event.stopPropagation()} onPointerDown={(event) => { if (!disabled) event.stopPropagation(); }}>
+    {file.preview === "image" ? <>
+      <div className="attachment-image-header">
+        <div className="attachment-image-title"><strong title={file.originalName}>{file.originalName}</strong>{meta}</div>
+        <button type="button" className="attachment-download" disabled={disabled || busy} onClick={() => void download()} aria-label={`Скачать ${file.originalName}`} title="Скачать">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" /></svg>
+        </button>
+      </div>
+      <small className="attachment-image-size">{formatFileSize(file.size)}</small>
+      <button type="button" className="attachment-thumbnail" disabled={disabled || busy} aria-label={`Открыть ${file.originalName}`} title="Открыть изображение" onClick={() => void preview()}>
+        {thumbnail ? <img src={thumbnail} alt={file.originalName} referrerPolicy="no-referrer" onError={() => setThumbnail("")} /> : <span className="attachment-image-placeholder" aria-hidden="true">▧</span>}
+      </button>
+      {error ? <p className="attachment-error" role="alert">{error}</p> : null}
+    </> : <>
+      <span className="attachment-symbol" aria-hidden="true">{file.preview === "video" ? "▷" : "↧"}</span>
+      <div className="attachment-copy"><strong title={file.originalName}>{file.originalName}</strong><small>{formatFileSize(file.size)}</small><div className="attachment-actions">
+        {file.preview ? <button type="button" disabled={disabled || busy} onClick={() => void preview()}>Смотреть видео</button> : null}
+        <button type="button" disabled={disabled || busy} onClick={() => void download()}>Скачать</button>
+      </div>{error ? <p className="attachment-error" role="alert">{error}</p> : null}</div>
+    </>}
     <dialog ref={dialog} className="attachment-viewer" aria-label={file.originalName} onCancel={close} onClose={() => { video.current?.pause(); setUrl(""); }} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
       <div className="attachment-viewer-bar"><strong>{file.originalName}</strong><button type="button" onClick={close} aria-label="Закрыть предпросмотр">×</button></div>
       {url && file.preview === "image" ? /* Native image: the bytes stay between browser and S3. */ <img src={url} alt={file.originalName} referrerPolicy="no-referrer" onError={mediaError} /> : null}
