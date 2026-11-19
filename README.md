@@ -111,6 +111,11 @@ HTTP-кеша; при отсутствии сети или временном 5x
 вкладка остаётся совместимой со старым API. Проверка кеша:
 `node --test scripts/service-worker-cache.test.mjs`.
 
+Production-сборка использует Webpack и внешние native-пакеты Prisma/SQLite,
+чтобы драйвер находил установленный `better_sqlite3.node`. Defaults контейнера
+`build-release.sh`: 768 MiB RAM, 0.35 CPU, heap 512 MiB, без swap. Лимиты можно
+переопределить через `BUILD_MEMORY_MB`, `BUILD_CPUS`, `BUILD_NODE_HEAP_MB`.
+
 Версия приложения хранится в `package.json` (SemVer) и встраивается в клиент
 при сборке. Серая подпись рядом с названием показывает именно загруженный клиент,
 поэтому старый кеш PWA не выдаёт себя за свежий релиз. PATCH повышается для

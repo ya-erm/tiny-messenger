@@ -4,6 +4,8 @@ import type { NextConfig } from "next";
 const { version } = createRequire(import.meta.url)("./package.json") as { version: string };
 
 const nextConfig: NextConfig = {
+  // Native SQLite bindings must resolve from their installed package location.
+  serverExternalPackages: ["@prisma/client", "@prisma/adapter-better-sqlite3", "better-sqlite3"],
   async headers() {
     const origin = new URL(process.env.TASKS_ORIGIN || "https://tasks.ya-erm.ru").origin;
     return [

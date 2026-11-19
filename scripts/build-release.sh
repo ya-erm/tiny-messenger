@@ -8,9 +8,9 @@ if ! git diff --quiet HEAD --; then
   echo "Commit tracked changes before building a release." >&2
   exit 1
 fi
-memory_mb=${BUILD_MEMORY_MB:-4096}
-cpus=${BUILD_CPUS:-4}
-heap_mb=${BUILD_NODE_HEAP_MB:-2048}
+memory_mb=${BUILD_MEMORY_MB:-768}
+cpus=${BUILD_CPUS:-0.35}
+heap_mb=${BUILD_NODE_HEAP_MB:-512}
 runtime_tag=${RUNTIME_IMAGE:-node:22-bookworm}
 [[ "$memory_mb" =~ ^[1-9][0-9]*$ && "$heap_mb" =~ ^[1-9][0-9]*$ && "$cpus" =~ ^[0-9]+([.][0-9]+)?$ ]] || exit 1
 [ "$heap_mb" -lt "$memory_mb" ] || { echo "Node heap must be smaller than the container memory limit" >&2; exit 1; }
