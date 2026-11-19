@@ -12,7 +12,7 @@ const actor = { id: randomUUID(), name: "Автор" };
 const recipient = { id: randomUUID(), name: "Получатель" };
 const token = "msg_" + randomUUID();
 const otherToken = "msg_" + randomUUID();
-function mutation(): Mutation {
+function mutation(): Mutation & { type: "message.create" } {
   return { protocolVersion: 1, operationId: randomUUID(), actorId: actor.id, deviceId: randomUUID(),
     occurredAt: now, type: "message.create", message: { id: randomUUID(), fromUserId: actor.id,
       toUserId: recipient.id, kind: "text", text: "Текст\n  с пробелами 👋", sentAt: now } };
@@ -33,6 +33,7 @@ try {
   });
 
   const operation = mutation();
+  operation.occurredAt = operation.message.sentAt = new Date(Date.now() - 86_400_000).toISOString();
   assert.deepEqual(parseMutation(operation), operation);
   const reversed = Object.fromEntries(Object.entries(operation).reverse());
   reversed.message = Object.fromEntries(Object.entries(operation.message).reverse());
@@ -59,6 +60,7 @@ try {
   assert.equal((await POST(request({ ...operation, message: { ...operation.message, text: "x".repeat(17000) } }))).status, 413);
   assert.deepEqual(await counts(), { messages: 0, operations: 0 });
 
+  const beforeArrival = Date.now();
   const first = await POST(request(operation));
   assert.equal(first.status, 201);
   const receipt = (await first.json()).data;
@@ -73,6 +75,8 @@ try {
   assert.equal(await read((db) => db.pushNotificationState.count()), 1);
   const revision = await read((db) => db.pushNotificationState.findUniqueOrThrow({ where: { userId: recipient.id } }));
   assert.equal(revision.revision, 1);
+  assert.equal(revision.alertAfter, operation.message.sentAt);
+  assert.ok(Date.parse(revision.dueAt!) >= beforeArrival + 6000);
   assert.equal((await POST(request({ ...operation, message: { ...operation.message, text: "Другой текст" } }))).status, 409);
   assert.equal((await POST(request({ ...operation, operationId: randomUUID() }))).status, 409);
   assert.deepEqual(await counts(), { messages: 1, operations: 1 });

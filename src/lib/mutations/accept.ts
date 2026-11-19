@@ -53,7 +53,9 @@ export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutati
         const author = await tx.user.findUniqueOrThrow({ where: { id: message.fromUserId }, select: { name: true } });
         await tx.message.create({ data: { ...message, senderName: author.name, editedAt: projection.editedAt } });
         await showConversation(tx, message.fromUserId, message.toUserId);
-        await queueMessagePush(tx, message.toUserId, receivedAt);
+        // queueMessagePush schedules from Date.now(); sentAt is its unread
+        // alert boundary and must match the message, including offline sends.
+        await queueMessagePush(tx, message.toUserId, message.sentAt);
       } else if (existing.text !== message.text || existing.editedAt !== projection.editedAt) {
         await tx.message.update({ where: { id: messageId }, data: { text: message.text, editedAt: projection.editedAt } });
       }
