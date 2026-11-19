@@ -343,7 +343,7 @@ function InstallHelpDialog({ onClose }: { onClose: () => void }) {
   </dialog>;
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit" | "smile" | "reply";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "volume" | "volumeOff" | "install" | "phone" | "edit" | "smile" | "reply";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
@@ -365,6 +365,8 @@ function Glyph({ name }: { name: GlyphName }) {
     select: <><rect x="3" y="3" width="18" height="18" rx="5" /><path d="m8 12 2.7 2.7L16.5 9" /></>,
     more: <><circle cx="12" cy="5" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.75" fill="currentColor" stroke="none" /><circle cx="12" cy="19" r="1.75" fill="currentColor" stroke="none" /></>,
     archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M9 12h6" /></>,
+    volume: <><path d="m11 5-5 4H3v6h3l5 4V5Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></>,
+    volumeOff: <><path d="m11 5-5 4H3v6h3l5 4V5Z" /><path d="m16 9 6 6m0-6-6 6" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     bellOff: <><path d="m3 3 18 18" /><path d="M18 8a6 6 0 0 0-9.3-5M6.3 6.3A6 6 0 0 0 6 8c0 7-3 7-3 9h14M10 21h4" /></>,
     install: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2" /></>,
@@ -685,7 +687,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [documentVisible, setDocumentVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const { preference: themePreference, chooseTheme } = useThemePreference();
-  const { enabled: messageSoundEnabled, choose: chooseMessageSound, observe: observeMessageSound } = useMessageSound(user?.id, onIncomingMessage);
+  const { enabled: messageSoundEnabled, choose: chooseMessageSound, observe: observeMessageSound, preview: previewMessageSound } = useMessageSound(user?.id, onIncomingMessage);
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [membersGroupId, setMembersGroupId] = useState<string | null>(null);
@@ -2307,6 +2309,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         onTheme={chooseTheme}
         messageSoundEnabled={messageSoundEnabled}
         onMessageSound={chooseMessageSound}
+        onPreviewMessageSound={previewMessageSound}
       />}
       {showRateLimit && <RateLimitDialog onClose={() => setShowRateLimit(false)} />}
       {messageDeleteIds && <ActionDialog
@@ -3063,6 +3066,7 @@ function SettingsDialog({
   onTheme,
   messageSoundEnabled,
   onMessageSound,
+  onPreviewMessageSound,
 }: {
   user: PublicUser;
   token: string;
@@ -3084,6 +3088,7 @@ function SettingsDialog({
   onTheme: (theme: ThemePreference) => void;
   messageSoundEnabled: boolean;
   onMessageSound: (enabled: boolean) => void;
+  onPreviewMessageSound: () => Promise<boolean>;
 }) {
   const [name, setName] = useState(user.name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
@@ -3144,7 +3149,7 @@ function SettingsDialog({
     || avatarBackground !== (user.avatarBackground ?? "");
   const pushCopy: Record<PushState, string> = {
     checking: "Проверяем поддержку браузера…",
-    disabled: "Включите уведомления, чтобы не пропускать новые сообщения и ответы.",
+    disabled: "Включите уведомления, чтобы не пропускать новые сообщения",
     enabled: "Подписка включена. Для доставки также нужны разрешения браузера и устройства.",
     denied: "Уведомления запрещены браузером или устройством. Откройте инструкцию, чтобы разрешить их.",
     unsupported: "Этот браузер не поддерживает push-уведомления.",
@@ -3252,7 +3257,7 @@ function SettingsDialog({
 
         {view === "profile" ? <div className="settings-section capability-section">
           <div className="capability-row">
-            <span className={`capability-icon ${messageSoundEnabled ? "active" : ""}`}><Glyph name={messageSoundEnabled ? "bell" : "bellOff"} /></span>
+            <button type="button" className={`capability-icon capability-icon-button ${messageSoundEnabled ? "active" : ""}`} aria-label="Прослушать звук новых сообщений" title="Прослушать звук" onClick={() => { void onPreviewMessageSound().then((played) => { if (!played) setNotice("Не удалось воспроизвести звук. Проверьте настройки звука в браузере."); }); }}><Glyph name={messageSoundEnabled ? "volume" : "volumeOff"} /></button>
             <div className="capability-copy">
               <strong id="message-sound-label">Звук новых сообщений</strong>
               <p id="message-sound-description">Личные и групповые сообщения. Настройка сохраняется в этом браузере.</p>

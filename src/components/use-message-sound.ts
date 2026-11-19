@@ -8,6 +8,40 @@ type AudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
 type SoundMessage = Pick<PublicMessage, "id" | "fromUserId" | "sentAt">;
 type Cursor = { at: string; ids: Set<string> };
 
+function playMessageTone(context: AudioContext, onFinished?: () => void) {
+  const start = context.currentTime + 0.01;
+  for (const [offset, frequency] of [[0, 740], [0.12, 988]]) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, start + offset);
+    gain.gain.exponentialRampToValueAtTime(0.1, start + offset + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.16);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); if (offset === 0.12) onFinished?.(); };
+    oscillator.start(start + offset);
+    oscillator.stop(start + offset + 0.18);
+  }
+}
+
+async function previewMessageSound() {
+  let context: AudioContext | undefined;
+  try {
+    const Constructor = window.AudioContext || (window as AudioWindow).webkitAudioContext;
+    if (!Constructor) return false;
+    context = new Constructor();
+    await context.resume();
+    if (context.state !== "running") { await context.close(); return false; }
+    const temporary = context;
+    playMessageTone(context, () => { void temporary.close().catch(() => {}); });
+    return true;
+  } catch {
+    if (context && context.state !== "closed") void context.close().catch(() => {});
+    return false;
+  }
+}
+
 function soundPreference() {
   try { return window.localStorage.getItem(SOUND_KEY) !== "off"; }
   catch { return true; }
@@ -107,22 +141,9 @@ export function useMessageSound(userId: string | undefined, onIncoming?: () => v
     // Drop blocked/muted sounds instead of queuing them for the next gesture.
     if (!context || context.state !== "running") return;
     try {
-      const start = context.currentTime + 0.01;
-      for (const [offset, frequency] of [[0, 740], [0.12, 988]]) {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.0001, start + offset);
-        gain.gain.exponentialRampToValueAtTime(0.1, start + offset + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.16);
-        oscillator.connect(gain).connect(context.destination);
-        oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-        oscillator.start(start + offset);
-        oscillator.stop(start + offset + 0.18);
-      }
+      playMessageTone(context);
     } catch { /* A disappearing audio device must not fail a successful sync. */ }
   }, [onIncoming, userId]);
 
-  return { enabled, choose, observe };
+  return { enabled, choose, observe, preview: previewMessageSound };
 }

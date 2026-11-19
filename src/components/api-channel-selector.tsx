@@ -36,12 +36,15 @@ export function ApiChannelSelector({ userId }: { userId?: string }) {
     }));
     setMeasurements(Object.fromEntries(values)); setChecking(false);
   }
-  return <section className="api-channel-settings" aria-label="Канал связи">
+  return <section className="settings-section api-channel-settings" aria-label="Канал связи">
     <label className="field-label" htmlFor={selectId}>Канал связи</label>
     <div className="api-channel-controls">
+      <div className="api-channel-select">
       <select id={selectId} value={channel} onChange={(event) => { const id = event.target.value as ChannelId; chooseChannel(id); setChannel(id); }}>
         {API_CHANNELS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      </div>
       <button type="button" className="secondary-button" disabled={checking} onClick={() => { void measure(); }}>{checking ? "Проверяем…" : "Проверить"}</button>
     </div>
     <ul className="api-channel-measurements" aria-live="polite">{API_CHANNELS.map((item) => <li key={item.id}><span>{item.name}</span><span>{measurements[item.id] || "Не проверен"}</span></li>)}</ul>

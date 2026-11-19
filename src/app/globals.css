@@ -533,6 +533,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .capability-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .capability-row + .capability-row { padding-top: 15px; border-top: 1px solid var(--line); }
 .capability-icon { width: 42px; height: 42px; display: grid; place-items: center; color: var(--muted); background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+.capability-icon-button { padding: 0; cursor: pointer; }
+.capability-icon-button:hover { border-color: var(--green-ink); }
+.capability-icon-button:focus-visible { outline: 2px solid var(--green-ink); outline-offset: 3px; }
 .capability-icon.active { color: var(--green-ink); background: var(--green-soft); border-color: var(--green-line-2); }
 .capability-icon .glyph { width: 19px; height: 19px; }
 .capability-copy { min-width: 0; }
@@ -924,10 +927,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .reply-banner .editing-copy { min-width: 0; }
 .reply-banner .editing-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.api-channel-settings { margin: 16px 0; padding: 16px; border: 1px solid var(--border, #8884); border-radius: 16px; }
 .api-channel-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
-.api-channel-controls select { flex: 1; min-width: 0; height: 40px; padding: 0 10px; border-radius: 10px; color: inherit; background: var(--surface, Canvas); border: 1px solid var(--border, #8884); font: inherit; }
-.api-channel-controls > button { flex: 0 0 auto; height: 40px; padding: 0 14px; white-space: nowrap; }
+.api-channel-select { position: relative; flex: 1; min-width: 0; }
+.api-channel-select > svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.api-channel-controls select { appearance: none; width: 100%; min-width: 0; height: 40px; padding: 0 36px 0 12px; border-radius: 10px; color: var(--ink); background: var(--field); border: 1px solid var(--line); font: inherit; }
+.api-channel-controls > button { flex: 0 0 100px; width: 100px; height: 40px; padding: 0 12px; white-space: nowrap; }
 .api-channel-measurements { padding: 0; list-style: none; font-size: .8rem; opacity: .8; }
 .api-channel-measurements li { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
 .api-channel-queue { font-size: .85rem; }
