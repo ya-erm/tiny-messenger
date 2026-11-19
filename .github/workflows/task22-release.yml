@@ -1,0 +1,41 @@
+name: Build task 22 reply-emoji-css release
+on:
+  push:
+    branches: ['build/tm-task-22-reply-emoji-css']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 46ca2dd86e3375055e2b3e57ce08e549b10291df
+          persist-credentials: false
+      - name: Read-only public connectivity check
+        run: |
+          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
+            echo "PUBLIC_TM_HEALTH=ok"
+          else
+            echo "PUBLIC_TM_HEALTH=unreachable"
+          fi
+      - name: Build isolated Linux release
+        env:
+          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          BUILD_CPUS: '2'
+          BUILD_MEMORY_MB: '4096'
+          BUILD_NODE_HEAP_MB: '2048'
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tm-task22-46ca2dd86e33
+          path: |
+            releases/artifacts/46ca2dd86e3375055e2b3e57ce08e549b10291df/app.tar.gz
+            releases/artifacts/46ca2dd86e3375055e2b3e57ce08e549b10291df/runtime-image
+            releases/artifacts/46ca2dd86e3375055e2b3e57ce08e549b10291df/dependencies-key
+            releases/artifacts/46ca2dd86e3375055e2b3e57ce08e549b10291df/revision
+            releases/artifacts/46ca2dd86e3375055e2b3e57ce08e549b10291df/SHA256SUMS
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
