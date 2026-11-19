@@ -8,6 +8,7 @@ import { POST } from "../src/app/api/mutations/route";
 import { PATCH, DELETE } from "../src/app/api/messages/[id]/route";
 import { DELETE as bulkDelete, POST as legacySend } from "../src/app/api/messages/route";
 import { messageReactionHandler } from "../src/lib/message-reaction-api";
+import { DELETE as deleteConversation } from "../src/app/api/conversations/[id]/route";
 
 const actor = { id: randomUUID(), name: "Автор изменений" };
 const recipient = { id: randomUUID(), name: "Получатель изменений" };
@@ -119,6 +120,13 @@ try {
   const logged = await read((db) => db.mutationOperation.findMany({ where: { entityId: legacyId } }));
   assert.deepEqual(logged.map((entry) => entry.type).sort(), ["message.create", "message.edit", "reaction.set", "message.delete", "message.delete"].sort());
   assert.equal(await read((db) => db.message.count({ where: { id: legacyId } })), 0);
+  const clearable = await legacySend(request({ toUserId: recipient.id, text: "Очистка истории" }));
+  const clearableId = (await clearable.json()).data.message.id;
+  assert.equal((await deleteConversation(request({ mode: "delete_history", scope: "me" }, actor, "DELETE"), context(recipient.id))).status, 200);
+  assert.equal(await read((db) => db.mutationOperation.count({ where: { entityId: clearableId, type: "message.delete" } })), 1);
+  assert.equal((await deleteConversation(request({ mode: "delete_history", scope: "everyone" }, recipient, "DELETE"), context(actor.id))).status, 200);
+  assert.equal(await read((db) => db.message.count({ where: { id: clearableId } })), 0);
+  assert.equal(await read((db) => db.mutationOperation.count({ where: { entityId: clearableId, type: "message.delete" } })), 2);
   console.log(`Convergence checks passed: ${orders} edit/reaction permutations, 5040 deletion permutations, out-of-order SQLite delivery, authorization and legacy API bridge.`);
 } finally {
   await prisma.$disconnect();

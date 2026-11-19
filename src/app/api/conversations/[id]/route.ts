@@ -4,6 +4,7 @@ import { write } from "@/lib/db";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { conversationBetween, deleteMessagesForUser, hideConversation } from "@/lib/store";
 import { isUuid } from "@/lib/validation";
+import { applyLegacyChange } from "@/lib/mutations/legacy";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -37,11 +38,15 @@ export const DELETE = route<Context>(async (request, { params }) => {
       select: { id: true },
     });
     const ids = conversation.map((message) => message.id);
+    const unmanaged: string[] = [];
+    for (const id of ids) {
+      if (!await applyLegacyChange(tx, id, authenticated, { type: "message.delete", scope: scope as "me" | "everyone" })) unmanaged.push(id);
+    }
     if (scope === "everyone") {
-      await tx.message.deleteMany({ where: { id: { in: ids } } });
+      await tx.message.deleteMany({ where: { id: { in: unmanaged } } });
       await hideConversation(tx, peerId, authenticated.id, now);
     } else {
-      await deleteMessagesForUser(tx, ids, authenticated.id);
+      await deleteMessagesForUser(tx, unmanaged, authenticated.id);
     }
 
     return { hidden: true, deletedCount: ids.length };
