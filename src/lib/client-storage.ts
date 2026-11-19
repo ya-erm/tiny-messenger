@@ -14,7 +14,7 @@ export interface QueuedMutation {
   senderName: string; state: "queued" | "waiting" | "accepted" | "failed";
   nextAttemptAt: number; attempts: number; error?: string;
 }
-interface SnapshotRow { key: string; userId: string; channel: ChannelId; snapshot: CachedSnapshot }
+interface SnapshotRow { key: string; userId: string; channel: ChannelId; snapshot: CachedSnapshot; receivedAt?: number }
 let databasePromise: Promise<IDBDatabase> | undefined;
 function openDatabase() {
   databasePromise ||= new Promise<IDBDatabase>((resolve, reject) => {
@@ -55,11 +55,16 @@ export async function cachedProfile(token: string): Promise<PublicUser | undefin
   return transaction("profiles", "readonly", async (store) => (await result(store.get(key)))?.user);
 }
 export async function saveSnapshot(userId: string, channel: ChannelId, snapshot: CachedSnapshot) {
-  await transaction("snapshots", "readwrite", async (store) => { await result(store.put({ key: `${userId}:${channel}`, userId, channel, snapshot })); });
+  await transaction("snapshots", "readwrite", async (store) => {
+    const rows = await result(store.index("userId").getAll(userId)) as SnapshotRow[];
+    const receivedAt = Math.max(Date.now(), ...rows.map((row) => (row.receivedAt || 0) + 1));
+    await result(store.put({ key: `${userId}:${channel}:${snapshot.installationId || channel}`, userId, channel, snapshot, receivedAt }));
+  });
   changed();
 }
 export async function channelSnapshot(userId: string, channel: ChannelId): Promise<CachedSnapshot | undefined> {
-  return transaction("snapshots", "readonly", async (store) => (await result(store.get(`${userId}:${channel}`)))?.snapshot);
+  const rows = await transaction<SnapshotRow[]>("snapshots", "readonly", (store) => result(store.index("userId").getAll(userId)));
+  return rows.filter((row) => row.channel === channel).sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))[0]?.snapshot;
 }
 export function applyCloudChanges(snapshot: CachedSnapshot, batch: {
   cursor: string; installationId: string; changes: Array<{ type: string; message?: PublicMessage; id?: string; delivered?: string[]; read?: string[] }>;
@@ -107,12 +112,14 @@ export async function readCachedSnapshot(userId: string, channel: ChannelId): Pr
     transaction<SnapshotRow[]>("snapshots", "readonly", (store) => result(store.index("userId").getAll(userId))),
     queuedMutations(userId), transaction<Array<{ messageId: string }>>("deletions", "readonly", (store) => result(store.index("userId").getAll(userId))),
   ]);
-  const preferred = rows.find((row) => row.channel === channel)?.snapshot;
+  rows.sort((a, b) => (a.receivedAt || 0) - (b.receivedAt || 0));
+  const preferredRow = rows.findLast((row) => row.channel === channel);
+  const preferred = preferredRow?.snapshot;
   if (!rows.length && !operations.length) return undefined;
   const contacts = new Map<string, PublicContact>(); const groups = new Map<string, PublicGroup>();
   const messages = new Map<string, PublicMessage>(); const groupMessages = new Map<string, PublicGroupMessage>();
   // Prefer the active contour's version, retaining messages absent from it.
-  for (const row of [...rows.filter((row) => row.channel !== channel), ...rows.filter((row) => row.channel === channel)]) {
+  for (const row of [...rows.filter((row) => row !== preferredRow), ...(preferredRow ? [preferredRow] : [])]) {
     row.snapshot.contacts.forEach((item) => contacts.set(item.userId, item));
     row.snapshot.groups.forEach((item) => groups.set(item.id, item));
     row.snapshot.messages.forEach((item) => messages.set(item.id, item));

@@ -61,6 +61,11 @@ try {
     t.chooseChannel('yandex-1');
     check(t.channelUrl('/api/messages').startsWith('https://ch-2.api.tm.'), 'cloud chosen');
     check(t.channelUrl('/api/rtc/config') === '/api/rtc/config', 'voice pinned to local VPS in development');
+    const aliasUser = crypto.randomUUID();
+    await s.saveSnapshot(aliasUser, 'default', { ...snapshot, installationId: 'vps-1', messages: [{ ...incoming, id: crypto.randomUUID(), text: 'Alias VPS' }] });
+    await s.saveSnapshot(aliasUser, 'default', { ...snapshot, messages: [{ ...incoming, id: crypto.randomUUID(), text: 'Alias cloud' }] });
+    check((await s.readCachedSnapshot(aliasUser, 'default')).messages.length === 2, 'default DNS flip retains both installation histories');
+    check((await s.channelSnapshot(aliasUser, 'default')).installationId === 'yandex-1', 'cursor follows most recent alias installation');
     const originalFetch = window.fetch;
     const requests = [];
     window.fetch = async (url) => {
