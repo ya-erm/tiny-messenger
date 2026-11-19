@@ -188,12 +188,11 @@ export function AttachmentCard({ file, request, disabled, meta }: { file: Attach
   return <div ref={card} className={`attachment-card${file.preview === "image" ? " attachment-image-card" : ""}`} onClick={(event) => { if (!disabled) event.stopPropagation(); }} onContextMenu={(event) => event.stopPropagation()} onPointerDown={(event) => { if (!disabled) event.stopPropagation(); }}>
     {file.preview === "image" ? <>
       <div className="attachment-image-header">
-        <div className="attachment-image-title"><strong title={file.originalName}>{file.originalName}</strong>{meta}</div>
+        <div className="attachment-image-title"><strong title={file.originalName}>{file.originalName}</strong><small className="attachment-image-size">{formatFileSize(file.size)}</small>{meta}</div>
         <button type="button" className="attachment-download" disabled={disabled || busy} onClick={() => void download()} aria-label={`Скачать ${file.originalName}`} title="Скачать">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" /></svg>
         </button>
       </div>
-      <small className="attachment-image-size">{formatFileSize(file.size)}</small>
       <button type="button" className="attachment-thumbnail" disabled={disabled || busy} aria-label={`Открыть ${file.originalName}`} title="Открыть изображение" onClick={() => void preview()}>
         {thumbnail ? <img src={thumbnail} alt={file.originalName} referrerPolicy="no-referrer" onError={() => setThumbnail("")} /> : <span className="attachment-image-placeholder" aria-hidden="true">▧</span>}
       </button>

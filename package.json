@@ -1,6 +1,6 @@
 {
   "name": "esp32-messenger",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
