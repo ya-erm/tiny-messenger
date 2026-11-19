@@ -1,3 +1,4 @@
+import { withReplies } from "@/lib/message-replies";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
@@ -32,7 +33,7 @@ export const GET = route<Context>(async (request, { params }) => {
     const group = toGroupRecord(row.group);
     return { message: publicGroupMessage(toGroupMessageRecord(row), group, await readStatesForChat(db, group.id)), group: publicGroup(group) };
   });
-  return ok(result);
+  return ok({ ...result, message: (await read((db) => withReplies(db, authenticated.id, [result.message])))[0] });
 });
 
 async function findAccessible(tx: Prisma.TransactionClient, id: string, userId: string) {
@@ -71,7 +72,7 @@ export const PATCH = route<Context>(async (request, { params }) => {
     return publicGroupMessage(row, group, readStates);
   });
 
-  return ok({ message });
+  return ok({ message: (await read((db) => withReplies(db, authenticated.id, [message])))[0] });
 });
 
 export const DELETE = route<Context>(async (request, { params }) => {

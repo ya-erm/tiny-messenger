@@ -47,6 +47,7 @@ export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclu
 export function toMessageRecord(row: MessageRow): MessageRecord {
   return {
     ...(row.attachments?.length ? { attachments: row.attachments.map(attachmentInfo) } : {}),
+    ...(row.replyToId ? { replyToId: row.replyToId } : {}),
     id: row.id,
     fromUserId: row.fromUserId,
     toUserId: row.toUserId,
@@ -96,6 +97,7 @@ type GroupMessageRow = Prisma.GroupMessageGetPayload<{ include: typeof groupMess
 export function toGroupMessageRecord(row: GroupMessageRow): GroupMessageRecord {
   return {
     ...(row.attachments?.length ? { attachments: row.attachments.map(attachmentInfo) } : {}),
+    ...(row.replyToId ? { replyToId: row.replyToId } : {}),
     id: row.id,
     groupId: row.groupId,
     fromUserId: row.fromUserId,

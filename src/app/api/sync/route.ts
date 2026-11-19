@@ -1,3 +1,4 @@
+import { withReplies } from "@/lib/message-replies";
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
@@ -131,5 +132,8 @@ export const POST = route(async (request) => {
     })
     : createPayload(snapshot);
 
-  return ok(payload);
+  return ok(await read(async (db) => ({ ...payload,
+    messages: await withReplies(db, authenticated.id, payload.messages),
+    groupMessages: await withReplies(db, authenticated.id, payload.groupMessages),
+  })));
 });

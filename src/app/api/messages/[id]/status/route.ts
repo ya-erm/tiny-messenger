@@ -1,6 +1,7 @@
+import { withReplies } from "@/lib/message-replies";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { write } from "@/lib/db";
+import { read, write } from "@/lib/db";
 import { publicMessage } from "@/lib/domain";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { advanceReadState, messageInclude, readStatesForChat, toMessageRecord, visibleTo } from "@/lib/store";
@@ -33,5 +34,5 @@ export const PATCH = route<Context>(async (request, { params }) => {
     const readStates = await readStatesForChat(tx, row.fromUserId);
     return publicMessage(toMessageRecord(row), readStates);
   });
-  return ok({ message });
+  return ok({ message: (await read((db) => withReplies(db, authenticated.id, [message])))[0] });
 });

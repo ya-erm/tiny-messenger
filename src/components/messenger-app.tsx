@@ -23,7 +23,7 @@ import { LIMITS } from "@/lib/constants";
 import { isUuid } from "@/lib/validation";
 import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
-import type { MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
+import type { MessageReply, MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
 const TOKEN_KEY = "tiny-messenger:v1:token";
 const THEME_KEY = "tiny-messenger:v1:theme";
@@ -165,7 +165,7 @@ type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; a
 type ChatRef = { kind: "peer" | "group"; id: string };
 type ChatEntry = { ref: ChatRef; name: string; avatarUrl?: string; avatarBackground?: string; peer?: Peer; group?: PublicGroup };
 type ChatMessage = PublicMessage | PublicGroupMessage;
-type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string };
+type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string; replyToId?: string };
 type ReadState = { chatId: string; lastDeliveredAt?: string; lastReadAt?: string };
 type NotificationOpen = { messageId: string; accountId?: string; chat?: ChatRef; nonce: number };
 
@@ -327,12 +327,13 @@ function InstallHelpDialog({ onClose }: { onClose: () => void }) {
   </dialog>;
 }
 
-type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit" | "smile";
+type GlyphName = "plus" | "settings" | "copy" | "back" | "send" | "user" | "users" | "refresh" | "eye" | "eyeOff" | "logout" | "close" | "share" | "trash" | "select" | "more" | "archive" | "bell" | "bellOff" | "install" | "phone" | "edit" | "smile" | "reply";
 
 function Glyph({ name }: { name: GlyphName }) {
   const paths = {
     plus: <path d="M12 5v14M5 12h14" />,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.37.72.66 1 .3.29.69.43 1.1.4h.1v4h-.1c-.41-.03-.8.11-1.1.4-.29.28-.51.62-.66 1Z" /></>,
+    reply: <><path d="m9 10-5 5 5 5" /><path d="M4 15h9a7 7 0 0 0 7-7V4" /></>,
     copy: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></>,
     back: <path d="m15 18-6-6 6-6" />,
     send: <><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>,
@@ -683,6 +684,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [sendCooldownSeconds, setSendCooldownSeconds] = useState(0);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[] | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{ chat: string; id: string } | null>(null);
+  useEffect(() => {
+    if (!selectedChat || replyTarget?.chat !== chatKey(selectedChat) || editingMessageId) setReplyTarget(null);
+  }, [selectedChat, editingMessageId, replyTarget?.chat]);
   const [messageMenu, setMessageMenu] = useState<{ id: string; style: CSSProperties; above: boolean } | null>(null);
   const [reactingMessageIds, setReactingMessageIds] = useState<string[]>([]);
   const reactionRequestsRef = useRef(new Set<string>());
@@ -1421,7 +1426,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       if (selectedChat.kind === "group") {
         sent = await request<{ message: { id: string } }>("/api/group-messages", {
           method: "POST",
-          body: JSON.stringify({ groupId: selectedChat.id, text: input.text, attachmentIds: input.attachmentIds, clientRequestId: input.clientRequestId }),
+          body: JSON.stringify({ groupId: selectedChat.id, text: input.text, attachmentIds: input.attachmentIds, clientRequestId: input.clientRequestId, replyToId: input.replyToId }),
         });
       } else {
         sent = await request<{ message: { id: string } }>("/api/messages", {
@@ -1432,6 +1437,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             kind: input.kind,
             attachmentIds: input.attachmentIds,
             clientRequestId: input.clientRequestId,
+            replyToId: input.replyToId,
             ...(input.kind === "choice" ? { options: [
               { id: "1", label: input.left },
               { id: "2", label: input.right },
@@ -2005,6 +2011,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                       ><Glyph name="smile" /></button> : null}
                       {selectionMode ? <span className="message-selection-mark"><Glyph name="select" /></span> : null}
                       {showSender && <span className="message-sender">{message.senderName}</span>}
+                      {message.replyToId ? <button type="button" className="message-reply" disabled={selectionMode || !message.reply?.available}
+                        aria-label={message.reply?.available ? "Перейти к исходному сообщению" : "Исходное сообщение недоступно"}
+                        onClick={() => setPendingNotification({ messageId: message.replyToId!, accountId: user.id, chat: selectedEntry.ref, nonce: ++notificationNonce.current })}>
+                        {message.reply?.available ? <><strong>{message.reply.senderName}</strong><span><EmojiText text={message.reply.text || "Вложение"} /></span></> : <span>Сообщение удалено или недоступно</span>}
+                      </button> : null}
                       {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} />)}
                       <p><EmojiText text={message.text} />{plainText ? <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && <StatusTicks status={message.status} />}</span> : null}</p>
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
@@ -2068,6 +2079,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                   onSelect={(emoji) => void reactToMessage(target, emoji)}
                 />
                 <button type="button" role="menuitem" onClick={() => {
+                  setMessageMenu(null); setEditingMessageId(null); setSelectedMessageIds(null);
+                  setReplyTarget({ chat: chatKey(selectedEntry.ref), id: target.id });
+                }}><Glyph name="reply" />Ответить</button>
+                <button type="button" role="menuitem" onClick={() => {
                   setMessageMenu(null);
                   void navigator.clipboard.writeText(target.text)
                     .then(() => setNotice("Текст скопирован"))
@@ -2093,6 +2108,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               sendCooldownSeconds={sendCooldownSeconds}
               allowChoice={Boolean(selectedPeer)}
               onSend={sendMessage}
+              reply={replyTarget?.chat === chatKey(selectedEntry.ref) ? (() => {
+                const original = conversation.find((message) => message.id === replyTarget.id);
+                return original ? { id: original.id, available: true, senderName: original.senderName, text: original.text || original.attachments?.[0]?.originalName || "Вложение" }
+                  : { id: replyTarget.id, available: false };
+              })() : null}
+              onCancelReply={() => setReplyTarget(null)}
               editing={editingMessageId ? conversation.find((message) => message.id === editingMessageId) ?? null : null}
               onEdit={editMessage}
               onCancelEdit={() => setEditingMessageId(null)}
@@ -2400,9 +2421,12 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
   </main>;
 }
 
-function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSend, editing, onEdit, onCancelEdit }: { chat: ChatRef; request: AttachmentRequest; busy: boolean; sendCooldownSeconds: number; allowChoice: boolean; onSend: (input: SendInput) => Promise<void>; editing: { text: string } | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
+function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSend, reply, onCancelReply, editing, onEdit, onCancelEdit }: { chat: ChatRef; request: AttachmentRequest; busy: boolean; sendCooldownSeconds: number; allowChoice: boolean; onSend: (input: SendInput) => Promise<void>; reply: MessageReply | null; onCancelReply: () => void; editing: { text: string } | null; onEdit: (text: string) => Promise<void>; onCancelEdit: () => void }) {
   const draft = useAttachmentDraft(chat, request);
   const input = useRef<HTMLTextAreaElement>(null);
+  const replyRef = useRef(reply);
+  replyRef.current = reply;
+  useEffect(() => { if (reply?.id) input.current?.focus({ preventScroll: true }); }, [reply?.id]);
   const selection = useRef({ start: 0, end: 0 });
   const [limits, setLimits] = useState<AttachmentLimits | null>(null);
   const sendAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
@@ -2470,14 +2494,20 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
       return;
     }
     try {
-      const fingerprint = JSON.stringify({ chat, text, kind, left, right, files: draft.ids });
+      const fingerprint = JSON.stringify({ chat, text, kind, left, right, files: draft.ids, replyToId: reply?.id });
       if (sendAttempt.current?.fingerprint !== fingerprint) sendAttempt.current = { fingerprint, id: crypto.randomUUID() };
       const scope = chatKey(chat);
-      await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id });
+      const replyingTo = reply?.id;
+      await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id, replyToId: replyingTo });
+      if (currentChat.current === scope && replyRef.current?.id === replyingTo) onCancelReply();
       if (currentChat.current === scope) { setText(""); setKind("text"); selection.current = { start: 0, end: 0 }; draft.clearSent(); sendAttempt.current = null; }
     } catch { /* The parent displays the API error. */ }
   }
   return <form className="composer" onSubmit={submit}>
+    {!editing && reply ? <div className="editing-banner reply-banner">
+      <Glyph name="reply" /><div className="editing-copy"><strong>Ответ{reply.available ? ` · ${reply.senderName}` : ""}</strong><small>{reply.available ? reply.text : "Сообщение удалено или недоступно"}</small></div>
+      <button type="button" className="small-icon-button" onClick={onCancelReply} aria-label="Отменить ответ"><Glyph name="close" /></button>
+    </div> : null}
     {editing ? (
       <div className="editing-banner">
         <Glyph name="edit" />
@@ -2487,7 +2517,7 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
     ) : kind === "choice" ? (
       <div className="composer-poll-heading"><strong>Опрос</strong><span>Два варианта ответа</span><button type="button" className="small-icon-button" aria-label="Отменить опрос" onClick={() => setKind("text")}><Glyph name="close" /></button></div>
     ) : null}
-    <div className="composer-line"><ComposerTools key={`${chatKey(chat)}:${Boolean(editing)}`} limits={limits} fileCount={draft.files.length} disabled={busy} editing={Boolean(editing)} allowChoice={allowChoice} onFiles={(files, mode) => { if (limits) draft.select(files, limits, mode); }} onPoll={() => { setKind("choice"); input.current?.focus(); }} onEmoji={insertEmoji} /><textarea ref={input} aria-label="Сообщение" rows={1} onSelect={(event) => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onPaste={pasteFiles} required={Boolean(editing) || !draft.ids.length} value={text} onChange={(event) => { setText(event.target.value); selection.current = { start: event.target.selectionStart, end: event.target.selectionEnd }; }} onKeyDown={(event) => { if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте вопрос…" : "Сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
+    <div className="composer-line"><ComposerTools key={`${chatKey(chat)}:${Boolean(editing)}`} limits={limits} fileCount={draft.files.length} disabled={busy} editing={Boolean(editing)} allowChoice={allowChoice} onFiles={(files, mode) => { if (limits) draft.select(files, limits, mode); }} onPoll={() => { setKind("choice"); input.current?.focus(); }} onEmoji={insertEmoji} /><textarea ref={input} aria-label="Сообщение" rows={1} onSelect={(event) => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onPaste={pasteFiles} required={Boolean(editing) || !draft.ids.length} value={text} onChange={(event) => { setText(event.target.value); selection.current = { start: event.target.selectionStart, end: event.target.selectionEnd }; }} onKeyDown={(event) => { if (event.key === "Escape" && !editing && reply) { event.preventDefault(); onCancelReply(); return; } if (event.key === "Escape" && editing) { event.preventDefault(); onCancelEdit(); return; } if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={editing ? "Новый текст сообщения…" : kind === "choice" ? "Задайте вопрос…" : "Сообщение…"} /><button className={`send-button ${cooling ? "cooldown" : ""}`} disabled={busy || cooling || (!editing && draft.blocked) || (!text.trim() && (Boolean(editing) || !draft.ids.length))} aria-label={editing ? "Сохранить изменение" : cooling ? `Отправка будет доступна через ${sendCooldownSeconds} с` : "Отправить"} data-tooltip={editing ? "Сохранить" : cooling ? "Слишком быстро" : "Отправить"}>{editing ? <Glyph name="select" /> : cooling ? <span className="send-countdown" aria-hidden="true">{sendCooldownSeconds}</span> : <Glyph name="send" />}</button></div>
     {!editing ? <AttachmentDrafts draft={draft} disabled={busy} /> : null}
     {!editing && kind === "choice" && <div className="option-fields"><label><span>Вариант 1 <small>{Array.from(left).length}/{LIMITS.option}</small></span><input required value={left} maxLength={LIMITS.option} onChange={(event) => setLeft(event.target.value)} /></label><label><span>Вариант 2 <small>{Array.from(right).length}/{LIMITS.option}</small></span><input required value={right} maxLength={LIMITS.option} onChange={(event) => setRight(event.target.value)} /></label></div>}
   </form>;

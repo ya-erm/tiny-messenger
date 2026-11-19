@@ -31,10 +31,19 @@ export interface MessageReaction {
   emoji: string;
 }
 
+export interface MessageReply {
+  id: string;
+  available: boolean;
+  senderName?: string;
+  text?: string;
+}
+
 // "Deleted for me" marks live in their own table and are applied as a query
 // filter, so a record the caller can see never carries them.
 export interface MessageRecord {
   attachments?: AttachmentInfo[];
+  replyToId?: string;
+  reply?: MessageReply;
   id: string;
   fromUserId: string;
   toUserId: string;
@@ -67,6 +76,8 @@ export interface GroupRecord {
 
 export interface GroupMessageRecord {
   attachments?: AttachmentInfo[];
+  replyToId?: string;
+  reply?: MessageReply;
   id: string;
   groupId: string;
   fromUserId: string;

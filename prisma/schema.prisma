@@ -68,6 +68,7 @@ model Message {
   answeredAt  String?
   clientRequestId String?
   requestHash     String?
+  replyToId       String?
 
   from      User              @relation("MessageSender", fields: [fromUserId], references: [id], onDelete: Cascade)
   to        User              @relation("MessageRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
@@ -152,6 +153,7 @@ model GroupMessage {
   editedAt   String?
   clientRequestId String?
   requestHash     String?
+  replyToId       String?
 
   group     Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   from      User                   @relation(fields: [fromUserId], references: [id], onDelete: Cascade)

@@ -1,6 +1,7 @@
+import { withReplies } from "@/lib/message-replies";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
-import { write } from "@/lib/db";
+import { read, write } from "@/lib/db";
 import { publicMessage } from "@/lib/domain";
 import { sendPushToUser } from "@/lib/push";
 import { assertRateLimit } from "@/lib/rate-limit";
@@ -58,5 +59,5 @@ export const POST = route<Context>(async (request, { params }) => {
       url: `/id/${authenticated.id}`,
     }).catch((error) => console.error("Failed to notify question sender", error));
   }
-  return ok({ message: result.message });
+  return ok({ message: (await read((db) => withReplies(db, authenticated.id, [result.message])))[0] });
 });

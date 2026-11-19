@@ -1,3 +1,4 @@
+import { withReplies, assertReplyTarget, replyId } from "@/lib/message-replies";
 import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
@@ -41,7 +42,7 @@ export const GET = route(async (request) => {
     const readStates = await readStatesForChat(db, groupId);
     return rows.reverse().map((row) => publicGroupMessage(toGroupMessageRecord(row), group, readStates));
   });
-  return ok({ messages });
+  return ok({ messages: await read((db) => withReplies(db, authenticated.id, messages)) });
 });
 
 export const POST = route(async (request) => {
@@ -53,13 +54,14 @@ export const POST = route(async (request) => {
   const text = cleanString(body.text);
   const files = attachmentIds(body.attachmentIds);
   const clientRequestId = messageRequestId(body.clientRequestId);
+  const replyToId = replyId(body.replyToId);
 
   if (!isUuid(groupId)) throw new ApiError(422, "invalid_group_id", "Укажите UUID группы");
   if (!validLength(text, files.length ? 0 : 1, LIMITS.message)) {
     throw new ApiError(422, "invalid_text", "Сообщение не должно быть пустым");
   }
 
-  const requestHash = messageRequestHash({ groupId, text, files: [...files].sort() });
+  const requestHash = messageRequestHash({ groupId, text, files: [...files].sort(), ...(replyToId ? { replyToId } : {}) });
   const { message } = await write(async (tx) => {
     const found = await findGroupForMember(tx, groupId, authenticated.id);
     if (!found) throw new ApiError(404, "group_not_found", "Группа не найдена");
@@ -70,6 +72,7 @@ export const POST = route(async (request) => {
         return { message: publicGroupMessage(toGroupMessageRecord(existing), found, await readStatesForChat(tx, groupId)), group: found, replayed: true };
       }
     }
+    await assertReplyTarget(tx, authenticated.id, { kind: "group", id: groupId }, replyToId);
     const row = await tx.groupMessage.create({
       include: groupMessageInclude,
       data: {
@@ -79,7 +82,7 @@ export const POST = route(async (request) => {
         senderName: authenticated.name,
         text,
         sentAt: new Date().toISOString(),
-        clientRequestId, requestHash,
+        clientRequestId, requestHash, replyToId,
       },
     });
     await attachFiles(tx, authenticated.id, { kind: "group", id: groupId }, files, row.id);
@@ -89,7 +92,7 @@ export const POST = route(async (request) => {
     return { message: publicGroupMessage(toGroupMessageRecord(saved), found, readStates), group: found, replayed: false };
   });
 
-  return ok({ message }, { status: 201 });
+  return ok({ message: (await read((db) => withReplies(db, authenticated.id, [message])))[0] }, { status: 201 });
 });
 
 export const DELETE = route(async (request) => {

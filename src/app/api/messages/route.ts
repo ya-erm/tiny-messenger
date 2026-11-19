@@ -1,3 +1,4 @@
+import { withReplies, assertReplyTarget, replyId } from "@/lib/message-replies";
 import { randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate } from "@/lib/auth";
@@ -57,7 +58,7 @@ export const GET = route(async (request) => {
     const readStates = await readStatesAround(db, authenticated.id);
     return rows.reverse().map((row) => publicMessage(toMessageRecord(row), readStates));
   });
-  return ok({ messages });
+  return ok({ messages: await read((db) => withReplies(db, authenticated.id, messages)) });
 });
 
 export const POST = route(async (request) => {
@@ -70,6 +71,7 @@ export const POST = route(async (request) => {
   const kind = body.kind ?? "text";
   const files = attachmentIds(body.attachmentIds);
   const clientRequestId = messageRequestId(body.clientRequestId);
+  const replyToId = replyId(body.replyToId);
 
   if (!isUuid(toUserId)) throw new ApiError(422, "invalid_recipient", "Укажите UUID получателя");
   if (toUserId === authenticated.id) throw new ApiError(422, "self_message", "Отправка самому себе отключена");
@@ -117,7 +119,7 @@ export const POST = route(async (request) => {
     }
   }
 
-  const requestHash = messageRequestHash({ toUserId, text, kind, options, files: [...files].sort() });
+  const requestHash = messageRequestHash({ toUserId, text, kind, options, files: [...files].sort(), ...(replyToId ? { replyToId } : {}) });
   const { message } = await write(async (tx) => {
     if (clientRequestId) {
       const existing = await tx.message.findUnique({ where: { fromUserId_clientRequestId: { fromUserId: authenticated.id, clientRequestId } }, include: messageInclude });
@@ -128,6 +130,7 @@ export const POST = route(async (request) => {
     }
     const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true } });
     if (!recipient) throw new ApiError(404, "recipient_not_found", "Получатель не найден");
+    await assertReplyTarget(tx, authenticated.id, { kind: "peer", id: toUserId }, replyToId);
     const row = await tx.message.create({
       data: {
         id: randomUUID(),
@@ -137,7 +140,7 @@ export const POST = route(async (request) => {
         text,
         kind,
         sentAt: new Date().toISOString(),
-        clientRequestId, requestHash,
+        clientRequestId, requestHash, replyToId,
         ...(options
           ? { options: { create: options.map((option, position) => ({ optionId: option.id, label: option.label, position })) } }
           : {}),
@@ -151,7 +154,7 @@ export const POST = route(async (request) => {
     await queueMessagePush(tx, toUserId, row.sentAt);
     return { message: publicMessage(toMessageRecord(saved), readStates), replayed: false };
   });
-  return ok({ message }, { status: 201 });
+  return ok({ message: (await read((db) => withReplies(db, authenticated.id, [message])))[0] }, { status: 201 });
 });
 
 export const DELETE = route(async (request) => {

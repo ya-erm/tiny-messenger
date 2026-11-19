@@ -394,7 +394,7 @@ async function handleDeviceConnection(socket, request, { rest }) {
         if (!toUserId || (!text && !frame.attachmentIds?.length)) throw Object.assign(new Error("Некорректное сообщение"), { code: "invalid_message" });
         await rest(token, "/api/messages", {
           method: "POST",
-          body: JSON.stringify({ toUserId, kind: "text", text, attachmentIds: frame.attachmentIds, clientRequestId: frame.clientRequestId }),
+          body: JSON.stringify({ toUserId, kind: "text", text, attachmentIds: frame.attachmentIds, clientRequestId: frame.clientRequestId, replyToId: frame.replyToId }),
         });
         const readMessageId = safeString(frame.readMessageId, 128);
         if (readMessageId) {
