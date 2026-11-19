@@ -15,11 +15,22 @@ export function usePushActivity(userId: string | undefined, visible: boolean, re
     let lastActivity = document.hasFocus() ? Date.now() : 0;
     let lastSent = 0;
     let previous = false;
+    let sequence = 0;
     const send = (force = false) => {
       const active = visibleRef.current && document.visibilityState === "visible" && document.hasFocus() && Date.now() - lastActivity < 30_000;
       if (!force && active === previous && (!active || Date.now() - lastSent < 10_000)) return;
       previous = active; lastSent = Date.now();
-      void request("/api/push/activity", { method: "POST", keepalive: true, body: JSON.stringify({ deviceId, active }) }).catch(() => {});
+      const sentSequence = ++sequence;
+      const activityAt = lastActivity;
+      void (async () => {
+        let endpoint: string | undefined;
+        try {
+          const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+          endpoint = (await registration?.pushManager.getSubscription())?.endpoint;
+        } catch { /* Activity grace still works without a push-capable device. */ }
+        if (sentSequence !== sequence) return;
+        await request("/api/push/activity", { method: "POST", keepalive: true, body: JSON.stringify({ deviceId, active, activityAt, ...(endpoint ? { endpoint } : {}) }) });
+      })().catch(() => {});
     };
     const gesture = (event: Event) => { if (event.isTrusted) { lastActivity = Date.now(); send(); } };
     const focus = () => { if (document.hasFocus()) lastActivity = Date.now(); send(true); };
@@ -33,6 +44,7 @@ export function usePushActivity(userId: string | undefined, visible: boolean, re
     send(true);
     return () => {
       refreshRef.current = () => {};
+      sequence++;
       clearInterval(timer);
       for (const name of ["pointerdown", "keydown", "wheel", "touchstart"]) window.removeEventListener(name, gesture);
       window.removeEventListener("focus", focus); window.removeEventListener("blur", hidden);

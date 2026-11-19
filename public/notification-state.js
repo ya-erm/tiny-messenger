@@ -77,9 +77,6 @@
       // Upgrade a legacy aggregate quietly, without creating cards just because
       // a user opens the app with no existing notification.
       const last=desired.at(-1);await showCard(payload,last,true);seen.add(last.id);shown=true;
-    } else if(!remote&&!desired.length&&own.length) {
-      const remaining=(await notifications()).some(n=>isMessage(n)&&(!n.data?.userId||n.data.userId===payload.userId));
-      if(remaining) await showStatus(payload);
     }
     await put(payload.userId,{payload,shownIds:[...seen].slice(-256),shownRevision:shown?payload.revision:saved?.shownRevision});
   }

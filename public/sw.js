@@ -1,5 +1,5 @@
 importScripts("/notification-state.js");
-const CACHE_NAME = "tiny-messenger-shell-v6";
+const CACHE_NAME = "tiny-messenger-shell-v7";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

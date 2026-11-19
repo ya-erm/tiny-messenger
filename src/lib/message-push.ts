@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { read, write, type Db } from "@/lib/db";
+import { endpointId, parseDeliveryCursor, PUSH_DEVICE_DELAY_MS } from "@/lib/push-delivery";
 import { hasPushActivity } from "@/lib/push-activity";
 import { pushConfiguration, sendPushToUser } from "@/lib/push";
 
@@ -82,22 +83,48 @@ export async function dispatchMessagePushes() {
         const payload = await messagePushState(job.userId);
         // A concurrent read/new message owns the next dispatch, never clear it.
         if (payload.revision !== job.revision) continue;
-        if (payload.hasAlerts && hasPushActivity(job.userId) && Date.now() < Date.parse(job.firstPendingAt!) + 30_000) {
+        const cursor = parseDeliveryCursor(job.deliveryCursor);
+        if (payload.hasAlerts && !Object.values(cursor).some((entry) => entry.sent)
+          && hasPushActivity(job.userId) && Date.now() < Date.parse(job.firstPendingAt!) + 30_000) {
           await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: { dueAt: new Date(Math.min(Date.now() + 3000, Date.parse(job.firstPendingAt!) + 30_000)).toISOString() } }));
           continue;
         }
-        // Avoid "all read" pushes when a message was read before any push, and
-        // avoid alerting old unread messages after only the new one was read.
-        const shouldSend = payload.hasAlerts || job.hasNotification;
-        if (shouldSend) {
-          // Mark before network I/O: if a read races an in-flight push, its
-          // newer job must send a correction even if this revision cannot commit.
+        // Reading/deleting never sends a background push solely to clear a tray.
+        // Safari requires every push to display a notification; foreground sync
+        // closes stale cards without creating an irritating all-read status.
+        if (!payload.hasAlerts) {
+          await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: { dueAt: null, firstPendingAt: null, alertAfter: null, attempts: 0, deliveryCursor: "{}", hasNotification: payload.unreadCount > 0 && job.hasNotification } }));
+          processed++;
+          continue;
+        }
+        const subscriptions = await read((db) => db.pushSubscription.findMany({
+          where: { userId: job.userId }, orderBy: [{ lastActiveAt: "desc" }, { updatedAt: "desc" }, { endpoint: "asc" }],
+          select: { endpoint: true },
+        }));
+        const pending = subscriptions.filter((s) => !cursor[endpointId(s.endpoint)]?.sent);
+        const target = pending.find((s) => (cursor[endpointId(s.endpoint)]?.retryAt ?? 0) <= Date.now());
+        let failed = false;
+        if (target) {
+          // Recheck ownership/revision immediately before network I/O. A read or
+          // new message that wins this CAS owns the next delivery decision.
           const marked = await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: { hasNotification: true } }));
           if (!marked.count) continue;
-          const result = await sendPushToUser(job.userId, { ...payload, silent: !payload.hasAlerts }, { topic: "tm-message-state" });
-          if (result.failed) throw new Error("push_delivery_failed");
+          const result = await sendPushToUser(job.userId, { ...payload, silent: false }, { topic: "tm-message-state", endpoint: target.endpoint });
+          failed = result.failed > 0;
+          cursor[endpointId(target.endpoint)] = failed
+            ? { retryAt: Date.now() + Math.min(300_000, 15_000 * 2 ** Math.min(job.attempts, 4)) }
+            : { sent: true };
         }
-        await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: { dueAt: null, firstPendingAt: null, alertAfter: null, attempts: 0, hasNotification: shouldSend && payload.unreadCount > 0 } }));
+        const remaining = pending.filter((s) => !cursor[endpointId(s.endpoint)]?.sent);
+        const nextAt = remaining.length ? Math.min(...remaining.map((s) => Math.max(
+          cursor[endpointId(s.endpoint)]?.retryAt ?? 0,
+          Date.now() + (target && !failed ? PUSH_DEVICE_DELAY_MS : 1000),
+        ))) : null;
+        await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: {
+          dueAt: nextAt === null ? null : new Date(nextAt).toISOString(),
+          deliveryCursor: nextAt === null ? "{}" : JSON.stringify(cursor),
+          ...(nextAt === null ? { firstPendingAt: null, alertAfter: null, attempts: 0 } : failed ? { attempts: { increment: 1 } } : {}),
+        } }));
         processed++;
       } catch {
         await write((tx) => tx.pushNotificationState.updateMany({ where: { userId: job.userId, revision: job.revision }, data: { dueAt: new Date(Date.now() + Math.min(300_000, 15_000 * 2 ** Math.min(job.attempts, 4))).toISOString(), attempts: { increment: 1 } } }));

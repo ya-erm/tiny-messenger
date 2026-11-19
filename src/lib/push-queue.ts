@@ -12,6 +12,7 @@ export async function queueMessagePush(tx: Prisma.TransactionClient, userId: str
     firstPendingAt: previous?.firstPendingAt ?? now,
     alertAfter: sentAt && (!previous?.alertAfter || sentAt < previous.alertAfter) ? sentAt : previous?.alertAfter ?? null,
     attempts: 0,
+    ...(sentAt ? { deliveryCursor: "{}" } : {}),
   };
   await tx.pushNotificationState.upsert({ where: { userId }, create: { userId, revision: 1, ...data }, update: { ...data, revision: { increment: 1 } } });
 }

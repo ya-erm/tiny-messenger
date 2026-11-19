@@ -49,10 +49,10 @@ function configureWebPush() {
   return true;
 }
 
-export async function sendPushToUser(userId: string, payload: PushPayload, options: { topic?: string } = {}) {
+export async function sendPushToUser(userId: string, payload: PushPayload, options: { topic?: string; endpoint?: string } = {}) {
   if (!configureWebPush()) return { sent: 0, failed: 0 };
 
-  const rows = await read((db) => db.pushSubscription.findMany({ where: { userId } }));
+  const rows = await read((db) => db.pushSubscription.findMany({ where: { userId, ...(options.endpoint ? { endpoint: options.endpoint } : {}) } }));
   const subscriptions = rows.map(toPushSubscriptionRecord);
   if (!subscriptions.length) return { sent: 0, failed: 0 };
   let sent = 0;
@@ -68,7 +68,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload, optio
           keys: subscription.keys,
         },
         JSON.stringify(payload),
-        { TTL: 60 * 60, urgency: payload.silent ? "normal" : "high", timeout: 5000, ...(options.topic ? { topic: options.topic } : {}) },
+        { TTL: payload.kind === "message_summary" ? 60 : 60 * 60, urgency: payload.silent ? "normal" : "high", timeout: 5000, ...(options.topic ? { topic: options.topic } : {}) },
       );
       sent++;
     } catch (error) {

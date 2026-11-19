@@ -217,6 +217,7 @@ model PushSubscription {
   auth           String
   createdAt      String
   updatedAt      String
+  lastActiveAt   String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -282,6 +283,7 @@ model PushNotificationState {
   firstPendingAt  String?
   alertAfter      String?
   hasNotification Boolean @default(false)
+  deliveryCursor  String @default("{}")
   leaseUntil      String?
   attempts        Int @default(0)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

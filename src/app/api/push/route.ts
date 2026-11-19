@@ -74,7 +74,7 @@ export const POST = route(async (request) => {
   await write(async (tx) => {
     const existing = await tx.pushSubscription.findUnique({
       where: { endpoint: subscription.endpoint },
-      select: { endpoint: true },
+      select: { endpoint: true, userId: true },
     });
     if (existing) {
       await tx.pushSubscription.update({
@@ -85,6 +85,7 @@ export const POST = route(async (request) => {
           p256dh: subscription.keys.p256dh,
           auth: subscription.keys.auth,
           updatedAt: now,
+          ...(existing.userId !== authenticated.id ? { lastActiveAt: null } : {}),
         },
       });
       return;
