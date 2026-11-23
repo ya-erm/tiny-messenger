@@ -14,6 +14,7 @@ import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useConversationScroll } from "@/components/use-conversation-scroll";
 import { useLocalDay } from "@/components/use-local-day";
+import { FloatingMessageDate } from "@/components/floating-message-date";
 import { formatMessageDate, localDateKey } from "@/lib/message-dates";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
@@ -489,6 +490,7 @@ function AnswerBubble({
 
   return (
     <article
+      data-message-date={message.answer.answeredAt}
       className={`message-row answer-message ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
       aria-label={`Ответ: ${message.answer.label}`}
       role={selectionMode ? "button" : undefined}
@@ -2093,6 +2095,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 </div>
               )}
             </header>
+            <div className="message-history">
             <div className="message-stream" ref={messageStreamRef}>
               <div className="message-stream-content">
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните разговор</h2><p>Напишите сообщение или прикрепите файл.</p></div>}
@@ -2118,6 +2121,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                   {startsDay ? <MessageDateSeparator value={message.sentAt} today={today} /> : null}
                   <article
                     data-message-id={message.id}
+                    data-message-date={message.sentAt}
                     className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
                     role={selectionMode ? "button" : undefined}
                     tabIndex={selectionMode ? 0 : undefined}
@@ -2199,6 +2203,8 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 </Fragment>;
               })}
               </div>
+            </div>
+            <FloatingMessageDate streamRef={messageStreamRef} scope={chatKey(selectedEntry.ref)} today={today} />
             </div>
             {messageMenu ? (() => {
               const target = conversation.find((message) => message.id === messageMenu.id);
