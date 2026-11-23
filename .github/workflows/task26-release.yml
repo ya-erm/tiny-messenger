@@ -1,0 +1,41 @@
+name: Build task 26 message-dates release
+on:
+  push:
+    branches: ['build/tm-task-26-message-dates']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 75f918367ebd3ab07ebefacfc847000482e38bf9
+          persist-credentials: false
+      - name: Read-only public connectivity check
+        run: |
+          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
+            echo "PUBLIC_TM_HEALTH=ok"
+          else
+            echo "PUBLIC_TM_HEALTH=unreachable"
+          fi
+      - name: Build isolated Linux release
+        env:
+          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          BUILD_CPUS: '2'
+          BUILD_MEMORY_MB: '4096'
+          BUILD_NODE_HEAP_MB: '2048'
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tm-task26-75f918367ebd
+          path: |
+            releases/artifacts/75f918367ebd3ab07ebefacfc847000482e38bf9/app.tar.gz
+            releases/artifacts/75f918367ebd3ab07ebefacfc847000482e38bf9/runtime-image
+            releases/artifacts/75f918367ebd3ab07ebefacfc847000482e38bf9/dependencies-key
+            releases/artifacts/75f918367ebd3ab07ebefacfc847000482e38bf9/revision
+            releases/artifacts/75f918367ebd3ab07ebefacfc847000482e38bf9/SHA256SUMS
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
