@@ -334,6 +334,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .mobile-back { display: none; }
 .message-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(20px, 5vw, 66px); overflow-anchor: none; }
 .message-stream-content { display: flow-root; }
+.message-date-separator { display: flex; justify-content: center; margin: 20px 0 14px; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; }
+.message-date-separator:first-child { margin-top: 0; }
+.message-date-separator time { max-width: 100%; padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow-wrap: anywhere; }
 .message-row { display: flex; margin: 10px 0; }
 .message-row.outgoing { justify-content: flex-end; }
 .message-bubble { max-width: min(520px, 76%); position: relative; padding: 12px 14px 8px; background: var(--raised); border: 1px solid var(--bubble-line); border-radius: 4px 17px 17px 17px; box-shadow: 0 6px 20px rgba(31, 45, 37, .06); }

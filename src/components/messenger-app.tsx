@@ -13,6 +13,8 @@ import { reloadApplication, useAppUpdates } from "@/components/use-app-updates";
 import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useConversationScroll } from "@/components/use-conversation-scroll";
+import { useLocalDay } from "@/components/use-local-day";
+import { formatMessageDate, localDateKey } from "@/lib/message-dates";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
@@ -383,6 +385,13 @@ function shortId(id: string) {
 
 function formatTime(value: string) {
   return new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function MessageDateSeparator({ value, today }: { value: string; today: Date }) {
+  const label = formatMessageDate(value, today);
+  return <div className="message-date-separator" role="separator" aria-label={label}>
+    <time dateTime={localDateKey(value)}>{label}</time>
+  </div>;
 }
 
 function Avatar({ name, avatarUrl, avatarBackground, className }: { name: string; avatarUrl?: string; avatarBackground?: string; className: string }) {
@@ -1273,6 +1282,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     };
   }, [sidebarActionsChat]);
 
+  const today = useLocalDay();
   const selectedEntry = chats.find((entry) => sameChat(entry.ref, selectedChat)) || null;
   const selectedPeer = selectedEntry?.peer ?? null;
   const selectedGroup = selectedEntry?.group ?? null;
@@ -2089,11 +2099,14 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
               {conversation.map((message, index) => {
                 const outgoing = message.fromUserId === user.id;
                 const previous = conversation[index - 1];
+                const previousDate = previous && isDirectMessage(previous) && previous.answer
+                  ? previous.answer.answeredAt : previous?.sentAt;
+                const startsDay = !previousDate || localDateKey(previousDate) !== localDateKey(message.sentAt);
                 // A choice answer is rendered as a separate bubble after its
                 // question, so it can interrupt a run by the original sender.
                 const previousSenderId = previous && isDirectMessage(previous) && previous.answer
                   ? previous.toUserId : previous?.fromUserId;
-                const showSender = !outgoing && previousSenderId !== message.fromUserId;
+                const showSender = !outgoing && (startsDay || previousSenderId !== message.fromUserId);
                 const selected = selectedMessageIds?.includes(message.id) ?? false;
                 const selectionMode = selectedMessageIds !== null;
                 const toggleSelection = () => toggleMessageSelection(message.id);
@@ -2102,6 +2115,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 const imageMetaId = message.attachments?.find((file) => file.preview === "image")?.id;
                 const messageMeta = <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span>;
                 return <Fragment key={message.id}>
+                  {startsDay ? <MessageDateSeparator value={message.sentAt} today={today} /> : null}
                   <article
                     data-message-id={message.id}
                     className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
@@ -2177,7 +2191,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                       </div> : null}
                     </div>
                   </article>
-                  {direct && selectedPeer ? <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null}
+                  {direct && selectedPeer ? <>
+                    {direct.answer && localDateKey(direct.answer.answeredAt) !== localDateKey(message.sentAt)
+                      ? <MessageDateSeparator value={direct.answer.answeredAt} today={today} /> : null}
+                    <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} />
+                  </> : null}
                 </Fragment>;
               })}
               </div>
