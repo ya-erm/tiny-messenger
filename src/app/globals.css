@@ -356,6 +356,10 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .message-selection-mark .glyph { width: 13px; height: 13px; }
 .message-sender { display: block; margin-bottom: 4px; color: var(--orange); font-size: 10px; font-weight: 800; }
 .message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; }
+.message-link { color: var(--green-dark-ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.outgoing .message-link { color: #fff; }
+.message-link:hover { text-decoration-thickness: 2px; }
+.message-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .message-bubble footer { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin-top: 4px; color: var(--muted); font-size: 9px; }
 .outgoing .message-bubble footer { color: rgba(255,255,255,.58); }
 .inline-message-meta { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; color: var(--muted); font-size: 9px; line-height: 1; white-space: nowrap; vertical-align: baseline; }

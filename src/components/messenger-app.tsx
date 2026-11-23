@@ -19,6 +19,7 @@ import { formatMessageDate, localDateKey } from "@/lib/message-dates";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
 import { Emoji, EmojiText } from "@/components/emoji";
+import { MessageText } from "@/components/message-text";
 import { AttachmentCard, AttachmentDrafts, useAttachmentDraft, type AttachmentRequest } from "@/components/attachments";
 import type { AttachmentLimits } from "@/lib/attachment-types";
 import { ComposerTools } from "@/components/composer-tools";
@@ -2127,11 +2128,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                     tabIndex={selectionMode ? 0 : undefined}
                     onClick={selectionMode ? toggleSelection : undefined}
                     onContextMenu={selectionMode ? undefined : (event) => {
+                      if ((event.target as HTMLElement).closest("a")) return;
                       event.preventDefault();
                       openMessageMenu(message.id, event.currentTarget.querySelector(".message-bubble") as HTMLElement);
                     }}
                     onPointerDown={selectionMode ? undefined : (event) => {
-                      if (event.pointerType === "mouse" || (event.target as HTMLElement).closest("button")) return;
+                      if (event.pointerType === "mouse" || (event.target as HTMLElement).closest("button, a")) return;
                       const bubble = event.currentTarget.querySelector(".message-bubble") as HTMLElement;
                       cancelLongPress();
                       longPressRef.current = {
@@ -2173,7 +2175,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         {message.reply?.available ? <><strong>{message.reply.senderName}</strong><span><EmojiText text={message.reply.text || "Вложение"} /></span></> : <span>Сообщение удалено или недоступно</span>}
                       </button> : null}
                       {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} meta={file.id === imageMetaId ? messageMeta : undefined} />)}
-                      {message.text || !imageMetaId ? <p><EmojiText text={message.text} />{plainText && !imageMetaId ? messageMeta : null}</p> : null}
+                      {message.text || !imageMetaId ? <p><MessageText text={message.text} disabled={selectionMode} />{plainText && !imageMetaId ? messageMeta : null}</p> : null}
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
                       {!plainText && !imageMetaId ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
                       {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
