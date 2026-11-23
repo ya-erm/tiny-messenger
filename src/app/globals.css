@@ -333,11 +333,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .conversation-actions-popover .glyph { width: 15px; height: 15px; flex: 0 0 15px; }
 .mobile-back { display: none; }
 .message-history { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.message-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(20px, 5vw, 66px); overflow-anchor: none; }
+.message-stream { --message-stream-top-padding: 24px; flex: 1; min-height: 0; overflow-y: auto; padding: var(--message-stream-top-padding) clamp(20px, 5vw, 66px); overflow-anchor: none; }
 .message-stream-content { display: flow-root; }
 .message-day { display: flow-root; padding-top: 10px; }
 .message-day:first-child { padding-top: 0; }
-.message-date-separator { position: sticky; z-index: 5; top: 10px; display: flex; justify-content: center; margin: 0 0 14px; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; pointer-events: none; transition: opacity .15s ease; }
+.message-date-separator { position: sticky; z-index: 5; top: calc(10px - var(--message-stream-top-padding)); display: flex; justify-content: center; margin: 0 0 14px; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; pointer-events: none; transition: opacity .15s ease; }
 .message-date-separator time { max-width: 100%; padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow-wrap: anywhere; }
 .message-date-separator.is-pinned { opacity: 0; }
 .message-stream.date-scrolling-up .message-date-separator.is-pinned { opacity: 1; }
@@ -696,7 +696,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
   .sidebar-header { height: auto; flex-basis: auto; }
   .composer { padding-bottom: calc(10px + var(--tm-safe-bottom, env(safe-area-inset-bottom))); }
   .sidebar-actions { margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
-  .message-stream { padding: 18px 14px; }
+  .message-stream { --message-stream-top-padding: 18px; padding: var(--message-stream-top-padding) 14px; }
   .message-bubble { max-width: 86%; }
   .conversation-panel { --conversation-inline-inset: 14px; }
   .selection-toolbar > strong { display: none; }

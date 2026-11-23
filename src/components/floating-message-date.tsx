@@ -19,7 +19,8 @@ export function MessageDatePinning({ streamRef, scope }: {
       frame = 0;
       const viewport = stream.getBoundingClientRect();
       const headings = Array.from(stream.querySelectorAll<HTMLElement>(".message-date-separator"));
-      const top = viewport.top + (headings[0] ? parseFloat(getComputedStyle(headings[0]).top) || 0 : 0);
+      const top = viewport.top + (parseFloat(getComputedStyle(stream).paddingTop) || 0)
+        + (headings[0] ? parseFloat(getComputedStyle(headings[0]).top) || 0 : 0);
       const states = headings.map((heading) => {
         const group = heading.parentElement!;
         const naturalTop = group.getBoundingClientRect().top + (parseFloat(getComputedStyle(group).paddingTop) || 0);
