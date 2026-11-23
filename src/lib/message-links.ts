@@ -1,5 +1,12 @@
 export type MessageTextPart = { text: string; href?: string };
 
+// Shared messages can point to applications, but must not execute inline code
+// or navigate to browser-internal/local resources in the recipient's context.
+const blockedSchemes = new Set([
+  "javascript:", "vbscript:", "data:", "blob:", "file:", "filesystem:",
+  "about:", "chrome:", "chrome-extension:", "edge:", "resource:", "moz-extension:", "view-source:",
+]);
+
 function trimLink(value: string) {
   const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
   const counts: Record<string, number> = {};
@@ -18,16 +25,20 @@ function trimLink(value: string) {
 
 export function messageTextParts(text: string): MessageTextPart[] {
   const parts: MessageTextPart[] = [];
-  const pattern = /(?:https?:\/\/|www\.)[^\s<>"`«»“”]+/giu;
+  const pattern = /(?:[a-z][a-z\d+.-]*:|www\.)[^\s<>"`«»“”]+/giu;
   let from = 0;
   for (const match of text.matchAll(pattern)) {
     if (match.index > 0 && /[\p{L}\p{N}_@]/u.test(text[match.index - 1])) continue;
     let value = trimLink(match[0]);
     if (text[match.index - 1] === "'") value = value.replace(/'$/u, "");
+    if (/^[a-z]:[\\/](?![\\/])/i.test(value)) continue;
+    // A www host may include a numeric port; www.app:open is instead a URI.
+    const webAddress = /^www\./i.test(value) && !/^[a-z][a-z\d+.-]*:(?!\d+(?:[/?#]|$))/i.test(value);
     let url: URL;
-    try { url = new URL(/^www\./i.test(value) ? `https://${value}` : value); } catch { continue; }
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) continue;
-    if (/^www\./i.test(match[0]) && !url.hostname.includes(".")) continue;
+    try { url = new URL(webAddress ? `https://${value}` : value); } catch { continue; }
+    if (blockedSchemes.has(url.protocol)) continue;
+    if (["http:", "https:"].includes(url.protocol) && (url.username || url.password)) continue;
+    if (webAddress && !url.hostname.includes(".")) continue;
     if (match.index > from) parts.push({ text: text.slice(from, match.index) });
     parts.push({ text: value, href: url.href });
     from = match.index + value.length;
