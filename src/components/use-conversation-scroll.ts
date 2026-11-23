@@ -26,9 +26,11 @@ export function useConversationScroll(
     const row = Array.from(stream.querySelectorAll<HTMLElement>("[data-message-id]"))
       .find((element) => element.dataset.messageId === anchor.messageId);
     if (!row) return;
+    const heading = row.previousElementSibling;
+    const target = heading?.classList.contains("message-date-separator") ? heading : row;
     const padding = parseFloat(getComputedStyle(stream).paddingTop) || 0;
     stream.scrollTo({
-      top: stream.scrollTop + row.getBoundingClientRect().top - stream.getBoundingClientRect().top - padding,
+      top: stream.scrollTop + target.getBoundingClientRect().top - stream.getBoundingClientRect().top - padding,
       behavior: "instant",
     });
   }, [streamRef]);
