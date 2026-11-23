@@ -335,13 +335,13 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .message-history { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .message-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(20px, 5vw, 66px); overflow-anchor: none; }
 .message-stream-content { display: flow-root; }
-.message-date-separator { display: flex; justify-content: center; margin: 20px 0 14px; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; }
-.message-date-separator:first-child { margin-top: 0; }
-.message-date-separator time, .message-floating-date time { max-width: 100%; padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow-wrap: anywhere; }
-.message-floating-date { position: absolute; z-index: 5; top: 10px; left: 12px; right: 12px; display: flex; justify-content: center; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; pointer-events: none; opacity: 0; transform: translateY(-4px); transition: opacity .15s ease, transform .15s ease; }
-.message-floating-date.visible { opacity: 1; transform: translateY(0); }
-.message-floating-date time { box-shadow: 0 3px 12px rgba(27,40,32,.12); }
-@media (prefers-reduced-motion: reduce) { .message-floating-date { transition: none; } }
+.message-day { display: flow-root; padding-top: 10px; }
+.message-day:first-child { padding-top: 0; }
+.message-date-separator { position: sticky; z-index: 5; top: 10px; display: flex; justify-content: center; margin: 0 0 14px; color: var(--label); font-size: 11px; font-weight: 750; line-height: 1.4; text-align: center; pointer-events: none; transition: opacity .15s ease; }
+.message-date-separator time { max-width: 100%; padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow-wrap: anywhere; }
+.message-date-separator.is-pinned { opacity: 0; }
+.message-stream.date-scrolling-up .message-date-separator.is-pinned { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .message-date-separator { transition: none; } }
 .message-row { display: flex; margin: 10px 0; }
 .message-row.outgoing { justify-content: flex-end; }
 .message-bubble { max-width: min(520px, 76%); position: relative; padding: 12px 14px 8px; background: var(--raised); border: 1px solid var(--bubble-line); border-radius: 4px 17px 17px 17px; box-shadow: 0 6px 20px rgba(31, 45, 37, .06); }

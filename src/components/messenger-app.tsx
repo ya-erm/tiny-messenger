@@ -1,7 +1,7 @@
 "use client";
 
 import Image, { type StaticImageData } from "next/image";
-import { type ClipboardEvent, CSSProperties, FormEvent, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ClipboardEvent, CSSProperties, FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import deleteDialogIllustration from "../../public/delete-dialog.png";
 import deleteHistoryIllustration from "../../public/delete-history.png";
 import deleteMessagesIllustration from "../../public/delete-messages.png";
@@ -14,7 +14,7 @@ import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useConversationScroll } from "@/components/use-conversation-scroll";
 import { useLocalDay } from "@/components/use-local-day";
-import { FloatingMessageDate } from "@/components/floating-message-date";
+import { MessageDatePinning } from "@/components/floating-message-date";
 import { formatMessageDate, localDateKey } from "@/lib/message-dates";
 import { useMessageSound } from "@/components/use-message-sound";
 import { NotificationHelp } from "@/components/notification-help";
@@ -1298,6 +1298,24 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         (message.toUserId === user?.id && message.fromUserId === selectedChat.id),
     );
   }, [groupMessages, messages, selectedChat, user?.id]);
+  const includeAnswers = Boolean(selectedPeer);
+  const conversationDays = useMemo(() => {
+    type Item = { message: ChatMessage; index: number; answer: boolean };
+    const days: { key: string; day: string; value: string; items: Item[] }[] = [];
+    const append = (value: string, item: Item) => {
+      const day = localDateKey(value);
+      if (days.at(-1)?.day !== day) days.push({ key: `${item.message.id}:${item.answer}`, day, value, items: [] });
+      days.at(-1)!.items.push(item);
+    };
+    conversation.forEach((message, index) => {
+      append(message.sentAt, { message, index, answer: false });
+      if (includeAnswers && isDirectMessage(message) && message.answer) {
+        append(message.answer.answeredAt, { message, index, answer: true });
+      }
+    });
+    return days;
+    // Regroup when returning to the app after a local calendar/time-zone change.
+  }, [conversation, includeAnswers, today]);
   const scrollToLatest = useConversationScroll(
     messageStreamRef,
     selectedEntry && user ? `${user.id}:${chatKey(selectedEntry.ref)}:${focusedNotification?.chat === chatKey(selectedEntry.ref) ? focusedNotification.nonce : ""}` : null,
@@ -2100,7 +2118,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             <div className="message-stream" ref={messageStreamRef}>
               <div className="message-stream-content">
               {conversation.length === 0 && <div className="conversation-empty"><div className="tiny-device"><span>160 × 80</span><i /></div><h2>Начните разговор</h2><p>Напишите сообщение или прикрепите файл.</p></div>}
-              {conversation.map((message, index) => {
+              {conversationDays.map((day) => <section className="message-day" data-message-day={day.day} key={day.key}>
+              <MessageDateSeparator value={day.value} today={today} />
+              {day.items.map(({ message, index, answer: isAnswer }) => {
                 const outgoing = message.fromUserId === user.id;
                 const previous = conversation[index - 1];
                 const previousDate = previous && isDirectMessage(previous) && previous.answer
@@ -2115,12 +2135,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 const selectionMode = selectedMessageIds !== null;
                 const toggleSelection = () => toggleMessageSelection(message.id);
                 const direct = isDirectMessage(message) ? message : null;
+                if (isAnswer) return direct && selectedPeer ? <AnswerBubble key={`${message.id}:answer`} message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null;
                 const plainText = !direct || direct.kind === "text";
                 const imageMetaId = message.attachments?.find((file) => file.preview === "image")?.id;
                 const messageMeta = <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span>;
-                return <Fragment key={message.id}>
-                  {startsDay ? <MessageDateSeparator value={message.sentAt} today={today} /> : null}
-                  <article
+                return <article key={message.id}
                     data-message-id={message.id}
                     data-message-date={message.sentAt}
                     className={`message-row ${outgoing ? "outgoing" : "incoming"} ${selectionMode ? "message-selectable" : ""} ${selected ? "message-selected" : ""}`}
@@ -2196,17 +2215,12 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         })}
                       </div> : null}
                     </div>
-                  </article>
-                  {direct && selectedPeer ? <>
-                    {direct.answer && localDateKey(direct.answer.answeredAt) !== localDateKey(message.sentAt)
-                      ? <MessageDateSeparator value={direct.answer.answeredAt} today={today} /> : null}
-                    <AnswerBubble message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} />
-                  </> : null}
-                </Fragment>;
+                  </article>;
               })}
+              </section>)}
               </div>
             </div>
-            <FloatingMessageDate streamRef={messageStreamRef} scope={chatKey(selectedEntry.ref)} today={today} />
+            <MessageDatePinning streamRef={messageStreamRef} scope={chatKey(selectedEntry.ref)} />
             </div>
             {messageMenu ? (() => {
               const target = conversation.find((message) => message.id === messageMenu.id);
