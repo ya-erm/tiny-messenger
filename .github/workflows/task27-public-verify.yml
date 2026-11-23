@@ -1,0 +1,42 @@
+name: Verify task 27 message links production delivery
+on:
+  push:
+    branches: ['build/tm-task-27-message-links']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task26'))['ok']
+          body=fetch('/tasks-embed?verify=task26').decode()
+          assert '/_next/static/chunks/7463-f46d2ea06c7e091b.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/7463-f46d2ea06c7e091b.js')).hexdigest()
+          assert actual=='b717ec664fcbb721f23b6e87d08e48b88e99f5e0c9e3ed16d7141de9da75b322', 'Public JS differs from tested release'
+          assert b'message-link' in fetch('/_next/static/chunks/7463-f46d2ea06c7e091b.js'), 'Date separators missing'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='f1e381c849bf2fe78d73b4a147cff47af3700aee7dbe319538cb47e9d7e94ad0'
+          assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='da60bb1bc335b360dd71db81b142eb286cec4e16f1598611c0ed38bfc2b21e17'
+          assert hashlib.sha256(fetch('/webp-encoder-worker.js')).hexdigest()=='327cc326fcc5fd838cc67f1953e2b39c681bf72da212898bdbda04ab46b3e106'
+          assert hashlib.sha256(fetch('/codecs/libwebp-1.6.0-edcc45730b9d/encoder.mjs')).hexdigest()=='af70bc61b561ad12b41e7216beca412b973e5a370f65b95d207482faa7dffe28'
+          assert hashlib.sha256(fetch('/codecs/libwebp-1.6.0-edcc45730b9d/encoder.wasm')).hexdigest()=='b652e5f9fb8681b7057da5089345b0703234c99b82973b9b8c48cc133f8f944e'
+          assert '/_next/static/css/2d35fc7f09715176.css' in body, 'Public HTML does not reference new CSS'
+          assert hashlib.sha256(fetch('/_next/static/css/2d35fc7f09715176.css')).hexdigest()=='a46d3c792c8361d57a9afecf7f4d74d3915a56177b75b3b7297bd19cd17ae07c', 'Public CSS differs from tested release'
+          print('PUBLIC_CSS_OK: exact stylesheet verified')
+          assert '0.9.0' in fetch('/').decode(), 'Public shell version differs'
+          with urllib.request.urlopen(base+'/codecs/libwebp-1.6.0-edcc45730b9d/encoder.wasm',timeout=20) as r:
+              assert r.headers.get('Content-Type','').startswith('application/wasm')
+              assert 'immutable' in r.headers.get('Cache-Control','')
+          with urllib.request.urlopen(base+'/codecs/libwebp-1.6.0-edcc45730b9d/encoder.mjs',timeout=20) as r:
+              assert 'javascript' in r.headers.get('Content-Type','')
+          PY
