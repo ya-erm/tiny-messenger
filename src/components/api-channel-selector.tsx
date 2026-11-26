@@ -34,7 +34,6 @@ export function ApiChannelSelector({ userId }: { userId?: string }) {
       <select id={selectId} value={channel} onChange={(event) => { const id = event.target.value as ChannelId; chooseChannel(id); setChannel(id); }}>
         {CHANNEL_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.name}{"alias" in item ? ` · ${item.alias}` : ""}</option>)}
       </select>
-      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
       </div>
       <button type="button" className="secondary-button" disabled={checking} onClick={() => { void measure(); }}>{checking ? "Проверяем…" : "Проверить"}</button>
     </div>

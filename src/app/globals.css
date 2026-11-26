@@ -1183,3 +1183,11 @@ button.admin-timeline-device:not(:disabled):hover { color: var(--green-ink); }
 .admin-timeline-group-heading svg { display: none; }
 .admin-timeline-group-heading .admin-timeline-device { color: var(--ink); font-weight: 700; }
 .admin-timeline-nested .admin-timeline-device { padding-left: 12px; }
+
+/* Identical chevrons and comfortable text/edge spacing on dropdown controls. */
+:root { --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23738078' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
+[data-theme="dark"] { --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2393a19a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
+select, .admin-zone-control select, .api-channel-controls select, .reaction-catalog-controls select, .voice-device-select select { appearance: none; background-image: var(--select-chevron); background-repeat: no-repeat; background-size: 14px 14px; background-position: right 14px center; padding-right: 40px; }
+.reaction-select::after { display: none; }
+.admin-range-trigger { padding-right: 14px; }
+.admin-header-actions { align-items: flex-end; }

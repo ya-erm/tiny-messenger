@@ -1,6 +1,6 @@
 "use client";
 import {useEffect, useMemo, useState} from "react";
-import {fetchChannel, transportStatus} from "@/lib/client-transport";
+import {fetchChannel} from "@/lib/client-transport";
 import {AdminDateRange} from "@/components/admin-date-range";
 import {AdminActivityChart,type ChartView} from "@/components/admin-activity-chart";
 import {AdminChannelTimeline} from "@/components/admin-channel-timeline";
@@ -34,7 +34,7 @@ export function AdminPanel() {
  const [overview,setOverview]=useState<Overview>(),[selected,setSelected]=useState("");
  const [devices,setDevices]=useState<Device[]>([]),[error,setError]=useState("");
  const [query,setQuery]=useState(""),[revision,setRevision]=useState(0),[busy,setBusy]=useState(true),[deviceBusy,setDeviceBusy]=useState(false);
- const [source,setSource]=useState(""),[tab,setTab]=useState<"activity"|"devices">("activity");
+ const [tab,setTab]=useState<"activity"|"devices">("activity");
  const [ready,setReady]=useState(false),[zone,setZone]=useState<ZoneChoice>("local"),[localZone,setLocalZone]=useState("UTC"),[chartView,setChartView]=useState<ChartView>("bars");
  const [userRange,setUserRange]=useState<AdminRange>(()=>presetRange("30d","UTC")),[timelineRange,setTimelineRange]=useState<AdminRange>(()=>presetRange("24h","UTC"));
  const [view,setView]=useState<"users"|"channels">("users"),[timelineSearch,setTimelineSearch]=useState(""),[stableTimelineSearch,setStableTimelineSearch]=useState(""),[timelineLimit,setTimelineLimit]=useState(10),[timeline,setTimeline]=useState<TimelineData>(),[timelineBusy,setTimelineBusy]=useState(false),[timelineError,setTimelineError]=useState("");
@@ -51,7 +51,7 @@ export function AdminPanel() {
  useEffect(()=>{
   if(!ready)return;const controller=new AbortController();setBusy(true);setError("");
   const params=new URLSearchParams({timeZone,from:userRange.from,to:userRange.to});
-  void request<Overview>("users?"+params,controller.signal).then(data=>{if(!controller.signal.aborted){setOverview(data);setSource(channel(transportStatus().channel));}}).catch(reason=>{if(!controller.signal.aborted)setError((reason as Error).message);}).finally(()=>{if(!controller.signal.aborted)setBusy(false);});
+  void request<Overview>("users?"+params,controller.signal).then(data=>{if(!controller.signal.aborted){setOverview(data);}}).catch(reason=>{if(!controller.signal.aborted)setError((reason as Error).message);}).finally(()=>{if(!controller.signal.aborted)setBusy(false);});
   return()=>controller.abort();
  },[revision,ready,timeZone,userRange.from,userRange.to]);
  useEffect(()=>{
@@ -74,7 +74,7 @@ export function AdminPanel() {
  const periodTotal=points.reduce((sum,point)=>sum+point.count,0),activeDays=points.filter(point=>point.count>0).length;
  const totalMessages=users.reduce((sum,user)=>sum+user.counters.messages,0),totalFiles=users.reduce((sum,user)=>sum+user.counters.attachments,0);
  return <main className="admin-shell" aria-busy={busy}>
-  <header className="admin-header"><div><a className="admin-back" href="/">← Tiny Messenger</a><p className="admin-eyebrow">Панель управления</p><h1>Обзор активности</h1><p className="admin-header-note">Пользователи, устройства и связь</p></div><div className="admin-header-actions"><label className="admin-zone-control">Часовой пояс<select aria-label="Часовой пояс" value={zone} onChange={event=>chooseZone(event.target.value as ZoneChoice)}><option value="local">Локальный ({localZone})</option><option value="msk">МСК (UTC+3)</option><option value="utc">UTC</option></select></label><span className="admin-source">{source||"Определяем канал…"}</span><button className="secondary-button" disabled={busy||deviceBusy} onClick={()=>{setError("");setRevision(value=>value+1);}}>{busy?"Загружаем…":"Обновить"}</button></div></header>
+  <header className="admin-header"><div><a className="admin-back" href="/">← Tiny Messenger</a><p className="admin-eyebrow">Панель управления</p><h1>Обзор активности</h1><p className="admin-header-note">Пользователи, устройства и связь</p></div><div className="admin-header-actions"><label className="admin-zone-control">Часовой пояс<select aria-label="Часовой пояс" value={zone} onChange={event=>chooseZone(event.target.value as ZoneChoice)}><option value="local">Локальный ({localZone})</option><option value="msk">МСК (UTC+3)</option><option value="utc">UTC</option></select></label><button className="secondary-button" disabled={busy||deviceBusy} onClick={()=>{setError("");setRevision(value=>value+1);}}>{busy?"Загружаем…":"Обновить"}</button></div></header>
   {error?<p className="inline-error" role="alert">{error}</p>:null}
   {overview?.truncated?<p className="inline-error">Достигнут предел выборки. Часть статистики может быть неполной.</p>:null}
   <section className="admin-overview" aria-label="Общая статистика"><Stat label="Аккаунты" value={users.length}/><Stat label="Активны за 7 дней" value={users.filter(user=>user.lastSeenAt&&Date.parse(user.lastSeenAt)>Date.now()-7*86400000).length}/><Stat label="Отправлено сообщений" value={totalMessages}/><Stat label="Вложения в сообщениях" value={totalFiles}/></section>
