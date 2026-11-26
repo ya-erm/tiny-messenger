@@ -11,7 +11,7 @@ export function AdminDateRange({value,onChange,timeZone,min,max,label="Инте�
  const id=useId(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),[open,setOpen]=useState(false);
  const [placement,setPlacement]=useState<CSSProperties>({});
  const [start,setStart]=useState(''),[end,setEnd]=useState(''),[startTime,setStartTime]=useState('00:00:00'),[endTime,setEndTime]=useState('23:59:59'),[month,setMonth]=useState(monthOf(max)),[anchor,setAnchor]=useState<string|null>(null),[preset,setPreset]=useState<string|undefined>();
- const place=useCallback(()=>{const rect=trigger.current?.getBoundingClientRect();if(!rect)return;const width=Math.min(660,innerWidth-24),height=Math.min(650,innerHeight-24);setPlacement({position:"fixed",left:Math.max(12,Math.min(rect.left,innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,innerHeight-height-12)),width,maxHeight:innerHeight-24});},[]);
+ const place=useCallback(()=>{const rect=trigger.current?.getBoundingClientRect();if(!rect)return;const width=Math.min(660,innerWidth-24),height=Math.min(650,innerHeight-24);setPlacement({position:"fixed",left:Math.max(12,Math.min(rect.left,innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,innerHeight-height-12)),width,maxHeight:height});},[]);
  function draft(range:AdminRange){setStart(dayAt(range.from,timeZone));setEnd(dayAt(range.to,timeZone));setStartTime(timeAt(range.from,timeZone));setEndTime(timeAt(range.to,timeZone));setPreset(range.preset);setMonth(monthOf(dayAt(range.from,timeZone)));setAnchor(null);}
  function close(){setOpen(false);trigger.current?.focus();}
  useEffect(()=>{

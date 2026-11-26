@@ -1076,7 +1076,7 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .admin-range-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
 .admin-range-quick button { border: 1px solid transparent; background: var(--green-tint); color: var(--green-ink); border-radius: 7px; padding: 7px 9px; font-size: 11px; font-weight: 600; cursor: pointer; }
 .admin-range-quick button.active { border-color: var(--green-line-3); }
-.admin-range-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--admin-line); background: var(--card); position: sticky; bottom: -18px; padding-bottom: 6px; }
+.admin-range-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--admin-line); background: var(--card); position: sticky; bottom: 0; padding-bottom: 6px; }
 .admin-range-footer > div { display: flex; gap: 8px; }
 .admin-range-footer .primary-button, .admin-range-footer .secondary-button { font-size: 11px; padding: 9px 13px; }
 .admin-chart-dates.weekly { display: block; position: relative; height: 30px; margin-top: 12px; }
@@ -1138,4 +1138,4 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .admin-user-presence { margin-top: 28px; border-top: 1px solid var(--admin-line); padding-top: 20px; }
 .admin-user-presence h3 { font-size: 14px; margin: 0; }
 @media (max-width: 650px) { .admin-global-timeline { padding: 18px 14px; } .admin-distribution { grid-template-columns: repeat(2,minmax(0,1fr)); } .admin-main-tabs button { padding: 9px 11px; } .admin-range-popover { padding: 14px; } .admin-global-filters { gap: 12px; } }
-@media (max-width: 480px) { .admin-calendar-months { grid-template-columns: 1fr; gap: 8px; } .admin-calendar-month { padding: 0 12px; } .admin-calendar-days button { height: 33px; } .admin-range-times { gap: 10px; } .admin-range-footer { bottom: -14px; } .admin-range-quick button { padding: 7px 8px; } }
+@media (max-width: 480px) { .admin-calendar-months { grid-template-columns: 1fr; gap: 8px; } .admin-calendar-month { padding: 0 12px; } .admin-calendar-days button { height: 33px; } .admin-range-times { gap: 10px; } .admin-range-footer { bottom: 0; } .admin-range-quick button { padding: 7px 8px; } }
