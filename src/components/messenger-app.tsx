@@ -846,7 +846,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     let cancelled = false;
     Promise.resolve().then(async()=>{
       const pending=await pendingTokenChange(savedToken!);
-      if(pending){const result=await fetchApi<{token:string}>("/api/me/token",{method:"POST",body:JSON.stringify(pending)},savedToken!);savedToken=result.token;window.localStorage.setItem(TOKEN_KEY,result.token);clearTokenChange();}
+      if(pending){try{const result=await fetchApi<{token:string}>("/api/me/token",{method:"POST",body:JSON.stringify(pending)},savedToken!);savedToken=result.token;window.localStorage.setItem(TOKEN_KEY,result.token);clearTokenChange();}catch(error){if(error instanceof ApiClientError&&error.status===409)clearTokenChange();else throw error;}}
     }).then(()=>fetchApi<{ user: PublicUser }>("/api/auth/session", {
       method: "POST",
       body: JSON.stringify({ token: savedToken }),
@@ -3187,6 +3187,7 @@ function SettingsDialog({
       setConfirmTokenReset(false);
       setNotice("Новый токен создан. Обновите его на остальных устройствах.");
     } catch (error) {
+      if(error instanceof ApiClientError&&error.status===409)clearTokenChange();
       setNotice((error as Error).message);
     } finally {
       setBusy(false);
