@@ -17,6 +17,7 @@ const database=memoryStore(),cloud=createService(database,"yandex-1");cloud.exch
 const credentials={accessKeyId:"TEST",secretAccessKey:"SECRET"};
 const config={url:"https://cloud.example/exchange",secret:"x".repeat(64),installationId:"vps-1",peerId:"yandex-1",bootstrapFile:temporary+"/bootstrap.json",bus:{enabled:true,provider:"ymq",credentials,inbox:"https://queue.example/vps",targets:[{installationId:"yandex-1",address:"https://queue.example/cloud"}]}};
 const env={TM_BUS_CONFIG:JSON.stringify({enabled:true,provider:"ymq",credentials,bootstrapCursor:"0",targets:[{installationId:"vps-1",address:config.bus.inbox}]})};
+let directCalls=0,directUnavailable=false;
 const queues=new Map([[config.bus.inbox,[]],[config.bus.targets[0].address,[]]]);let exchanges=0,lose=false;
 function creation(text:string){const at=new Date().toISOString();return{protocolVersion:1 as const,operationId:randomUUID(),actorId:users[0].id,deviceId:randomUUID(),occurredAt:at,type:"message.create" as const,message:{id:randomUUID(),fromUserId:users[0].id,toUserId:users[1].id,kind:"text" as const,text,sentAt:at}};}
 async function deliverCloud(){const q=queues.get(config.bus.targets[0].address)!;while(q.length)await consumeCloudFrames(cloud,[q.shift()],env);}
@@ -26,6 +27,13 @@ try{
  await writeFile(temporary+"/config.json",JSON.stringify(config));await writeFile(config.bootstrapFile,JSON.stringify({formatVersion:1,createdAt:now,messages:[],operations:[],deletions:[]}));
  await write(async tx=>{for(const user of users)await tx.user.create({data:user});});
  globalThis.fetch=(async(url,init)=>{
+  if(String(url)==="https://cloud.example/events"){
+    directCalls++;
+    if(directUnavailable)throw Error("Direct endpoint unavailable");
+    assert.equal(new Headers(init?.headers).get("x-tm-replication-key"),config.secret);
+    const value=await consumeCloudFrames(cloud,[JSON.parse(String(init?.body))],env);
+    return new Response(JSON.stringify({ok:true,data:value}));
+  }
   if(String(url)==="https://cloud.example/exchange"){exchanges++;return new Response(JSON.stringify({ok:true,data:await cloud.exchange(JSON.parse(String(init?.body)))}));}
   const p=new URLSearchParams(String(init?.body));assert.equal(p.get("Action"),"SendMessageBatch");
   for(const [key,value]of p)if(key.endsWith(".MessageBody"))queues.get(p.get("QueueUrl")!)!.push(JSON.parse(value) as never);
@@ -54,5 +62,15 @@ try{
  const repeated=creation("Lost acknowledgement");await write(tx=>acceptMutation(tx,repeated,users[0]));lose=true;const failure=await publishLocalBus()as any;assert.equal(failure.error,"publish_failed");
  await write(async tx=>{const row=await tx.replicationState.findUniqueOrThrow({where:{key:"bus:outgoing"}});const state=JSON.parse(row.body);state.retryAt=0;await tx.replicationState.update({where:{key:row.key},data:{body:JSON.stringify(state)}});});
  await publishLocalBus();await deliverCloud();assert.equal((await cloud.snapshot(users[1])).messages.filter(m=>m.id===repeated.message.id).length,1);
- console.log(JSON.stringify({directDataBothDirections:true,richEntitiesOverBus:true,noHttpPullForDelivery:true,noEcho:true,roundTripHealth:true,rareCatchupWhenHealthy:true,fallbackOnBusFailure:true,lostPublishResponseDeduplicated:true}));
+ const directTarget=config.bus.targets[0] as any;
+ directTarget.direct={url:"https://cloud.example/events",secret:config.secret};await writeFile(temporary+"/config.json",JSON.stringify(config));
+ const direct=creation("Direct HTTP event delivery");await write(tx=>acceptMutation(tx,direct,users[0]));
+ const directBefore=directCalls;await publishLocalBus();assert.ok(directCalls>directBefore);
+ assert.equal(queues.get(directTarget.address)!.length,0,"Normal outgoing delivery must not publish to the cloud queue");
+ assert.equal((await cloud.message(users[1],direct.message.id)).text,direct.message.text);
+ directUnavailable=true;
+ const fallback=creation("HTTP outage with queue reserve");await write(tx=>acceptMutation(tx,fallback,users[0]));await publishLocalBus();
+ assert.ok(queues.get(directTarget.address)!.length>0);await deliverCloud();
+ assert.equal((await cloud.message(users[1],fallback.message.id)).text,fallback.message.text);
+ console.log(JSON.stringify({directDataBothDirections:true,richEntitiesOverBus:true,noHttpPullForDelivery:true,noEcho:true,roundTripHealth:true,rareCatchupWhenHealthy:true,fallbackOnBusFailure:true,lostPublishResponseDeduplicated:true,directHttpPreferred:true,queueFallbackOnHttpFailure:true}));
 }finally{globalThis.fetch=originalFetch;Object.assign(busHealth(),{listenerAt:0,confirmedAt:0,failedAt:0});await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

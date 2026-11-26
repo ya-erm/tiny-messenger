@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createBusTransport } from "./transport.mjs";
-import { makeBusFrame, busHealth } from "./format.mjs";
+import { publishToTarget } from "./delivery.mjs";
+import { makeBusFrame, busHealth, busProbeInterval } from "./format.mjs";
 export function startBusListener(upstream) {
   if(!process.env.TM_REPLICATION_CONFIG)return()=>{};
   const controller=new AbortController();let timer,stopped=false;
@@ -9,11 +10,25 @@ export function startBusListener(upstream) {
     const config=JSON.parse(await readFile(process.env.TM_REPLICATION_CONFIG,"utf8"));
     if(!config.bus?.enabled)return;
     const transport=createBusTransport(config.bus),health=busHealth();
-    const ping=async()=>{try{for(const target of config.bus.targets)await transport.publish(target.address,[makeBusFrame(config.installationId,target.installationId,"ping",randomUUID())]);}catch{health.failedAt=Date.now();}};
-    timer=setInterval(()=>void ping(),60000);timer.unref();void ping();
+    let probing=false;
+    const ping=async(force=false)=>{
+      if(stopped||probing)return;
+      const now=Date.now();
+      if(health.probeAt>health.confirmedAt&&now-health.probeAt>30000)health.failedAt=Math.max(health.failedAt,health.probeAt);
+      if(!force&&now-Math.max(health.probeAt,health.confirmedAt)<busProbeInterval(now))return;
+      probing=true;health.probeAt=now;
+      try{for(const target of config.bus.targets)await publishToTarget(transport,target,[makeBusFrame(config.installationId,target.installationId,"ping",randomUUID())]);}
+      catch{health.failedAt=Date.now();}
+      finally{probing=false;}
+    };
+    // Only the local timer ticks frequently. Idle probes invoke the peer once
+    // per thirty minutes; real data restores the active one-minute deadline.
+    timer=setInterval(()=>void ping(),2000);timer.unref();void ping(true);
+    let reconnect=false;
     while(!stopped){
       try{
         const messages=await transport.receive(config.bus.inbox,controller.signal);health.listenerAt=Date.now();
+        if(reconnect){reconnect=false;void ping(true);}
         const accepted=[];
         for(const message of messages){
           const response=await fetch(upstream+"/api/internal/replication/events",{method:"POST",headers:{"content-type":"application/json","x-messenger-internal-token":process.env.MESSENGER_INTERNAL_TOKEN||""},body:message.body,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25000)])});
@@ -22,7 +37,7 @@ export function startBusListener(upstream) {
         }
         await transport.acknowledge(config.bus.inbox,accepted);
       }catch{
-        if(stopped)break;health.failedAt=Date.now();
+        if(stopped)break;reconnect=true;health.failedAt=Date.now();
         await new Promise(resolve=>{const abort=()=>{clearTimeout(id);resolve();};const id=setTimeout(()=>{controller.signal.removeEventListener("abort",abort);resolve();},5000);controller.signal.addEventListener("abort",abort,{once:true});});
       }
     }

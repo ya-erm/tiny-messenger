@@ -5,6 +5,7 @@ import { read, write } from "@/lib/db";
 import { parseMutation } from "@/lib/mutations/protocol";
 import { operationFromChange, ingestLocalRows } from "./row-store";
 import { applyPeerEvents } from "./apply";
+import { publishToTarget } from "../../../scripts/replication-bus/delivery.mjs";
 import { createBusTransport } from "../../../scripts/replication-bus/transport.mjs";
 import { makeBusFrame, parseBusFrame, BUS_BATCH, busHealth } from "../../../scripts/replication-bus/format.mjs";
 let sending: Promise<unknown> | undefined;
@@ -26,6 +27,7 @@ export async function receiveBusFrame(input: unknown) {
   await write((tx)=>ingestLocalRows(tx,config.installationId));
   await write((tx)=>applyPeerEvents(tx,frame.from,frame.events,[],config.installationId),{timeout:15000});
   health.receivedAt = Date.now();
+  health.activityAt = health.receivedAt;
   return { accepted: true, operations: frame.events.length };
 }
 export function publishLocalBus() {
@@ -51,12 +53,16 @@ async function publish() {
   if(!native.length&&!rows.length)return{enabled:true,idle:true};
   const events=[...native.filter(item=>!item.originId||item.originId===config.installationId).map(item=>({type:"mutation",operation:parseMutation(JSON.parse(item.body))})),
     ...rows.map(item=>({type:"row",operation:operationFromChange(item,config.installationId)}))];
+  if(events.length) health.activityAt=Date.now();
   try{
     const transport=createBusTransport(config.bus);
     for(const target of config.bus.targets){
       const frames=[];
       for(let index=0;index<events.length;index+=BUS_BATCH)frames.push(makeBusFrame(config.installationId,target.installationId,"events",randomUUID(),{events:events.slice(index,index+BUS_BATCH)}));
-      for(let index=0;index<frames.length;index+=10)await transport.publish(target.address,frames.slice(index,index+10));
+      for(let index=0;index<frames.length;index+=10){
+        const delivery=await publishToTarget(transport,target,frames.slice(index,index+10));
+        if(delivery.route==="direct")health.confirmedAt=Date.now();
+      }
     }
     state={native:native.at(-1)?.seq||state.native,rows:rows.at(-1)?.seq||state.rows,failures:0};
     await write(tx=>tx.replicationState.upsert({where:{key:stateKey},create:{key:stateKey,body:JSON.stringify(state)},update:{body:JSON.stringify(state)}}));
