@@ -136,7 +136,7 @@ export function AttachmentDrafts({ draft, disabled }: { draft: ReturnType<typeof
   return <div className="attachment-drafts">
     {draft.selectionError ? <p className="attachment-error" role="alert">{draft.selectionError}</p> : null}
     {draft.files.map((item) => <div className="attachment-draft" key={item.localId}>
-      <div className="attachment-copy"><strong title={item.file.name}>{item.file.name}</strong><small>{item.originalSize ? `${formatFileSize(item.originalSize)} → ` : ""}{formatFileSize(item.file.size)} · {item.state === "preparing" ? "Подготавливаем файл…" : item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.preparationNote ? <small>{item.preparationNote}</small> : null}{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
+      <div className="attachment-copy"><strong data-tooltip={item.file.name}>{item.file.name}</strong><small>{item.originalSize ? `${formatFileSize(item.originalSize)} → ` : ""}{formatFileSize(item.file.size)} · {item.state === "preparing" ? "Подготавливаем файл…" : item.state === "ready" ? "Готов к отправке" : item.state === "error" ? item.error : item.progress === 100 ? "Проверяем файл…" : `Загрузка ${item.progress}%`}</small>{item.preparationNote ? <small>{item.preparationNote}</small> : null}{item.state === "uploading" ? <progress value={item.progress} max={100} aria-label={`Загрузка ${item.file.name}`} /> : null}</div>
       {item.state === "error" ? <button type="button" disabled={disabled} onClick={() => void draft.retry(item.localId)}>Повторить</button> : null}
       <button type="button" disabled={disabled} onClick={() => draft.remove(item.localId)} aria-label={`Убрать ${item.file.name}`}>×</button>
     </div>)}
@@ -204,18 +204,18 @@ export function AttachmentCard({ file, request, disabled, meta, userId }: { user
   return <div ref={card} className={`attachment-card${file.preview === "image" ? " attachment-image-card" : ""}`} onClick={(event) => { if (!disabled) event.stopPropagation(); }} onContextMenu={(event) => event.stopPropagation()} onPointerDown={(event) => { if (!disabled) event.stopPropagation(); }}>
     {file.preview === "image" ? <>
       <div className="attachment-image-header">
-        <div className="attachment-image-title"><strong title={file.originalName}>{file.originalName}</strong><small className="attachment-image-size">{formatFileSize(file.size)}</small>{meta}</div>
-        <button type="button" className="attachment-download" disabled={disabled || busy} onClick={() => void download()} aria-label={`Скачать ${file.originalName}`} title="Скачать">
+        <div className="attachment-image-title"><strong data-tooltip={file.originalName}>{file.originalName}</strong><small className="attachment-image-size">{formatFileSize(file.size)}</small>{meta}</div>
+        <button type="button" className="attachment-download" disabled={disabled || busy} onClick={() => void download()} aria-label={`Скачать ${file.originalName}`} data-tooltip="Скачать">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" /></svg>
         </button>
       </div>
-      <button type="button" className="attachment-thumbnail" disabled={disabled || busy} aria-label={`Открыть ${file.originalName}`} title="Открыть изображение" onClick={() => void preview()}>
+      <button type="button" className="attachment-thumbnail" disabled={disabled || busy} aria-label={`Открыть ${file.originalName}`} data-tooltip="Открыть изображение" onClick={() => void preview()}>
         {thumbnail ? <img src={thumbnail} alt={file.originalName} referrerPolicy="no-referrer" onError={() => setThumbnail("")} /> : <span className="attachment-image-placeholder" aria-hidden="true">▧</span>}
       </button>
       {error ? <p className="attachment-error" role="alert">{error}</p> : null}
     </> : <>
       <span className="attachment-symbol" aria-hidden="true">{file.preview === "video" ? "▷" : "↧"}</span>
-      <div className="attachment-copy"><strong title={file.originalName}>{file.originalName}</strong><small>{formatFileSize(file.size)}</small><div className="attachment-actions">
+      <div className="attachment-copy"><strong data-tooltip={file.originalName}>{file.originalName}</strong><small>{formatFileSize(file.size)}</small><div className="attachment-actions">
         {file.preview ? <button type="button" disabled={disabled || busy} onClick={() => void preview()}>Смотреть видео</button> : null}
         <button type="button" disabled={disabled || busy} onClick={() => void download()}>Скачать</button>
       </div>{error ? <p className="attachment-error" role="alert">{error}</p> : null}</div>

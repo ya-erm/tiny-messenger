@@ -97,7 +97,7 @@ export function ReactionPicker({ ownEmoji, disabled, onSelect, mode = "reaction"
     role={mode === "insert" ? undefined : "menuitemradio"}
     aria-checked={mode === "insert" ? undefined : ownEmoji === emoji}
     aria-label={mode === "insert" ? `Вставить эмодзи: ${label}` : `${ownEmoji === emoji ? "Снять" : "Отправить"} реакцию: ${label}`}
-    title={label}
+    data-tooltip={label}
     disabled={disabled}
     onClick={() => onSelect(emoji)}
   ><Emoji value={emoji} decorative /></button>;

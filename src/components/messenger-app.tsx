@@ -1882,9 +1882,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
           {(!embedded || (pushState === "disabled" && chats.length > 0)) && <header className="sidebar-header">
             {!embedded && <div className="sidebar-brand-row">
               <div className="brand">
-                <button type="button" className="brand-mark brand-reload" onClick={reloadApplication} aria-label="Обновить Tiny Messenger" title="Обновить Tiny Messenger">tm</button>
+                <button type="button" className="brand-mark brand-reload" onClick={reloadApplication} aria-label="Обновить Tiny Messenger" data-tooltip="Обновить Tiny Messenger">tm</button>
                 <div className="brand-copy">
-                  <button type="button" className="brand-title brand-reload" onClick={reloadApplication} title="Обновить Tiny Messenger">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></button>
+                  <button type="button" className="brand-title brand-reload" onClick={reloadApplication} data-tooltip="Обновить Tiny Messenger">Tiny Messenger <small className="brand-version" aria-label={`Версия ${process.env.NEXT_PUBLIC_APP_VERSION}`}>v{process.env.NEXT_PUBLIC_APP_VERSION}</small></button>
                   {!appInstalled ? <button type="button" className="install-app-button install-app-text" onClick={() => { void installApplication(); }}><Glyph name="install" /> Установить как приложение</button> : null}
                 </div>
               </div>
@@ -2026,7 +2026,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             <header className="conversation-header">
               <button className="mobile-back" onClick={() => setSelectedChat(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
               <Avatar name={selectedEntry.name} avatarUrl={selectedEntry.avatarUrl} avatarBackground={selectedEntry.avatarBackground} className={`contact-avatar large ${selectedGroup ? "group-avatar" : ""}`} />
-              <div className="conversation-title" title={selectedEntry.ref.id}>
+              <div className="conversation-title" data-tooltip={selectedEntry.ref.id}>
                 <strong>{selectedEntry.name}</strong>
                 <span>{selectedGroup
                   ? pluralize(selectedGroup.members.length, ["участник", "участника", "участников"])
@@ -2162,7 +2162,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                 if (isAnswer) return direct && selectedPeer ? <AnswerBubble key={`${message.id}:answer`} message={direct} currentUserId={user.id} currentUserName={user.name} peerName={selectedPeer.name} selectionMode={selectionMode} selected={selected} onToggle={toggleSelection} /> : null;
                 const plainText = !direct || direct.kind === "text";
                 const imageMetaId = message.attachments?.find((file) => file.preview === "image")?.id;
-                const messageMeta = <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span>;
+                const messageMeta = <span className="inline-message-meta">{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" data-tooltip="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</span>;
                 return <article key={message.id}
                     data-message-id={message.id}
                     data-message-date={message.sentAt}
@@ -2205,7 +2205,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         type="button"
                         className="message-reaction-trigger"
                         aria-label="Реакции и действия"
-                        title="Реакции и действия"
+                        data-tooltip="Реакции и действия"
                         aria-haspopup="menu"
                         aria-expanded={messageMenu?.id === message.id}
                         onClick={(event) => openMessageMenu(message.id, event.currentTarget.closest(".message-bubble") as HTMLElement, event.currentTarget)}
@@ -2220,7 +2220,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                       {message.attachments?.map((file) => <AttachmentCard userId={user.id} key={file.id} file={file} request={request} disabled={selectionMode} meta={file.id === imageMetaId ? messageMeta : undefined} />)}
                       {message.text || !imageMetaId ? <p><MessageText text={message.text} disabled={selectionMode} />{plainText && !imageMetaId ? messageMeta : null}</p> : null}
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
-                      {!plainText && !imageMetaId ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
+                      {!plainText && !imageMetaId ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" data-tooltip="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}
                       {message.reactions.length > 0 ? <div className="message-reactions" aria-label="Реакции на сообщение">
                         {[...new Set(message.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
                           const label = reactionLabel(emoji);
@@ -3275,7 +3275,7 @@ function SettingsDialog({
                 <label className="field-label">
                   <span className="profile-field-label-row">
                     <span>Ник <span className="optional-label">необязательно</span></span>
-                    <code className="profile-inline-uuid" title={`UUID: ${user.id}`}>UUID: {user.id}</code>
+                    <code className="profile-inline-uuid" data-tooltip={`UUID: ${user.id}`}>UUID: {user.id}</code>
                   </span>
                   <input value={nickname} maxLength={LIMITS.nickname} pattern="[a-z0-9_.-]+" autoCapitalize="none" autoComplete="off" spellCheck={false} onChange={(event) => setNickname(event.target.value.toLowerCase())} />
                 </label>
@@ -3331,7 +3331,7 @@ function SettingsDialog({
 
         {view === "profile" ? <div className="settings-section capability-section">
           <div className="capability-row">
-            <button type="button" className={`capability-icon capability-icon-button ${messageSoundEnabled ? "active" : ""}`} aria-label="Прослушать звук новых сообщений" title="Прослушать звук" onClick={() => { void onPreviewMessageSound().then((played) => { if (!played) setNotice("Не удалось воспроизвести звук. Проверьте настройки звука в браузере."); }); }}><Glyph name={messageSoundEnabled ? "volume" : "volumeOff"} /></button>
+            <button type="button" className={`capability-icon capability-icon-button ${messageSoundEnabled ? "active" : ""}`} aria-label="Прослушать звук новых сообщений" data-tooltip="Прослушать звук" onClick={() => { void onPreviewMessageSound().then((played) => { if (!played) setNotice("Не удалось воспроизвести звук. Проверьте настройки звука в браузере."); }); }}><Glyph name={messageSoundEnabled ? "volume" : "volumeOff"} /></button>
             <div className="capability-copy">
               <strong id="message-sound-label">Звук новых сообщений</strong>
               <p id="message-sound-description">Личные и групповые сообщения. Настройка сохраняется в этом браузере.</p>

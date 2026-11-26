@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import {ChartTooltip} from "@/components/chart-tooltip";
 
 export const metadata: Metadata = {
   title: "Tiny Messenger",
@@ -42,7 +43,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script dangerouslySetInnerHTML={{ __html: applyStoredTheme }} />
       </head>
-      <body>{children}</body>
+      <body>{children}<ChartTooltip/></body>
     </html>
   );
 }
