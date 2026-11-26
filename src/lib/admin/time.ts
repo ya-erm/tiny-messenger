@@ -39,3 +39,9 @@ export function axisDays(days:string[],width:number){
  const mondays=days.flatMap((day,index)=>new Date(day+"T12:00:00Z").getUTCDay()===1?[{day,index}]:[]),stride=Math.max(1,Math.ceil(mondays.length/Math.max(2,Math.floor(width/65))));
  const ticks=mondays.filter((_,index)=>index%stride===0);if(!ticks.length&&days.length)return[{day:days[0],index:0},{day:days.at(-1)!,index:days.length-1}];return ticks;
 }
+
+export function hourlyStarts(range:AdminRange,timeZone:string):string[]{
+ const from=Date.parse(range.from),to=Date.parse(range.to);if(!Number.isFinite(from)||!Number.isFinite(to)||to<from||to-from>=86400000)return[];
+ const time=timeAt(from,timeZone).split(":").map(Number),origin=from-time[1]*60000-time[2]*1000-((from%1000+1000)%1000);
+ return Array.from({length:Math.floor((to-origin)/3600000)+1},(_,index)=>new Date(origin+index*3600000).toISOString());
+}

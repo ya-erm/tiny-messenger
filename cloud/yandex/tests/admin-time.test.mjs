@@ -47,3 +47,12 @@ test('calendar presets handle a timezone whose DST skips midnight',()=>{
  const range=presetRange('30d','America/Santiago',Date.parse('2026-10-05T12:00:00Z'));
  assert.equal(dayAt(range.from,'America/Santiago'),'2026-09-06');assert.equal(range.from,'2026-09-06T04:00:00.000Z');assert.equal(typeof range.to,'string');
 });
+test('hourly counts clip both boundaries, deduplicate and keep empty local hours',async()=>{
+ const {hourlyStarts}=await import('../shared/admin-time.mjs'),day=shiftDay(dayAt(Date.now(),'UTC'),-2),range={from:day+'T06:30:00.000Z',to:day+'T09:15:00.000Z'},users=[{id:'one',name:'One',createdAt:range.from}];
+ const rows=['06:29:59.999','06:30:00.000','08:59:00.000','09:15:00.000','09:15:00.001'].map((time,index)=>({bucket:'Message',id:String(index),fromUserId:'one',at:day+'T'+time+'Z'}));
+ const one=summarizeAdmin(users,[...rows,{...rows[1],bucket:'operations',opType:'message.create'}],{range,timeZone:'Europe/Moscow'}).users[0];
+ assert.deepEqual(one.hourly.map(item=>item.count),[1,0,1,1]);assert.equal(one.hourly[0].at,day+'T06:00:00.000Z');assert.equal(one.daily[0].count,3);assert.equal(one.counters.messages,5);
+ assert.equal(hourlyStarts({from:range.from,to:new Date(Date.parse(range.from)+86400000).toISOString()},'UTC').length,0);
+ assert.equal(hourlyStarts({from:day+'T06:30:00.000Z',to:day+'T07:30:00.000Z'},'Asia/Kathmandu')[0],day+'T06:15:00.000Z');
+ const fold=hourlyStarts({from:'2026-10-25T00:00:00.000Z',to:'2026-10-25T02:30:00.000Z'},'Europe/Berlin');assert.deepEqual(fold,['2026-10-25T00:00:00.000Z','2026-10-25T01:00:00.000Z','2026-10-25T02:00:00.000Z']);
+});
