@@ -106,7 +106,14 @@ export function createService(database, installationId = "yandex-1") {
     async mutate(user, value, sourceId) {
       const operation = parse(value);
       if (operation.actorId !== user.id) throw new HttpError(403, "mutation_actor_mismatch", "Нельзя изменить данные другого пользователя");
+      const messageId = mutationMessageId(operation);
+      if (!sourceId && operation.type !== "message.create" && await database.transaction(tx => service.rows.state(tx, "Message", [messageId]), { readOnly: true })) {
+        const action = operation.type === "message.edit" ? "edit" : operation.type === "message.delete" ? "delete" : "reaction";
+        const body = action === "edit" ? { text: operation.message.text } : action === "delete" ? { scope: operation.deletion.scope } : { emoji: operation.reaction.emoji };
+        return service.rows.modifyMessage(user, messageId, body, action, false, operation);
+      }
       return database.transaction(async (tx) => {
+        if (await tx.get("row-requests", operation.operationId)) throw new HttpError(409, "mutation_conflict", "ID операции уже использован");
         const original = await tx.get("operations", operation.operationId);
         const messageId = mutationMessageId(operation);
         const state = await tx.get("states", messageId) || { operations: [] };

@@ -97,7 +97,17 @@ try{
  assert.match((await remote("GET","/api/attachments/"+upload.attachment.id+"/url?mode=preview",undefined,1)).url,/objects\.example/);
  await remote("GET","/api/attachments/"+upload.attachment.id+"/url",undefined,2,404);
  await remote("POST","/api/attachments/uploads",{chatKind:"peer",chatId:users[0].id,name:"hijack.png",size:12,contentType:"image/png",clientRequestId:upload.attachment.id},1,409);
- await local(deleteMessage,{scope:"everyone"},0,fileMessage.id,"DELETE");await drain();
+ const queuedEdit={protocolVersion:1,operationId:randomUUID(),actorId:users[0].id,deviceId:randomUUID(),occurredAt:new Date().toISOString(),type:"message.edit",message:{id:fileMessage.id,fromUserId:users[0].id,toUserId:users[1].id,kind:"text",text:"Edited through durable queue",sentAt:fileMessage.sentAt}};
+ assert.equal((await remote("POST","/api/mutations",queuedEdit,0,201)).status,"applied");
+ assert.equal((await remote("POST","/api/mutations",Object.fromEntries(Object.entries(queuedEdit).reverse()))).replayed,true);
+ await remote("POST","/api/mutations",{...queuedEdit,message:{...queuedEdit.message,text:"Collision"}},0,409);
+ await drain();assert.equal((await read(db=>db.message.findUniqueOrThrow({where:{id:fileMessage.id}}))).text,"Edited through durable queue");
+ await remote("POST","/api/mutations",{...queuedEdit,operationId:randomUUID(),type:"reaction.set",message:undefined,reaction:{messageId:fileMessage.id,userId:users[1].id,emoji:"👍"}},1,422);
+ const queuedReaction={protocolVersion:1,operationId:randomUUID(),actorId:users[1].id,deviceId:randomUUID(),occurredAt:new Date().toISOString(),type:"reaction.set",reaction:{messageId:fileMessage.id,userId:users[1].id,emoji:"👍"}};
+ await remote("POST","/api/mutations",queuedReaction,1,201);await drain();
+ assert.equal(await read(db=>db.messageReaction.count({where:{messageId:fileMessage.id,userId:users[1].id}})),1);
+ const queuedDelete={protocolVersion:1,operationId:randomUUID(),actorId:users[0].id,deviceId:randomUUID(),occurredAt:new Date().toISOString(),type:"message.delete",deletion:{messageId:fileMessage.id,scope:"everyone"}};
+ await remote("POST","/api/mutations",queuedDelete,0,201);assert.equal((await remote("POST","/api/mutations",queuedDelete)).replayed,true);await drain();
  await remote("GET","/api/attachments/"+upload.attachment.id+"/url",undefined,1,404);
- console.log(JSON.stringify({groupsBidirectional:true,independentFieldConflicts:true,membershipAndRevocation:true,groupMessagesAndQuotes:true,reactionsAndPrivateDeletion:true,pollAnswerConvergence:true,nativeQuotePrivacy:true,fileUploadAndMetadata:true,fileAccessControl:true}));
+ console.log(JSON.stringify({groupsBidirectional:true,independentFieldConflicts:true,membershipAndRevocation:true,groupMessagesAndQuotes:true,reactionsAndPrivateDeletion:true,pollAnswerConvergence:true,nativeQuotePrivacy:true,fileUploadAndMetadata:true,fileAccessControl:true,richClientQueueEditsReactionsDeletion:true}));
 }finally{globalThis.fetch=originalFetch;await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

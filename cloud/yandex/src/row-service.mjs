@@ -1,3 +1,4 @@
+import { serializeMutation } from "../shared/protocol.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { ROW_TABLES, effectiveRowData, rowBucket, rowKey, rowIdentity, parseRowOperation, mergeRow, rowDeleted } from "../shared/rows.mjs";
 import { appendReplication } from "./replication.mjs";
@@ -274,9 +275,9 @@ export function createRowService(baseDatabase, native, installationId) {
         return messageRecord(tx, data, actor.id, grouped);
       });
     },
-    async modifyMessage(actor, id, body, action, grouped = false) {
+    async modifyMessage(actor, id, body, action, grouped = false, mutation) {
       const table = grouped ? "GroupMessage" : "Message";
-      return database.transaction(async (tx) => {
+      const modify = async (tx) => {
         const data = await row(tx, table, [id]);
         await messageRecord(tx, data, actor.id, grouped);
         if (action === "edit") {
@@ -304,6 +305,25 @@ export function createRowService(baseDatabase, native, installationId) {
           if (!data.answerId) await put(tx, table, { id, answerId: option.optionId, answerLabel: option.label, answeredAt: new Date().toISOString() }, false, true);
         }
         return { message: await messageRecord(tx, await row(tx, table, [id]), actor.id, grouped) };
+      };
+      return database.transaction(async (tx) => {
+        if (!mutation) return modify(tx);
+        const key = mutation.operationId, serialized = serializeMutation(mutation), previous = await tx.get("row-requests", key);
+        if (previous) {
+          if (previous.hash !== hash(serialized)) throw new HttpError(409, "mutation_conflict", "ID операции уже использован");
+          return { ...previous.receipt, replayed: true };
+        }
+        if (await tx.get("operations", key)) throw new HttpError(409, "mutation_conflict", "ID операции уже использован");
+        if (mutation.type === "message.edit") {
+          const original = await row(tx, table, [id]);
+          if (original && ["id", "fromUserId", "toUserId", "sentAt"].some(field => original[field] !== mutation.message[field]))
+            throw new HttpError(409, "message_identity_conflict", "Нельзя менять участников или время сообщения");
+        }
+        if (mutation.type === "reaction.set" && mutation.reaction.userId !== actor.id) throw new HttpError(403, "mutation_not_allowed", "Нельзя менять чужую реакцию");
+        await modify(tx);
+        const receipt = { operationId: key, messageId: id, receivedAt: new Date().toISOString(), replayed: false, status: "applied" };
+        await tx.put("row-requests", key, { hash: hash(serialized), receipt });
+        return receipt;
       });
     },
     async groupReceipt(actor, id, status) {
