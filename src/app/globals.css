@@ -1193,3 +1193,8 @@ select, .admin-zone-control select, .api-channel-controls select, .reaction-cata
 .admin-header-actions { align-items: flex-end; }
 
 .admin-timeline-tooltip { max-height: 208px; }
+
+.device-identity { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.device-brand-icon { display: inline-block; width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; }
+[data-theme="dark"] img.device-brand-icon { filter: brightness(0) invert(1); }
+.chart-tooltip { max-width: min(320px, calc(100vw - 16px)); white-space: pre-line; }
