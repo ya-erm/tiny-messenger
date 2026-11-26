@@ -62,3 +62,30 @@ export async function prepareHistory(tx: Prisma.TransactionClient, snapshot: Boo
   }
   return { adopted };
 }
+
+// Reconcile deletions in the original read-only cloud bootstrap as well.
+// Current rich rows are enrolled by the additive migration's seed statements.
+export async function prepareRowHistory(tx: Prisma.TransactionClient, snapshot: Bootstrap & { userStates?: Array<{ groups?: Array<Record<string, unknown>>; groupMessages?: Array<Record<string, unknown>> }> }) {
+  const { ROW_TABLES, rowKey } = await import("./rows");
+  const key = "rows:history:v1";
+  if (await tx.replicationState.findUnique({ where: { key } })) return;
+  let tombstones = 0;
+  const append = async (table: "Message" | "GroupMessage" | "Group", value: Record<string, unknown>) => {
+    const full = Object.fromEntries(ROW_TABLES[table].fields.map((field) => [field, value[field] ?? null]));
+    await tx.replicaChange.create({ data: { operationId: historyId("rich-deleted:" + table + ":" + value.id), tableName: table,
+      rowKey: rowKey(table, full as never), payload: JSON.stringify(full), deleted: true, occurredAt: new Date().toISOString() } });
+    tombstones++;
+  };
+  for (const item of snapshot.messages) {
+    if (item.kind === "text" && !item.replyToId && !item.attachments?.length) continue;
+    if (!await tx.message.findUnique({ where: { id: item.id }, select: { id: true } })) await append("Message", item as unknown as Record<string, unknown>);
+  }
+  const groups = new Map<string, Record<string, unknown>>(), messages = new Map<string, Record<string, unknown>>();
+  for (const state of snapshot.userStates || []) {
+    for (const group of state.groups || []) groups.set(String(group.id), group);
+    for (const message of state.groupMessages || []) messages.set(String(message.id), message);
+  }
+  for (const [id, group] of groups) if (!await tx.group.findUnique({ where: { id }, select: { id: true } })) await append("Group", group);
+  for (const [id, message] of messages) if (!await tx.groupMessage.findUnique({ where: { id }, select: { id: true } })) await append("GroupMessage", message);
+  await tx.replicationState.create({ data: { key, body: JSON.stringify({ tombstones }) } });
+}

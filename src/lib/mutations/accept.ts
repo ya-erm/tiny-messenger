@@ -9,7 +9,7 @@ import { reduceMessageOperations } from "./reduce";
 // Peer imports may retain an operation rejected after dependency resolution.
 // Only the separately authenticated replication service may set peerImport.
 // Caller owns the transaction: journal, projection and push commit together.
-export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutation, actor: { id: string; name: string }, options: { peerImport?: boolean } = {}) {
+export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutation, actor: { id: string; name: string }, options: { peerImport?: boolean; sourceId?: string } = {}) {
   const operation = parseMutation(input);
   if (operation.actorId !== actor.id) throw new ApiError(403, "mutation_actor_mismatch", "Нельзя отправить мутацию другого пользователя");
   const body = serializeMutation(operation);
@@ -37,7 +37,7 @@ export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutati
   const receivedAt = new Date().toISOString();
   await tx.mutationOperation.create({ data: {
     operationId: operation.operationId, protocolVersion: operation.protocolVersion,
-    actorId: operation.actorId, deviceId: operation.deviceId, occurredAt: operation.occurredAt,
+    actorId: operation.actorId, originId: options.sourceId || process.env.TM_INSTALLATION_ID || "vps-1", deviceId: operation.deviceId, occurredAt: operation.occurredAt,
     type: operation.type, entityId: messageId, body, receivedAt, status,
   } });
   for (const entry of entries) {

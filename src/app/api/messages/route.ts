@@ -134,13 +134,13 @@ export const POST = route(async (request) => {
     await assertReplyTarget(tx, authenticated.id, { kind: "peer", id: toUserId }, replyToId);
     const row = await tx.message.create({
       data: {
-        id: randomUUID(),
+        id: clientRequestId || randomUUID(),
         fromUserId: authenticated.id,
         toUserId,
         senderName: authenticated.name,
         text,
         kind,
-        sentAt: new Date().toISOString(),
+        sentAt: typeof body.clientSentAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(body.clientSentAt) && Number.isFinite(Date.parse(body.clientSentAt)) ? body.clientSentAt : new Date().toISOString(),
         clientRequestId, requestHash, replyToId,
         ...(options
           ? { options: { create: options.map((option, position) => ({ optionId: option.id, label: option.label, position })) } }

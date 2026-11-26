@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { startBusListener } from "./replication-bus/listener.mjs";
 import { createServer } from "node:http";
 
 import next from "next";
@@ -16,6 +18,7 @@ function positivePort(value) {
   return port;
 }
 
+if (process.env.TM_REPLICATION_CONFIG) process.env.TM_INSTALLATION_ID ||= JSON.parse(readFileSync(process.env.TM_REPLICATION_CONFIG,"utf8")).installationId;
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = positivePort(process.env.PORT || 3000);
@@ -73,6 +76,7 @@ if (listenError) {
 }
 
 console.log(`Tiny Messenger listening on http://${hostname}:${port} (WebSocket: /ws)`);
+const stopBus = startBusListener(upstream);
 const stopReplication = startReplication(upstream);
 const stopAttachmentCleanup = startAttachmentCleanup(upstream);
 const stopMessagePushDispatch = startMessagePushDispatch(upstream);
@@ -82,6 +86,7 @@ let stopping = false;
 async function shutdown(signal) {
   if (stopping) return;
   stopping = true;
+  stopBus();
   stopReplication();
   stopAttachmentCleanup();
   stopMessagePushDispatch();

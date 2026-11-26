@@ -64,6 +64,24 @@ try {
     const switched = await s.readCachedSnapshot(switchedUser, 'yandex-1');
     check(!switched.messages.some(message => message.id === deletedId), 'full snapshot deletion dominates stale other-contour cache');
     check(switched.contacts.length === 0, 'removed contact is not restored from another contour');
+    const groupId = crypto.randomUUID(), groupMessageId = crypto.randomUUID(), replyId = crypto.randomUUID();
+    const group = { id: groupId, name: 'Replicated group', ownerId: actorId, members: [], createdAt: now, updatedAt: now };
+    const groupMessage = { id: groupMessageId, groupId, fromUserId: actorId, senderName: 'Test', text: 'Original', sentAt: now, status: 'sent', reactions: [] };
+    let rich = s.applyCloudChanges(snapshot, { installationId: 'yandex-1', cursor: 'yandex-1:3', changes: [
+      { type: 'group', group }, { type: 'group.message', message: groupMessage },
+      { type: 'group.message', message: { ...groupMessage, id: replyId, text: 'Reply', replyToId: groupMessageId } }
+    ] }).snapshot;
+    check(rich.groups.length === 1 && rich.groupMessages.length === 2, 'group feed materialized');
+    rich = s.applyCloudChanges(rich, { installationId: 'yandex-1', cursor: 'yandex-1:4', changes: [
+      { type: 'group.message.delete', id: groupMessageId }
+    ] }).snapshot;
+    check(rich.groupMessages[0].reply.available === false && !rich.groupMessages[0].reply.text, 'deleted quote content removed');
+    const groupCacheUser = crypto.randomUUID();
+    await s.saveSnapshot(groupCacheUser, 'vps-1', { ...rich, installationId: 'vps-1' });
+    const revoked = s.applyCloudChanges(rich, { installationId: 'yandex-1', cursor: 'yandex-1:5', changes: [{ type: 'group.remove', id: groupId }] }).snapshot;
+    await s.saveSnapshot(groupCacheUser, 'yandex-1', revoked);
+    const revokedCache = await s.readCachedSnapshot(groupCacheUser, 'yandex-1');
+    check(!revokedCache.groups.length && !revokedCache.groupMessages.length, 'revoked group not restored from another channel cache');
     t.chooseChannel('yandex-1');
     check(t.channelUrl('/api/messages').startsWith('https://ch-2.api.tm.'), 'cloud chosen');
     check(t.channelUrl('/api/rtc/config') === '/api/rtc/config', 'voice pinned to local VPS in development');
@@ -99,6 +117,6 @@ try {
     return (await s.storedMutation(proof.operationId))?.state === 'accepted' && (await s.queuedMutations(proof.userId)).length === 1;
   }, proof);
   assert.equal(persisted, true);
-  console.log(JSON.stringify({ nativeIndexedDb: true, durableQueue: true, stableRetry: true, channelIsolation: true, historyMerge: true, deletionDominates: true, fullSnapshotTombstones: true, contactRemoval: true, browserReload: true }));
+  console.log(JSON.stringify({ nativeIndexedDb: true, durableQueue: true, stableRetry: true, channelIsolation: true, historyMerge: true, deletionDominates: true, fullSnapshotTombstones: true, contactRemoval: true, groupFeed: true, quotePrivacy: true, groupRevocation: true, browserReload: true }));
   await context.close();
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

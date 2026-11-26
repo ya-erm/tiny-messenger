@@ -76,12 +76,12 @@ export const POST = route(async (request) => {
     const row = await tx.groupMessage.create({
       include: groupMessageInclude,
       data: {
-        id: randomUUID(),
+        id: clientRequestId || randomUUID(),
         groupId,
         fromUserId: authenticated.id,
         senderName: authenticated.name,
         text,
-        sentAt: new Date().toISOString(),
+        sentAt: typeof body.clientSentAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(body.clientSentAt) && Number.isFinite(Date.parse(body.clientSentAt)) ? body.clientSentAt : new Date().toISOString(),
         clientRequestId, requestHash, replyToId,
       },
     });

@@ -1,10 +1,16 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { parseEnv } from "node:util";
 import { serviceAccountCredentials, cloudApi } from "./yandex-auth.mjs";
 
 const directory = new URL("../.secrets/yandex-cloud/", import.meta.url);
 const stateFile = new URL("deployment.json", directory);
 const state = JSON.parse(await readFile(stateFile, "utf8"));
 const replication = JSON.parse(await readFile(new URL("replication.json", directory), "utf8").catch(() => "null"));
+const localEnvironment = parseEnv(await readFile(new URL("../.env", import.meta.url), "utf8"));
+const attachmentEnvironment = Object.fromEntries(Object.entries(localEnvironment).filter(([key]) => /^ATTACHMENTS_(?:S3_|MAX_|USER_|UPLOAD_|DOWNLOAD_|UNATTACHED_|DELETE_|CLEANUP_)/.test(key)));
+const eventBus = JSON.parse(await readFile(new URL("bus.json", directory), "utf8").catch(() => "null"));
+const cloudBus = eventBus?.queues?.["yandex-1"] ? { ...eventBus, installationId: "yandex-1", inboxArn: eventBus.queues["yandex-1"].arn,
+  targets: [{ installationId: "vps-1", address: eventBus.queues["vps-1"].url }] } : undefined;
 const api = cloudApi(serviceAccountCredentials(new URL("service-account.json", directory)));
 const save = () => writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
 async function complete(value) {
@@ -33,7 +39,7 @@ const content = await readFile(new URL("../cloud/yandex/dist/function.zip", impo
 const version = await complete(await api("https://serverless-functions.api.cloud.yandex.net/functions/v1/versions", { method: "POST", body: {
   functionId: state.functionId, runtime: "nodejs22", entrypoint: "index.handler", resources: { memory: "268435456" },
   executionTimeout: "15s", serviceAccountId: state.runtimeServiceAccountId, content: content.toString("base64"),
-  environment: { YDB_CONNECTION_STRING: state.databaseConnectionString, TM_INSTALLATION_ID: "yandex-1",
+  environment: { ...(cloudBus ? { TM_BUS_CONFIG: JSON.stringify(cloudBus) } : {}), ...attachmentEnvironment, YDB_CONNECTION_STRING: state.databaseConnectionString, TM_INSTALLATION_ID: "yandex-1",
     TM_ALLOWED_ORIGINS: "https://tm.ya-erm.ru,https://gh.tm.ya-erm.ru,https://vm.tm.ya-erm.ru",
     ...(replication ? { TM_REPLICATION_SECRET: replication.secret, TM_REPLICATION_PEER: replication.installationId } : {}) },
   tag: ["prototype"], concurrency: "1", logOptions: { folderId: state.folderId, minLevel: "WARN" },

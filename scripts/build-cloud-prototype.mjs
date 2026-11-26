@@ -9,15 +9,20 @@ const settings = Object.fromEntries((await readFile(path.join(root, "deploy/rele
 const ts = createRequire(import.meta.url)(path.join(settings.MESSENGER_DEPENDENCIES_DIR, "typescript"));
 const output = path.join(root, "cloud/yandex/shared");
 await mkdir(output, { recursive: true });
-const files = { "protocol": "src/lib/mutations/protocol.ts", "reduce": "src/lib/mutations/reduce.ts", "reactions": "src/lib/reactions.ts", "replication": "src/lib/replication/protocol.ts" };
+const files = { "protocol": "src/lib/mutations/protocol.ts", "reduce": "src/lib/mutations/reduce.ts", "reactions": "src/lib/reactions.ts", "replication": "src/lib/replication/protocol.ts", "rows": "src/lib/replication/rows.ts", "attachment-types": "src/lib/attachment-types.ts", "attachment-config": "src/lib/attachment-config.ts", "attachment-storage": "src/lib/attachment-storage.ts" };
 const hashes = {};
 for (const [name, file] of Object.entries(files)) {
   const source = await readFile(path.join(root, file), "utf8");
   hashes[file] = createHash("sha256").update(source).digest("hex");
   const compiled = ts.transpileModule(source, { fileName: file,
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+    .replaceAll('import "server-only";', '').replaceAll('"@/lib/api"', '"../src/errors.mjs"').replaceAll('"@/lib/attachment-config"', '"./attachment-config.mjs"')
     .replaceAll('"../reactions"', '"./reactions.mjs"').replaceAll('"./protocol"', '"./protocol.mjs"');
   await writeFile(path.join(output, name + ".mjs"), compiled);
+}
+for (const name of ["format", "ymq", "transport"]) {
+  const source = await readFile(path.join(root, "scripts/replication-bus/" + name + ".mjs"), "utf8");
+  await writeFile(path.join(output, "bus-" + name + ".mjs"), source.replaceAll('"./ymq.mjs"', '"./bus-ymq.mjs"'));
 }
 await writeFile(path.join(output, "source-hashes.json"), JSON.stringify(hashes, null, 2));
 console.log("Cloud protocol generated from the VPS source files.");

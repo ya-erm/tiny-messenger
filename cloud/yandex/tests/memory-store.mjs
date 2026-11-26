@@ -11,6 +11,7 @@ export function memoryStore() {
           async get(bucket, id) { return structuredClone(draft.kv.get(key(bucket, id))); },
           async put(bucket, id, value) { draft.kv.set(key(bucket, id), structuredClone(value)); },
           async scan(bucket, limit = 100) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0")).slice(0, limit).map(([, value]) => structuredClone(value)); },
+          async scanPrefix(bucket, prefix, limit = 1000) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0" + prefix)).sort(([a], [b]) => a.localeCompare(b)).slice(0, limit).map(([, value]) => structuredClone(value)); },
           async scanEntries(bucket, limit = 100) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0")).slice(0, limit).map(([id, value]) => ({ key: id.slice(bucket.length + 1), value: structuredClone(value) })); },
           async putView(userId, message) { draft.views.set(key(userId, message.id), structuredClone(message)); },
           async getView(userId, sentAt, id) { const row = draft.views.get(key(userId, id)); return row?.sentAt === sentAt ? structuredClone(row) : undefined; },

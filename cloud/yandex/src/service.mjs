@@ -1,11 +1,12 @@
+import { createFileService } from "./row-files.mjs";
+import { createRowService } from "./row-service.mjs";
 import { appendReplication } from "./replication.mjs";
 import { createHash } from "node:crypto";
 import { parseMutation, serializeMutation, mutationMessageId, MutationValidationError } from "../shared/protocol.mjs";
 import { reduceMessageOperations } from "../shared/reduce.mjs";
 
-export class HttpError extends Error {
-  constructor(status, code, message) { super(message); this.status = status; this.code = code; }
-}
+import { HttpError } from "./errors.mjs";
+export { HttpError } from "./errors.mjs";
 export function publicUser(user) {
   const { id, name, nickname, avatarUrl, avatarBackground, createdAt } = user;
   return { id, name, ...(nickname ? { nickname } : {}), ...(avatarUrl ? { avatarUrl } : {}),
@@ -13,7 +14,7 @@ export function publicUser(user) {
 }
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const visible = (message) => !message.deleted && !message.hidden;
-const bare = (message) => { const { hidden, deleted, ...record } = message; return record; };
+const bare = (message) => { const { hidden, deleted, _row, ...record } = message; return record; };
 
 function parse(value) {
   try { return parseMutation(value); }
@@ -55,10 +56,19 @@ export function createService(database, installationId = "yandex-1") {
           const key = message.toUserId + ":" + message.fromUserId;
           if (!receipts.has(key)) receipts.set(key, await tx.get("receipts", key));
           const receipt = receipts.get(key);
+          if (message._row) {
+            const record = await service.rows.row(tx, "Message", [message.id]);
+            if (record) messages.push(await service.rows.messageRecord(tx, record, user.id));
+            continue;
+          }
           messages.push({ ...bare(message), status: message.answer ? "answered" : receipt?.read?.includes(message.id) ? "read"
             : receipt?.delivered?.includes(message.id) ? "delivered" : message.status || "sent" });
         }
-        return { contacts: state.contacts || [], groups: state.groups || [], groupMessages: state.groupMessages || [],
+        const rich = await service.rows.snapshot(tx, user.id, limit);
+        const knownGroups = new Set(rich.groups.map((entry) => entry.id));
+        for (const group of state.groups || []) if (await service.rows.state(tx, "Group", [group.id])) knownGroups.add(group.id);
+        return { contacts: state.contacts || [], groups: [...(state.groups || []).filter((item) => !knownGroups.has(item.id)), ...rich.groups],
+          groupMessages: [...(state.groupMessages || []).filter((item) => !knownGroups.has(item.groupId)), ...rich.groupMessages],
           hiddenPeerIds: state.hiddenPeerIds || [], readStates: state.readStates || [], messages,
           deletedMessageIds: (await tx.scan("deleted:" + user.id, 10000)).map((item) => item.id),
           installationId, cursor: cursor(await tx.sequence()), syncedAt: new Date().toISOString() };
@@ -72,6 +82,7 @@ export function createService(database, installationId = "yandex-1") {
         .slice(0, 30).map(publicUser), { readOnly: true });
     },
     async message(user, id) {
+      if (await database.transaction((tx) => service.rows.state(tx, "Message", [id]), { readOnly: true })) return service.rows.getMessage(user.id, id);
       return database.transaction(async (tx) => {
         const state = await tx.get("states", id);
         const original = state?.operations?.find((op) => op.type === "message.create")?.message || state?.archive;
@@ -81,10 +92,12 @@ export function createService(database, installationId = "yandex-1") {
         return withReceipt(tx, bare(ownView));
       }, { readOnly: true });
     },
-    async changes(user, after, limit = 100) {
+    async changes(user, after, limit = 100, extended = false) {
       const sequence = sequenceFrom(after);
       return database.transaction(async (tx) => {
         const changes = await tx.feed(user.id, sequence, limit + 1);
+        if (changes.some((change) => change.type === "snapshot.required" || !extended && ["group", "group.remove", "group.message", "group.message.delete", "conversation.hidden"].includes(change.type)))
+          throw new HttpError(409, "snapshot_required", "Нужен новый снимок");
         const hasMore = changes.length > limit;
         if (hasMore) changes.pop();
         return { installationId, cursor: cursor(changes.at(-1)?.sequence || sequence), changes, hasMore };
@@ -131,9 +144,7 @@ export function createService(database, installationId = "yandex-1") {
               : { type: "message", message });
             if (operation.type === "message.create") {
               const peerId = viewer === projection.message.fromUserId ? projection.message.toUserId : projection.message.fromUserId;
-              const metadata = await tx.get("user-state", viewer);
-              if (metadata?.hiddenPeerIds?.includes(peerId)) await tx.put("user-state", viewer,
-                { ...metadata, hiddenPeerIds: metadata.hiddenPeerIds.filter((id) => id !== peerId) });
+              await service.rows.clearConversation(tx, viewer, peerId);
             }
           }
         }
@@ -211,5 +222,7 @@ export function createService(database, installationId = "yandex-1") {
       });
     },
   };
+  service.rows = createRowService(database, service, installationId);
+  service.files = createFileService(service.rows);
   return service;
 }

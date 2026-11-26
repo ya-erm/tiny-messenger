@@ -39,6 +39,11 @@ export async function connectYdb(connectionString, credentialsProvider = new Met
             const [rows] = await tx`SELECT body FROM tm_kv WHERE bucket = ${bucket} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
             return rows.map((row) => JSON.parse(row.body));
           },
+          async scanPrefix(bucket, prefix, limit = 1000) {
+            const upper = prefix + "\uffff";
+            const [rows] = await tx`SELECT body FROM tm_kv WHERE bucket = ${bucket} AND key >= ${prefix} AND key < ${upper} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
+            return rows.map((row) => JSON.parse(row.body));
+          },
           async scanEntries(bucket, limit = 100) {
             const [rows] = await tx`SELECT key, body FROM tm_kv WHERE bucket = ${bucket} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
             return rows.map((row) => ({ key: row.key, value: JSON.parse(row.body) }));

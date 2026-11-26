@@ -10,6 +10,27 @@ datasource db {
 // Initial local mutation journal. No cascade: replay protection survives legacy
 // message deletion. seq is local to this installation, never a global version.
 // Peer export, snapshots and retention require a separate replication protocol.
+model ReplicaChange {
+  seq Int @id @default(autoincrement())
+  operationId String @unique
+  tableName String
+  rowKey String
+  payload String
+  deleted Boolean @default(false)
+  occurredAt String
+}
+model ReplicaRow {
+  id String @id
+  tableName String
+  body String
+  pending Boolean @default(false)
+  @@index([tableName, pending])
+}
+model ReplicaControl {
+  id Int @id
+  suppress Int @default(0)
+}
+
 model ReplicationState {
   key String @id
   body String
@@ -20,6 +41,7 @@ model MutationOperation {
   operationId     String @unique
   protocolVersion Int
   actorId         String
+  originId        String?
   deviceId        String
   occurredAt      String
   type            String

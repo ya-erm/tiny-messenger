@@ -1,17 +1,17 @@
 import "server-only";
+import { isBusHealthy } from "../../../scripts/replication-bus/format.mjs";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { read, write } from "@/lib/db";
-import { prepareHistory, type Bootstrap } from "./history";
-import { acceptMutation } from "@/lib/mutations/accept";
-import { parseMutation, mutationMessageId } from "@/lib/mutations/protocol";
+import { ingestLocalRows, materializeRows, storeRow, operationFromChange } from "./row-store";
+import { prepareHistory, prepareRowHistory, type Bootstrap } from "./history";
+import { applyPeerEvents } from "./apply";
 import { publicUser } from "@/lib/auth";
 import { toUserRecord } from "@/lib/store";
-import { queueMessagePush } from "@/lib/push-queue";
 import { REPLICATION_BATCH, REPLICATION_MAX_BYTES, REPLICATION_VERSION, replicationCursor } from "./protocol";
 
-type State = { sentSeq: number; cursor: string; hashes: Record<string, string>; nextPoll: number;
-  activeUntil: number; retryAt: number; failures: number; lastSuccess?: string; lastError?: string };
+type State = { rowSeq?: number; sentSeq: number; cursor: string; hashes: Record<string, string>; nextPoll: number;
+  activeUntil: number; retryAt: number; failures: number; caughtUp?: boolean; lastSuccess?: string; lastError?: string };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 let running: Promise<unknown> | undefined;
 export function synchronizeInstallations() {
@@ -34,21 +34,30 @@ async function synchronize() {
       await tx.replicationState.create({ data: { key: "history:v1", body: JSON.stringify(result) } });
     }, { timeout: 30_000 });
   }
+  if (!await read((db) => db.replicationState.findUnique({ where: { key: "rows:history:v1" } }))) {
+    const bootstrap = JSON.parse(await readFile(config.bootstrapFile, "utf8")) as Bootstrap;
+    await write((tx) => prepareRowHistory(tx, bootstrap));
+  }
   const key = "peer:" + config.peerId;
   const stored = await read((db) => db.replicationState.findUnique({ where: { key } }));
   const state: State = stored ? JSON.parse(stored.body) : { sentSeq: 0, cursor: "0", hashes: {}, nextPoll: 0, activeUntil: 0, retryAt: 0, failures: 0 };
   const now = Date.now();
+  if (!isBusHealthy(now) && state.nextPoll > now + 60_000) state.nextPoll = now;
   if (state.retryAt > now) return { enabled: true, retryAfterMs: state.retryAt - now };
   // One consistent snapshot of directory and receipts. It stays on the VPS;
   // only changed items travel to YDB, five at a time.
   const local = await write(async (tx) => {
+    const rowsIngested = await ingestLocalRows(tx, config.installationId);
+    await materializeRows(tx);
     const users = await tx.user.findMany({ orderBy: { id: "asc" } });
     const contacts = await tx.contact.findMany({ orderBy: [{ ownerId: "asc" }, { userId: "asc" }] });
     const marks = await tx.readState.findMany();
     const messages = await tx.message.findMany({ select: { id: true, fromUserId: true, toUserId: true, sentAt: true, receiptStatus: true } });
     const operations = await tx.mutationOperation.findMany({ where: { seq: { gt: state.sentSeq } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
-    return { users, contacts, marks, messages, operations };
+    const rowChanges = await tx.replicaChange.findMany({ where: { seq: { gt: state.rowSeq || 0 } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
+    return { users, contacts, marks, messages, operations, rowChanges, rowsIngested };
   });
+  if (!local.rowsIngested) return { enabled: true, preparingRows: true };
   const usersById = new Map(local.users.map((user) => [user.id, user]));
   const entries: Array<{ key: string; kind: "users" | "contacts" | "receipts"; value: unknown; hash: string }> = [];
   const note = (kind: "users" | "contacts" | "receipts", id: string, value: unknown) => {
@@ -69,15 +78,17 @@ async function synchronize() {
     const receipt = receipts.get(key)!; receipt.delivered.push(message.id); if (wasRead) receipt.read.push(message.id);
   }
   for (const [key, receipt] of receipts) { receipt.delivered.sort(); receipt.read.sort(); note("receipts", key, receipt); }
-  if (!entries.length && !local.operations.length && state.nextPoll > now) return { enabled: true, idle: true, lastSuccess: state.lastSuccess };
+  const busReady = Boolean((config as any).bus?.enabled && isBusHealthy(now));
+  if (!entries.length && (busReady || !local.operations.length && !local.rowChanges.length) && state.nextPoll > now) return { enabled: true, idle: true, lastSuccess: state.lastSuccess };
   const changed = entries.slice(0, REPLICATION_BATCH);
   // New actors/recipients must exist before their operations are accepted.
   const canSendOperations = !entries.slice(REPLICATION_BATCH).some((entry) => entry.kind === "users");
-  const operations = canSendOperations ? local.operations.slice(0, REPLICATION_BATCH) : [];
+  const operations = canSendOperations ? local.operations.slice(0, local.rowChanges.length ? Math.ceil(REPLICATION_BATCH / 2) : REPLICATION_BATCH) : [];
+  const rowChanges = canSendOperations ? local.rowChanges.slice(0, REPLICATION_BATCH - operations.length) : [];
   const directory: Record<string, unknown[]> = { users: [], contacts: [], receipts: [] };
   for (const entry of changed) directory[entry.kind].push(entry.value);
-  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, sourceId: config.installationId, targetId: config.peerId,
-    after: state.cursor, operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
+  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, sourceId: config.installationId, targetId: config.peerId,
+    after: state.cursor, rows: rowChanges.map((entry) => operationFromChange(entry, config.installationId)), operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
   if (Buffer.byteLength(body) > REPLICATION_MAX_BYTES) throw Error("Replication batch exceeds byte limit");
   try {
     const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", "x-tm-replication-key": config.secret },
@@ -90,6 +101,7 @@ async function synchronize() {
     if (!result.ok || data?.protocolVersion !== REPLICATION_VERSION || data.sourceId !== config.peerId || data.targetId !== config.installationId
       || !Array.isArray(data.events) || data.events.length > REPLICATION_BATCH || !Array.isArray(data.users) || data.users.length > REPLICATION_BATCH * 3)
       throw Error("Invalid peer response");
+    if ((rowChanges.length || data.events.some((event: { type: string }) => event.type === "row")) && data.rowProtocolVersion !== 1) throw Error("Peer row protocol unavailable");
     const cursor = replicationCursor(data.cursor);
     let previous = BigInt(state.cursor);
     for (const event of data.events) {
@@ -99,57 +111,20 @@ async function synchronize() {
     }
     if (BigInt(cursor) !== previous) throw Error("Invalid peer acknowledgement");
     await write(async (tx) => {
-      // Peer users are only inserted if absent. Current profile/token/contact
-      // edits still use VPS APIs, so a stale cloud copy cannot roll them back.
-      for (const user of data.users) {
-        if (!/^[0-9a-f-]{36}$/.test(user.id) || !/^[0-9a-f]{64}$/.test(user.tokenHash)) throw Error("Invalid peer user");
-        const fields = { id: user.id, name: user.name, nickname: user.nickname || null, avatarUrl: user.avatarUrl || null,
-          avatarBackground: user.avatarBackground || null, tokenHash: user.tokenHash, createdAt: user.createdAt, updatedAt: user.updatedAt || user.createdAt };
-        await tx.user.upsert({ where: { id: user.id }, create: fields, update: {} });
-      }
-      for (const event of data.events) {
-        if (event.type === "mutation") {
-          const operation = parseMutation(event.operation);
-          const actor = await tx.user.findUniqueOrThrow({ where: { id: operation.actorId } });
-          await acceptMutation(tx, operation, actor, { peerImport: true });
-          const messageId = mutationMessageId(operation);
-          const message = await tx.message.findUnique({ where: { id: messageId } });
-          if (message) {
-            const receipt = await tx.replicationState.findUnique({ where: { key: "receipts:" + message.toUserId + ":" + message.fromUserId } });
-            if (receipt) {
-              const value = JSON.parse(receipt.body);
-              const status = value.read.includes(messageId) ? "read" : value.delivered.includes(messageId) ? "delivered" : undefined;
-              if (status) await tx.message.update({ where: { id: messageId }, data: { receiptStatus: status } });
-            }
-          }
-        } else if (event.type === "receipt") {
-          if (!Array.isArray(event.delivered) || !Array.isArray(event.read) || event.delivered.length + event.read.length > 10000)
-            throw Error("Invalid peer receipt");
-          if (![...event.delivered, ...event.read].every((id) => typeof id === "string" && /^[0-9a-f-]{36}$/.test(id))) throw Error("Invalid peer receipt IDs");
-          const receiptKey = "receipts:" + event.userId + ":" + event.peerId;
-          const old = await tx.replicationState.findUnique({ where: { key: receiptKey } });
-          const before = old ? JSON.parse(old.body) : { delivered: [], read: [] };
-          const readIds = [...new Set<string>([...before.read, ...event.read])].sort();
-          const delivered = [...new Set<string>([...before.delivered, ...event.delivered, ...readIds])].sort();
-          const body = JSON.stringify({ delivered, read: readIds });
-          await tx.replicationState.upsert({ where: { key: receiptKey }, create: { key: receiptKey, body }, update: { body } });
-          const where = { toUserId: event.userId, fromUserId: event.peerId };
-          await tx.message.updateMany({ where: { ...where, id: { in: delivered }, OR: [{ receiptStatus: null }, { receiptStatus: "sent" }] }, data: { receiptStatus: "delivered" } });
-          await tx.message.updateMany({ where: { ...where, id: { in: readIds } }, data: { receiptStatus: "read" } });
-          await queueMessagePush(tx, event.userId);
-        } else throw Error("Unknown peer event");
-      }
+      await applyPeerEvents(tx, config.peerId, data.events, data.users, config.installationId);
+      if (rowChanges.length) state.rowSeq = rowChanges.at(-1)!.seq;
       if (operations.length) state.sentSeq = operations.at(-1)!.seq;
       state.cursor = cursor;
       for (const entry of changed) state.hashes[entry.key] = entry.hash;
-      const active = operations.length || data.events.length || changed.length;
+      const active = rowChanges.length || operations.length || data.events.length || changed.length;
       if (active) state.activeUntil = now + 120_000;
-      const more = data.hasMore || local.operations.length > operations.length || entries.length > changed.length;
-      state.nextPoll = now + (more ? 2000 : now < state.activeUntil ? 5000 : 60_000);
+      const more = data.hasMore || local.rowChanges.length > rowChanges.length || local.operations.length > operations.length || entries.length > changed.length;
+      state.caughtUp = await tx.replicaRow.count({ where: { pending: true } }) === 0 && !data.hasMore && local.rowChanges.length <= rowChanges.length && local.operations.length <= operations.length;
+      state.nextPoll = now + (more ? 2000 : busReady ? 1800_000 : now < state.activeUntil ? 5000 : 60_000);
       state.retryAt = 0; state.failures = 0; state.lastError = undefined; state.lastSuccess = new Date().toISOString();
       await tx.replicationState.upsert({ where: { key }, create: { key, body: JSON.stringify(state) }, update: { body: JSON.stringify(state) } });
     });
-    return { enabled: true, sent: operations.length, received: data.events.length, directoryItems: changed.length, lastSuccess: state.lastSuccess };
+    return { enabled: true, sent: operations.length, sentRows: rowChanges.length, received: data.events.length, directoryItems: changed.length, lastSuccess: state.lastSuccess };
   } catch (error) {
     // Don't log response bodies, message content, credential paths or headers.
     state.failures++; state.retryAt = now + Math.min(300_000, 5000 * 2 ** Math.min(6, state.failures - 1));
@@ -157,7 +132,7 @@ async function synchronize() {
     // Reload the persisted acknowledgement: a failed local commit must never
     // accidentally persist the optimistic cursors modified above.
     const previous = stored ? JSON.parse(stored.body) : { sentSeq: 0, cursor: "0", hashes: {} };
-    const failed = { ...state, sentSeq: previous.sentSeq, cursor: previous.cursor, hashes: previous.hashes };
+    const failed = { ...state, sentSeq: previous.sentSeq, cursor: previous.cursor, hashes: previous.hashes, rowSeq: previous.rowSeq || 0 };
     await write((tx) => tx.replicationState.upsert({ where: { key }, create: { key, body: JSON.stringify(failed) }, update: { body: JSON.stringify(failed) } }));
     console.error(JSON.stringify({ event: "replication", status: state.lastError, failures: state.failures }));
     return { enabled: true, error: state.lastError, failures: state.failures };

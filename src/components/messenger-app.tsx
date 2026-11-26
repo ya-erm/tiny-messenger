@@ -182,7 +182,7 @@ type Peer = { id: string; name: string; nickname?: string; avatarUrl?: string; a
 type ChatRef = { kind: "peer" | "group"; id: string };
 type ChatEntry = { ref: ChatRef; name: string; avatarUrl?: string; avatarBackground?: string; peer?: Peer; group?: PublicGroup };
 type ChatMessage = PublicMessage | PublicGroupMessage;
-type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string; replyToId?: string };
+type SendInput = { text: string; kind: "text" | "choice"; left: string; right: string; attachmentIds: string[]; clientRequestId: string; clientSentAt: string; replyToId?: string };
 type ReadState = { chatId: string; lastDeliveredAt?: string; lastReadAt?: string };
 type NotificationOpen = { messageId: string; accountId?: string; chat?: ChatRef; nonce: number };
 
@@ -249,6 +249,7 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", cha
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(init.method && !["GET", "OPTIONS"].includes(init.method) ? { "X-TM-Request-Id": crypto.randomUUID() } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -690,6 +691,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const notificationFocusRef = useRef<NotificationOpen | null>(null);
   const notificationNonce = useRef(0);
   const syncSequence = useRef(0);
+  const groupCreateAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
   const activeTokenRef = useRef(token);
   activeTokenRef.current = token;
   const notificationOpeningRef = useRef(false);
@@ -890,7 +892,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         data = saved;
         for (let page = 0; page < 10; page++) {
           const batch = await request<Parameters<typeof applyCloudChanges>[1] & { hasMore: boolean }>("/api/changes", {
-            method: "POST", body: JSON.stringify({ cursor: data.cursor, limit: 100 }),
+            method: "POST", body: JSON.stringify({ cursor: data.cursor, limit: 100, extended: true }),
           });
           const applied = applyCloudChanges(data, batch);
           data = applied.snapshot;
@@ -1526,17 +1528,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }
 
   async function createGroup(name: string, memberIds: string[]) {
+    const fingerprint = JSON.stringify({ name, memberIds });
+    if (groupCreateAttempt.current?.fingerprint !== fingerprint) groupCreateAttempt.current = { fingerprint, id: crypto.randomUUID() };
     setBusy(true);
     try {
       const data = await request<{ group: PublicGroup }>("/api/groups", {
         method: "POST",
         body: JSON.stringify({ name, memberIds }),
+        headers: { "X-TM-Request-Id": groupCreateAttempt.current.id },
       });
       await refreshState();
       setSelectedMessageIds(null);
       setSelectedChat({ kind: "group", id: data.group.id });
       setShowGroupForm(false);
       setNotice("Группа создана");
+      groupCreateAttempt.current = null;
     } catch (error) {
       setNotice((error as Error).message);
     } finally {
@@ -1579,7 +1585,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       if (selectedChat.kind === "group") {
         sent = await request<{ message: { id: string } }>("/api/group-messages", {
           method: "POST",
-          body: JSON.stringify({ groupId: selectedChat.id, text: input.text, attachmentIds: input.attachmentIds, clientRequestId: input.clientRequestId, replyToId: input.replyToId }),
+          body: JSON.stringify({ groupId: selectedChat.id, text: input.text, attachmentIds: input.attachmentIds, clientRequestId: input.clientRequestId, clientSentAt: input.clientSentAt, replyToId: input.replyToId }),
         });
       } else {
         sent = await request<{ message: { id: string } }>("/api/messages", {
@@ -1590,6 +1596,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             kind: input.kind,
             attachmentIds: input.attachmentIds,
             clientRequestId: input.clientRequestId,
+            clientSentAt: input.clientSentAt,
             replyToId: input.replyToId,
             ...(input.kind === "choice" ? { options: [
               { id: "1", label: input.left },
@@ -2609,7 +2616,7 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
   useEffect(() => { if (reply?.id) input.current?.focus({ preventScroll: true }); }, [reply?.id]);
   const selection = useRef({ start: 0, end: 0 });
   const [limits, setLimits] = useState<AttachmentLimits | null>(null);
-  const sendAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
+  const sendAttempt = useRef<{ fingerprint: string; id: string; sentAt: string } | null>(null);
   const currentChat = useRef(chatKey(chat));
   currentChat.current = chatKey(chat);
   useEffect(() => {
@@ -2675,10 +2682,10 @@ function Composer({ chat, request, busy, sendCooldownSeconds, allowChoice, onSen
     }
     try {
       const fingerprint = JSON.stringify({ chat, text, kind, left, right, files: draft.ids, replyToId: reply?.id });
-      if (sendAttempt.current?.fingerprint !== fingerprint) sendAttempt.current = { fingerprint, id: crypto.randomUUID() };
+      if (sendAttempt.current?.fingerprint !== fingerprint) sendAttempt.current = { fingerprint, id: crypto.randomUUID(), sentAt: new Date().toISOString() };
       const scope = chatKey(chat);
       const replyingTo = reply?.id;
-      await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id, replyToId: replyingTo });
+      await onSend({ text, kind, left, right, attachmentIds: draft.ids, clientRequestId: sendAttempt.current.id, clientSentAt: sendAttempt.current.sentAt, replyToId: replyingTo });
       if (currentChat.current === scope && replyRef.current?.id === replyingTo) onCancelReply();
       if (currentChat.current === scope) { setText(""); setKind("text"); selection.current = { start: 0, end: 0 }; draft.clearSent(); sendAttempt.current = null; }
     } catch { /* The parent displays the API error. */ }

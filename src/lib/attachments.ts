@@ -67,7 +67,8 @@ export async function beginAttachment(userId: string, body: Record<string, unkno
     const used = await tx.attachment.aggregate({ where: { uploaderId: userId }, _sum: { reservedBytes: true } });
     if (pending >= settings.maxPending) throw new ApiError(429, "too_many_uploads", "Слишком много незавершённых загрузок. Удалите лишние файлы или дождитесь очистки.");
     if ((used._sum.reservedBytes ?? 0n) + BigInt(Number(size)) > BigInt(settings.userQuotaBytes)) throw new ApiError(413, "attachment_quota_exceeded", "Недостаточно места для файлов в вашем профиле");
-    const id = randomUUID();
+    const id = requestId;
+    if (await tx.attachment.findUnique({ where: { id }, select: { id: true } })) throw new ApiError(409, "upload_request_conflict", "Идентификатор уже использован");
     return tx.attachment.create({ data: {
       id, uploaderId: userId, clientRequestId: requestId, chatKind: chat.kind, chatId: chat.id,
       originalName: name, requestedSize: BigInt(Number(size)), reservedBytes: BigInt(Number(size)), contentType,
@@ -164,6 +165,17 @@ let sweepCursor: string | undefined;
 
 export async function cleanupAttachments() {
   if (cleanupRunning || !attachmentSettings().enabled) return { processed: 0 };
+  // A disconnected peer may have attached a previously uploaded file.
+  // Defer destructive cleanup until its journal has caught up; allow a full
+  // ten-minute reconciliation window before physical deletion as well.
+  if (process.env.TM_REPLICATION_CONFIG) {
+    const safe = await read(async (db) => {
+      const peers = await db.replicationState.findMany({ where: { key: { startsWith: "peer:" } } });
+      return peers.length > 0 && peers.every((entry) => { const state = JSON.parse(entry.body);
+        return state.caughtUp === true && !state.failures && Date.now() - Date.parse(state.lastSuccess || "") < 90_000; });
+    });
+    if (!safe) return { processed: 0, deferred: "replication" };
+  }
   cleanupRunning = true;
   const settings = attachmentSettings();
   const now = new Date().toISOString();
@@ -182,7 +194,7 @@ export async function cleanupAttachments() {
       await write(async (tx) => {
         await tx.attachment.updateMany({ where: { id: row.id, status: row.status, messageId: null, groupMessageId: null, leaseToken: row.leaseToken }, data: {
           status: "deleting", leaseToken: null, leaseUntil: null,
-          deleteAfter: new Date(Date.now() + (row.status === "attached" ? settings.deleteGrace : 0)).toISOString(),
+          deleteAfter: new Date(Date.now() + (row.status === "attached" ? settings.deleteGrace : process.env.TM_REPLICATION_CONFIG ? 600_000 : 0)).toISOString(),
         } });
       });
     }

@@ -1,6 +1,6 @@
 {
   "name": "esp32-messenger",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
@@ -20,7 +20,9 @@
     "test:tasks": "prisma generate && node scripts/test-tasks-integration.mjs",
     "test:mutations": "prisma generate && node scripts/test-mutations.mjs",
     "push:keys": "web-push generate-vapid-keys",
-    "test:replication": "prisma generate && node scripts/build-cloud-prototype.mjs && node scripts/test-replication.mjs"
+    "test:replication": "prisma generate && node scripts/build-cloud-prototype.mjs && node scripts/test-replication.mjs",
+    "test:replication:bus": "prisma generate && node scripts/build-cloud-prototype.mjs && node scripts/test-bus-replication.mjs",
+    "test:replication:rich": "prisma generate && node scripts/build-cloud-prototype.mjs && node scripts/test-rich-replication.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1166.0",

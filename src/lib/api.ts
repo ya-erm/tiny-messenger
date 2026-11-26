@@ -11,9 +11,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function readJson(request: Request): Promise<Record<string, unknown>> {
+export async function readJson(request: Request, maximumBytes = JSON_BODY_LIMIT): Promise<Record<string, unknown>> {
   const size = Number(request.headers.get("content-length") || 0);
-  if (size > JSON_BODY_LIMIT) {
+  if (size > maximumBytes) {
     throw new ApiError(413, "payload_too_large", "Тело запроса слишком большое");
   }
   try {
@@ -28,7 +28,7 @@ export async function readJson(request: Request): Promise<Record<string, unknown
         const { value, done } = await reader.read();
         if (done) break;
         received += value.byteLength;
-        if (received > JSON_BODY_LIMIT) {
+        if (received > maximumBytes) {
           await reader.cancel().catch(() => {});
           throw new ApiError(413, "payload_too_large", "Тело запроса слишком большое");
         }

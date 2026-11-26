@@ -46,7 +46,14 @@ export const POST = route(async (request) => {
       throw new ApiError(404, "user_not_found", "Один или несколько участников не найдены");
     }
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const requestId = request.headers.get("x-tm-request-id");
+    const id = isUuid(requestId) ? requestId : randomUUID();
+    const previous = await tx.group.findUnique({ where: { id }, include: groupInclude });
+    if (previous) {
+      const current = toGroupRecord(previous);
+      if (current.ownerId !== authenticated.id || current.name !== name || [...current.memberIds].sort().join() !== [...memberIds].sort().join()) throw new ApiError(409, "group_id_conflict", "Идентификатор уже использован");
+      return publicGroup(current);
+    }
     await tx.group.create({
       data: { id, name, ownerId: authenticated.id, createdAt: now, updatedAt: now },
     });

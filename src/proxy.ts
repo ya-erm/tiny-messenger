@@ -10,7 +10,7 @@ export function proxy(request: NextRequest) {
   if (origin) {
     response.headers.set("Access-Control-Allow-Origin", origin); response.headers.set("Vary", "Origin");
     response.headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
-    response.headers.set("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key");
+    response.headers.set("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-TM-Request-Id");
     response.headers.set("Access-Control-Expose-Headers", "X-TM-Installation-Id,Retry-After");
     response.headers.set("Access-Control-Max-Age", "600");
   }

@@ -16,7 +16,7 @@ export async function journalLegacyCreation(tx: Prisma.TransactionClient, messag
   const operation: Mutation = { ...envelope(message.fromUserId), occurredAt: message.sentAt, type: "message.create", message };
   await tx.mutationOperation.create({ data: {
     operationId: operation.operationId, protocolVersion: operation.protocolVersion,
-    actorId: operation.actorId, deviceId: operation.deviceId, occurredAt: operation.occurredAt,
+    actorId: operation.actorId, originId: process.env.TM_INSTALLATION_ID || "vps-1", deviceId: operation.deviceId, occurredAt: operation.occurredAt,
     type: operation.type, entityId: message.id, body: serializeMutation(operation),
     receivedAt: new Date().toISOString(), status: "applied",
   } });

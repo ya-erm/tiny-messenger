@@ -1,3 +1,6 @@
+import { consumeQueueEvent, consumeCloudFrames, flushCloudBus } from "./bus.mjs";
+import { randomUUID } from "node:crypto";
+import { createFileService } from "./row-files.mjs";
 import { createService, publicUser, HttpError } from "./service.mjs";
 import { authorizePeer, createReplication } from "./replication.mjs";
 import { REPLICATION_MAX_BYTES } from "../shared/replication.mjs";
@@ -11,6 +14,7 @@ async function getService() {
   servicePromise ||= connectYdb(process.env.YDB_CONNECTION_STRING).then((database) => {
     const service = createService(database, process.env.TM_INSTALLATION_ID || "yandex-1");
     service.exchange = createReplication(database, service, process.env);
+    service.files = createFileService(service.rows);
     return service;
   });
   try { return await servicePromise; } catch (error) { servicePromise = undefined; throw error; }
@@ -28,6 +32,7 @@ const pageSize = (value) => Number.isInteger(Number(value)) ? Math.max(1, Math.m
 // Factory is used by the HTTP contract tests with the exact same service code.
 export function createHandler(serviceProvider = getService, configuration = process.env) {
   return async (event, context = {}) => {
+    if (Array.isArray(event.messages) && !event.httpMethod) return consumeQueueEvent(event,await serviceProvider(),configuration);
     const started = Date.now();
     const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([key, value]) => [key.toLowerCase(), value]));
     const origin = headers.origin;
@@ -36,7 +41,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
       "x-tm-installation-id": configuration.TM_INSTALLATION_ID || "yandex-1", vary: "Origin" };
     if (origin && allowed.includes(origin)) Object.assign(responseHeaders, { "access-control-allow-origin": origin,
       "access-control-allow-methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-      "access-control-allow-headers": "Authorization,Content-Type,X-API-Key", "access-control-expose-headers": "X-TM-Installation-Id,Retry-After", "access-control-max-age": "600" });
+      "access-control-allow-headers": "Authorization,Content-Type,X-API-Key,X-TM-Request-Id", "access-control-expose-headers": "X-TM-Installation-Id,Retry-After", "access-control-max-age": "600" });
     const response = (statusCode, value) => ({ statusCode, headers: responseHeaders, isBase64Encoded: false,
       body: statusCode === 204 ? "" : JSON.stringify(value) });
     let path = "/";
@@ -50,9 +55,14 @@ export function createHandler(serviceProvider = getService, configuration = proc
       if (path === "/api/health" && method === "GET") return response(200, { ok: true, data: {
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
-        installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token"], voice: false, files: false, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
+      if (path === "/api/internal/replication/events" && method === "POST") {
+        authorizePeer(headers,configuration);
+        const frame=parseBody(event,256*1024);
+        return response(200,{ok:true,data:await consumeCloudFrames(await serviceProvider(),[frame],configuration)});
+      }
       if (path === "/api/internal/replication/exchange" && method === "POST") {
         authorizePeer(headers, configuration);
         const body = parseBody(event, REPLICATION_MAX_BYTES);
@@ -78,10 +88,59 @@ export function createHandler(serviceProvider = getService, configuration = proc
         } else data = { users };
       }
       else if (path === "/api/sync" && method === "POST") data = await service.snapshot(user, pageSize(body.limit ?? 100));
-      else if (path === "/api/changes" && method === "POST") data = await service.changes(user, body.cursor, pageSize(body.limit ?? 100));
+      else if (path === "/api/changes" && method === "POST") data = await service.changes(user, body.cursor, pageSize(body.limit ?? 100), body.extended === true);
       else if (path === "/api/mutations" && method === "POST") {
         data = await service.mutate(user, body);
         status = data.status === "pending" ? 202 : data.replayed ? 200 : 201;
+      } else if (path === "/api/groups" && method === "POST") {
+        data = await service.rows.modifyGroup(user, headers["x-tm-request-id"], body, "create"); status = 201;
+      } else if (/^\/api\/groups\/[0-9a-f-]+(?:\/members)?$/.test(path)) {
+        const id = path.split("/")[3], memberAction = path.endsWith("/members");
+        if (method === "GET" && !memberAction) data = { group: await service.rows.database.transaction((tx) => service.rows.group(tx, id, user.id), { readOnly: true }) };
+        else if (memberAction && ["POST", "DELETE"].includes(method) || !memberAction && ["PATCH", "DELETE"].includes(method))
+          data = await service.rows.modifyGroup(user, id, body, memberAction ? method === "POST" ? "add" : "remove" : method === "PATCH" ? "edit" : "leave");
+        else throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
+      } else if (path === "/api/group-messages" && method === "POST") {
+        data = { message: await service.rows.createMessage(user, body, true) }; status = 201;
+      } else if (path === "/api/group-messages" && method === "GET") {
+        const groupId = url.searchParams.get("groupId");
+        data = await service.rows.database.transaction(async (tx) => {
+          await service.rows.group(tx, groupId, user.id);
+          const messages = [];
+          for (const index of (await tx.views("@group:" + groupId, pageSize(url.searchParams.get("limit") || 100))).filter((item) => !item.deleted).reverse()) {
+            try { messages.push(await service.rows.messageRecord(tx, await service.rows.row(tx, "GroupMessage", [index.id]), user.id, true)); }
+            catch (error) { if (!(error instanceof HttpError) || ![404, 425].includes(error.status)) throw error; }
+          }
+          return { messages };
+        }, { readOnly: true });
+      } else if (/^\/api\/group-messages\/[0-9a-f-]+(?:\/(?:reaction|status))?$/.test(path)) {
+        const id = path.split("/")[3], action = path.split("/")[4];
+        if (method === "GET" && !action) data = { message: await service.rows.getMessage(user.id, id, true),
+          group: await service.rows.database.transaction(async (tx) => service.rows.group(tx, (await service.rows.row(tx, "GroupMessage", [id])).groupId, user.id), { readOnly: true }) };
+        else if (action === "status" && method === "PATCH") data = await service.rows.groupReceipt(user, id, body.status);
+        else if (action === "reaction" && method === "PUT" || !action && ["PATCH", "DELETE"].includes(method))
+          data = await service.rows.modifyMessage(user, id, body, action === "reaction" ? "reaction" : method === "PATCH" ? "edit" : "delete", true);
+        else throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
+      } else if (path === "/api/messages" && method === "POST") {
+        if ((body.kind || "text") === "text" && !body.replyToId && !body.attachmentIds?.length) {
+          const at = body.clientSentAt || new Date().toISOString(), id = body.clientRequestId || randomUUID();
+          const operation = { protocolVersion: 1, operationId: id, actorId: user.id, deviceId: "00000000-0000-4000-8000-000000000000", occurredAt: at,
+            type: "message.create", message: { id, fromUserId: user.id, toUserId: body.toUserId, kind: "text", text: String(body.text || "").trim(), sentAt: at } };
+          await service.mutate(user, operation); data = { message: await service.message(user, id) };
+        } else data = { message: await service.rows.createMessage(user, body) };
+        status = 201;
+      } else if ((path === "/api/messages" || path === "/api/group-messages") && method === "DELETE") {
+        if (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > 100) throw new HttpError(422, "invalid_message_ids", "Некорректные ID сообщений");
+        for (const id of body.ids) {
+          if (path === "/api/group-messages") await service.rows.modifyMessage(user, id, body, "delete", true);
+          else if (await service.rows.database.transaction((tx) => service.rows.state(tx, "Message", [id]), { readOnly: true })) await service.rows.modifyMessage(user, id, body, "delete");
+          else await service.mutate(user, { protocolVersion: 1, operationId: randomUUID(), actorId: user.id, deviceId: "00000000-0000-4000-8000-000000000000", occurredAt: new Date().toISOString(), type: "message.delete", deletion: { messageId: id, scope: body.scope } });
+        }
+        data = { deletedIds: body.ids, scope: body.scope };
+      } else if (/^\/api\/messages\/[0-9a-f-]+(?:\/(?:reaction|answer))?$/.test(path) && !["GET"].includes(method)) {
+        const id = path.split("/")[3], action = path.split("/")[4];
+        if (!(action === "answer" && method === "POST" || action === "reaction" && method === "PUT" || !action && ["PATCH", "DELETE"].includes(method))) throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
+        data = await service.rows.modifyMessage(user, id, body, action === "answer" ? "answer" : action === "reaction" ? "reaction" : method === "PATCH" ? "edit" : "delete");
       } else if (path === "/api/messages" && method === "GET") {
         const snapshot = await service.snapshot(user, pageSize(url.searchParams.get("limit") || 100));
         data = { messages: snapshot.messages.filter((message) => (!url.searchParams.has("contactId")
@@ -91,9 +150,20 @@ export function createHandler(serviceProvider = getService, configuration = proc
       } else if (/^\/api\/messages\/[0-9a-f-]+$/.test(path) && method === "GET") data = { message: await service.message(user, path.split("/").at(-1)) };
       else if (/^\/api\/messages\/[0-9a-f-]+\/status$/.test(path) && method === "PATCH") data = { message: await service.receipt(user, path.split("/").at(-2), body.status) };
       else if (path === "/api/push" && method === "GET") data = { configured: false, publicKey: "", subscriptionCount: 0 };
-      else if (path === "/api/attachments/config" && method === "GET") data = { limits: { enabled: false, maxFileBytes: 52428800, maxFilesPerMessage: 4, maxPending: 4, userQuotaBytes: 1073741824 } };
+      else if (path === "/api/attachments/config" && method === "GET") data = { limits: service.files.limits() };
+      else if (path === "/api/attachments/uploads" && method === "POST") { data = await service.files.create(user, body); status = 201; }
+      else if (/^\/api\/attachments\/uploads\/[0-9a-f-]+(?:\/complete)?$/.test(path)) {
+        const id = path.split("/")[4];
+        if (path.endsWith("/complete") && method === "POST") data = await service.files.complete(user, id);
+        else if (!path.endsWith("/complete") && method === "DELETE") data = await service.files.cancel(user, id);
+        else throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
+      } else if (/^\/api\/attachments\/[0-9a-f-]+\/url$/.test(path) && method === "GET") data = await service.files.link(user, path.split("/")[3], url.searchParams.get("mode") === "preview");
       else if (path === "/api/groups" && method === "GET") data = { groups: (await service.snapshot(user, 1)).groups };
-      else throw new HttpError(501, "channel_capability_unavailable", "В этом контуре пока доступны личные текстовые сообщения; выберите VPS для остальных действий");
+      else throw new HttpError(501, "channel_capability_unavailable", "Это действие пока доступно только через Канал 1");
+      if (["POST","PATCH","PUT","DELETE"].includes(method) && !["/api/sync","/api/changes","/api/auth/session"].includes(path)) {
+        try { await flushCloudBus(service,configuration); }
+        catch { console.warn(JSON.stringify({event:"cloud-bus",status:"publish_failed"})); }
+      }
       return response(status, { ok: true, data });
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 503;
