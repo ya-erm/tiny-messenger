@@ -1198,3 +1198,30 @@ select, .admin-zone-control select, .api-channel-controls select, .reaction-cata
 .device-brand-icon { display: inline-block; width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; }
 [data-theme="dark"] img.device-brand-icon { filter: brightness(0) invert(1); }
 .chart-tooltip { max-width: min(320px, calc(100vw - 16px)); white-space: pre-line; }
+
+/* Keep the administrative chrome short so useful data starts higher. */
+.admin-shell { padding-top: 20px; }
+.admin-header { gap: 12px; margin-bottom: 16px; }
+.admin-title-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.admin-title-group .admin-back { margin: 0; font-size: 11px; white-space: nowrap; }
+.admin-header h1 { font-size: 22px; }
+.admin-header-actions { align-items: center; gap: 8px; }
+.admin-header .admin-zone-control { flex-direction: row; align-items: center; gap: 8px; }
+.admin-header .admin-zone-control select { min-width: 0; }
+.admin-timezone-label { white-space: nowrap; }
+.admin-overview { margin-bottom: 14px; gap: 10px; }
+.admin-overview .admin-stat { flex-direction: row; align-items: center; justify-content: space-between; min-height: 48px; padding: 10px 14px; gap: 10px; }
+.admin-overview .admin-stat > span { min-width: 0; font-size: 10px; line-height: 1.4; }
+.admin-overview .admin-stat > strong { font-size: 23px; flex-shrink: 0; }
+.admin-main-tabs { margin-bottom: 14px; padding: 3px; }
+.admin-main-tabs button { padding: 7px 12px; }
+@media (max-width: 650px) {
+ .admin-shell { padding-top: 14px; }
+ .admin-header h1 { font-size: 19px; }
+ .admin-header-actions { width: 100%; }
+ .admin-header .admin-zone-control { flex: 1; min-width: 0; }
+ .admin-header .admin-zone-control select { width: 100%; }
+ .admin-timezone-label { display: none; }
+ .admin-overview { gap: 8px; }
+ .admin-overview .admin-stat { padding: 8px 10px; gap: 8px; }
+}
