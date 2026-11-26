@@ -8,8 +8,8 @@ export async function recordNicknameClaim(tx: Prisma.TransactionClient, id: stri
 export async function importNewPeerUser(tx: Prisma.TransactionClient, input: unknown) {
   const user=parseReplicatedUser(input);
   const known=await tx.user.findUnique({where:{id:user.id}});
-  // Profile edits and token rotations remain authoritative on the VPS. A
-  // delayed registration replay must never restore an obsolete credential.
+  // A birth snapshot cannot overwrite a known account. Versioned identity
+  // events handle subsequent edits; late registration cannot restore a key.
   if(known)return known;
   let nickname=user.nickname||null;
   if(nickname){

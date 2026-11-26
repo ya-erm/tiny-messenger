@@ -1,11 +1,13 @@
+import {readTestConfiguration,testOrigin} from "./config.mjs";
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_PACKAGE || 'playwright');
-const directory = new URL('../../../.secrets/yandex-cloud/', import.meta.url);
-const deployment = JSON.parse(await readFile(new URL('deployment.json', directory), 'utf8'));
-const users = JSON.parse(await readFile(new URL('test-users.json', directory), 'utf8'));
+const {directory,deployment,users}=await readTestConfiguration();
+const clientOrigin=testOrigin('TM_TEST_CLIENT_ORIGIN'),cloudOrigin=testOrigin('TM_CLOUD_TEST_ORIGIN');
+const primaryOrigins=(process.env.TM_TEST_PRIMARY_API_ORIGINS||'').split(',').filter(Boolean).map(value=>new URL(value).origin);
+if(!primaryOrigins.length)throw Error('Set TM_TEST_PRIMARY_API_ORIGINS explicitly');
 const candidate = process.env.TM_BROWSER_CANDIDATE || 'http://127.0.0.1:3107';
 const realDomain = process.env.TM_BROWSER_REAL_DOMAIN === '1';
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -19,14 +21,14 @@ try {
   for (const user of users) {
     const context = await browser.newContext({ serviceWorkers: 'block' }); contexts.push(context);
     await context.addInitScript(({ token }) => { localStorage.setItem('tiny-messenger:v1:token', token); localStorage.setItem('tiny-messenger:v2:channel', 'yandex-1'); }, { token: user.token });
-    await context.route('https://tm.ya-erm.ru/**', async route => {
+    await context.route(clientOrigin+'/**', async route => {
       if (process.env.TM_BROWSER_PRODUCTION === '1') return route.continue();
       const original = new URL(route.request().url());
       const response = await route.fetch({ url: candidate + original.pathname + original.search });
       await route.fulfill({ response });
     });
-    await context.route(/^https:\/\/(?:api\.tm|ch-1\.api\.tm)\.ya-erm\.ru\//, route => { blockedVps++; return route.abort('internetdisconnected'); });
-    await context.route('https://ch-2.api.tm.ya-erm.ru/**', async route => {
+    for(const origin of primaryOrigins)await context.route(origin+'/**',route=>{blockedVps++;return route.abort('internetdisconnected');});
+    await context.route(cloudOrigin+'/**', async route => {
       if (!cloudAvailable) return route.abort('internetdisconnected');
       if (route.request().url().endsWith('/api/mutations')) operations.push(JSON.parse(route.request().postData()));
       if (realDomain) return route.continue();
@@ -43,7 +45,7 @@ try {
     });
     const page = await context.newPage(); pages.push(page);
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('https://tm.ya-erm.ru/', { waitUntil: 'domcontentloaded' });
+    await page.goto(clientOrigin+'/', { waitUntil: 'domcontentloaded' });
     await page.locator('.contact-row').first().waitFor({ timeout: 45000 });
     await page.locator('.contact-row').first().click();
     await page.getByRole('textbox', { name: 'Сообщение', exact: true }).waitFor();
@@ -78,7 +80,7 @@ try {
     if (page) {
       await page.screenshot({ path: '/tmp/tm-cloud-browser-' + index + '.png' }).catch(() => {});
       // Only synthetic test accounts are present in these contexts.
-      console.error('Synthetic page ' + index + ': ' + (await page.locator('body').innerText()).slice(0, 2200));
+      console.error('Remote browser check failed on synthetic page '+index);
     }
   }
   throw error;

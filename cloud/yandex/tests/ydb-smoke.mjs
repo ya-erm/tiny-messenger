@@ -1,3 +1,4 @@
+import {readTestConfiguration} from "./config.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -5,9 +6,8 @@ import { connectYdb } from "../src/store-ydb.mjs";
 import { createService } from "../src/service.mjs";
 import { serviceAccountCredentials } from "../../../scripts/yandex-auth.mjs";
 
-const directory = new URL("../../../.secrets/yandex-cloud/", import.meta.url);
-const deployment = JSON.parse(await readFile(new URL("deployment.json", directory), "utf8"));
-const [a, b] = JSON.parse(await readFile(new URL("test-users.json", directory), "utf8"));
+const {directory,deployment,users}=await readTestConfiguration();
+const [a,b]=users;
 const credentials = serviceAccountCredentials(new URL("service-account.json", directory));
 let database = await connectYdb(deployment.databaseConnectionString, credentials);
 const occurredAt = new Date().toISOString();

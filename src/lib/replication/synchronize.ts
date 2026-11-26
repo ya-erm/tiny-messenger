@@ -55,7 +55,8 @@ async function synchronize() {
     const messages = await tx.message.findMany({ select: { id: true, fromUserId: true, toUserId: true, sentAt: true, receiptStatus: true } });
     const operations = await tx.mutationOperation.findMany({ where: { seq: { gt: state.sentSeq } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
     const rowChanges = await tx.replicaChange.findMany({ where: { seq: { gt: state.rowSeq || 0 } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
-    return { users, contacts, marks, messages, operations, rowChanges, rowsIngested };
+    const identities=await tx.replicationState.findMany({where:{OR:[{key:{startsWith:"identity-state:"}},{key:{startsWith:"nickname-claim:"}}]}});
+    return { users, identities, contacts, marks, messages, operations, rowChanges, rowsIngested };
   });
   if (!local.rowsIngested) return { enabled: true, preparingRows: true };
   const usersById = new Map(local.users.map((user) => [user.id, user]));
@@ -64,7 +65,7 @@ async function synchronize() {
     const key = kind + ":" + id, hash = digest(value);
     if (state.hashes[key] !== hash) entries.push({ key, kind, value, hash });
   };
-  for (const user of local.users) note("users", user.id, user);
+  for (const user of local.users) {const state=local.identities.find(item=>item.key==="identity-state:"+user.id); const claim=local.identities.find(item=>item.key==="nickname-claim:"+user.id); note("users",user.id,{...user,...(state?{identity:JSON.parse(state.body)}:{}),...(claim?{nicknameClaim:JSON.parse(claim.body)}:{})});}
   for (const user of local.users) note("contacts", user.id, { userId: user.id, contacts: local.contacts.filter((item) => item.ownerId === user.id)
     .map((item) => ({ userId: item.userId, createdAt: item.createdAt, updatedAt: item.updatedAt, user: publicUser(toUserRecord(usersById.get(item.userId)!)) })) });
   const marks = new Map(local.marks.map((mark) => [mark.userId + ":" + mark.chatId, mark]));
@@ -87,7 +88,7 @@ async function synchronize() {
   const rowChanges = canSendOperations ? local.rowChanges.slice(0, REPLICATION_BATCH - operations.length) : [];
   const directory: Record<string, unknown[]> = { users: [], contacts: [], receipts: [] };
   for (const entry of changed) directory[entry.kind].push(entry.value);
-  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 1, sourceId: config.installationId, targetId: config.peerId,
+  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 2, sourceId: config.installationId, targetId: config.peerId,
     after: state.cursor, rows: rowChanges.map((entry) => operationFromChange(entry, config.installationId)), operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
   if (Buffer.byteLength(body) > REPLICATION_MAX_BYTES) throw Error("Replication batch exceeds byte limit");
   try {
@@ -102,7 +103,7 @@ async function synchronize() {
       || !Array.isArray(data.events) || data.events.length > REPLICATION_BATCH || !Array.isArray(data.users) || data.users.length > REPLICATION_BATCH * 3)
       throw Error("Invalid peer response");
     if ((rowChanges.length || data.events.some((event: { type: string }) => event.type === "row")) && data.rowProtocolVersion !== 1) throw Error("Peer row protocol unavailable");
-    if(data.events.some((event:{type:string})=>["user","contact"].includes(event.type))&&data.userProtocolVersion!==1)throw Error("Peer user protocol unavailable");
+    if(data.events.some((event:{type:string})=>["user","contact","identity"].includes(event.type))&&![1,2].includes(data.userProtocolVersion))throw Error("Peer user protocol unavailable");
     const cursor = replicationCursor(data.cursor);
     let previous = BigInt(state.cursor);
     for (const event of data.events) {

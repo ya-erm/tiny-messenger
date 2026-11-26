@@ -44,7 +44,7 @@ function response(res, status, code) {
 }
 async function handle(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
-  if (["https://tm.ya-erm.ru", "https://tm.attachments.test"].includes(req.headers.origin)) {
+  if (req.headers.origin && [process.env.TM_TEST_CLIENT_ORIGIN, "https://tm.attachments.test"].filter(Boolean).includes(req.headers.origin)) {
     res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
     res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,PUT");
     res.setHeader("Access-Control-Allow-Headers", "content-type,content-length,x-amz-meta-upload-id,range");

@@ -1,3 +1,5 @@
+import { createIdentityService } from "./identity.mjs";
+import { applyIdentityOperation, reconcileIdentityNicknames } from "../shared/identity-protocol.mjs";
 import { createRegistrationService } from "./registration.mjs";
 import { createFileService } from "./row-files.mjs";
 import { createRowService } from "./row-service.mjs";
@@ -175,12 +177,18 @@ export function createService(database, installationId = "yandex-1") {
         const user = Object.fromEntries(["id", "name", "nickname", "avatarUrl", "avatarBackground", "tokenHash", "createdAt", "updatedAt"]
           .filter((key) => input[key] != null).map((key) => [key, input[key]]));
         await database.transaction(async (tx) => {
-          if(user.nickname)for(const other of await tx.scan("users",10001))if(other.id!==user.id&&other.nickname===user.nickname){const {nickname,...withoutNickname}=other;await tx.put("users",other.id,withoutNickname);}
+          if(input.nicknameClaim)await tx.put("nickname-claims",user.id,input.nicknameClaim);
           const previous = await tx.get("users", user.id);
+          const identity=await tx.get("identity-state",user.id)||{};
+          if(previous&&identity.token)user.tokenHash=previous.tokenHash;
+          if(previous&&identity.profile)for(const key of ["name","nickname","avatarUrl","avatarBackground"]) {if(previous[key]!=null)user[key]=previous[key];else delete user[key];}
+          if(previous&&previous.updatedAt>user.updatedAt)user.updatedAt=previous.updatedAt;
           if (JSON.stringify(previous) !== JSON.stringify(user)) await tx.put("users", user.id, user);
           if (!previous || previous.tokenHash !== user.tokenHash) await tx.put("tokens", user.tokenHash, { userId: user.id });
+          for(const operation of Object.values(input.identity||{}))await applyIdentityOperation(tx,operation);
         });
       }
+      await database.transaction(tx=>reconcileIdentityNicknames(tx));
       for (const state of directory.contacts) await database.transaction(async (tx) => {
         if (!await tx.get("users", state.userId) || !Array.isArray(state.contacts) || state.contacts.length > 500)
           throw new HttpError(422, "invalid_directory_contacts", "Некорректные контакты");
@@ -235,6 +243,7 @@ export function createService(database, installationId = "yandex-1") {
   };
   service.rows = createRowService(database, service, installationId);
   service.files = createFileService(service.rows);
+  service.identity = createIdentityService(database);
   service.registration = createRegistrationService(database,service,publicUser);
   return service;
 }

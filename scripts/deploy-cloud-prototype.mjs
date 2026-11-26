@@ -5,6 +5,11 @@ import { serviceAccountCredentials, cloudApi } from "./yandex-auth.mjs";
 const directory = new URL("../.secrets/yandex-cloud/", import.meta.url);
 const stateFile = new URL("deployment.json", directory);
 const state = JSON.parse(await readFile(stateFile, "utf8"));
+if (!Array.isArray(state.allowedOrigins) || !state.allowedOrigins.length || state.allowedOrigins.some((value) => {
+  if (typeof value !== "string") return true;
+  try { const parsed = new URL(value); return parsed.protocol !== "https:" || parsed.origin !== value; }
+  catch { return true; }
+})) throw Error("Configure allowedOrigins as explicit HTTPS origins in the private deployment settings");
 const replication = JSON.parse(await readFile(new URL("replication.json", directory), "utf8").catch(() => "null"));
 const localEnvironment = parseEnv(await readFile(new URL("../.env", import.meta.url), "utf8"));
 const attachmentEnvironment = Object.fromEntries(Object.entries(localEnvironment).filter(([key]) => /^ATTACHMENTS_(?:S3_|MAX_|USER_|UPLOAD_|DOWNLOAD_|UNATTACHED_|DELETE_|CLEANUP_)/.test(key)));
@@ -40,7 +45,7 @@ const version = await complete(await api("https://serverless-functions.api.cloud
   functionId: state.functionId, runtime: "nodejs22", entrypoint: "index.handler", resources: { memory: "268435456" },
   executionTimeout: "15s", serviceAccountId: state.runtimeServiceAccountId, content: content.toString("base64"),
   environment: { ...(cloudBus ? { TM_BUS_CONFIG: JSON.stringify(cloudBus) } : {}), ...attachmentEnvironment, YDB_CONNECTION_STRING: state.databaseConnectionString, TM_INSTALLATION_ID: "yandex-1",
-    TM_ALLOWED_ORIGINS: "https://tm.ya-erm.ru,https://gh.tm.ya-erm.ru,https://vm.tm.ya-erm.ru",
+    TM_ALLOWED_ORIGINS: state.allowedOrigins.join(","),
     ...(replication ? { TM_REPLICATION_SECRET: replication.secret, TM_REPLICATION_PEER: replication.installationId } : {}) },
   tag: ["prototype"], concurrency: "1", logOptions: { folderId: state.folderId, minLevel: "WARN" },
 } }));

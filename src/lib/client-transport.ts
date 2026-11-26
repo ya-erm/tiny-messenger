@@ -9,7 +9,7 @@ export const API_CHANNELS = [
 ] as const;
 // The same Yandex installation is also reachable while its custom-domain
 // quota/certificate is being configured. Never fail over to another contour.
-export const YANDEX_GATEWAY_ORIGIN = "https://d5dbsbpos3rfligv4k7h.nnekmrav.apigw.yandexcloud.net";
+export const YANDEX_GATEWAY_ORIGIN = process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN || API_CHANNELS[2].origin;
 let gatewayUntil = 0;
 export function selectedChannel(): ChannelId {
   const fallback: ChannelId = STATIC_CLIENT ? "yandex-1" : "default";

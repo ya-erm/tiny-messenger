@@ -1,5 +1,6 @@
 "use client";
 
+import { pendingTokenChange, clearTokenChange } from "@/lib/token-rotation-client";
 import Image, { type StaticImageData } from "next/image";
 import { type ClipboardEvent, CSSProperties, FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import deleteDialogIllustration from "../../public/delete-dialog.png";
@@ -837,20 +838,23 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, [sendCooldownSeconds]);
 
   useEffect(() => {
-    const savedToken = window.localStorage.getItem(TOKEN_KEY);
+    let savedToken = window.localStorage.getItem(TOKEN_KEY);
     if (!savedToken) {
       setPhase("welcome");
       return;
     }
     let cancelled = false;
-    fetchApi<{ user: PublicUser }>("/api/auth/session", {
+    Promise.resolve().then(async()=>{
+      const pending=await pendingTokenChange(savedToken!);
+      if(pending){const result=await fetchApi<{token:string}>("/api/me/token",{method:"POST",body:JSON.stringify(pending)},savedToken!);savedToken=result.token;window.localStorage.setItem(TOKEN_KEY,result.token);clearTokenChange();}
+    }).then(()=>fetchApi<{ user: PublicUser }>("/api/auth/session", {
       method: "POST",
       body: JSON.stringify({ token: savedToken }),
-    }, savedToken)
+    }, savedToken!))
       .then(({ user: restored }) => {
         if (cancelled) return;
-        void cacheProfile(savedToken, restored).catch(() => {});
-        setToken(savedToken);
+        void cacheProfile(savedToken!, restored).catch(() => {});
+        setToken(savedToken!);
         setUser(restored);
         setPhase("ready");
       })
@@ -862,9 +866,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
           setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
           return;
         }
-        const restored = await cachedProfile(savedToken).catch(() => undefined);
+        const restored = await cachedProfile(savedToken!).catch(() => undefined);
         if (cancelled) return;
-        if (restored) { setToken(savedToken); setUser(restored); setPhase("ready"); }
+        if (restored) { setToken(savedToken!); setUser(restored); setPhase("ready"); }
         else setPhase("restore-error");
       });
     return () => { cancelled = true; };
@@ -2346,7 +2350,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         token={token}
         request={request}
         onUser={setUser}
-        onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); }}
+        onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); void cacheProfile(value,user).catch(()=>{}); }}
         onLogout={logout}
         onClose={() => setShowSettings(false)}
         setNotice={setNotice}
@@ -3175,8 +3179,10 @@ function SettingsDialog({
   async function resetToken() {
     setBusy(true);
     try {
-      const data = await request<{ token: string }>("/api/me/token", { method: "POST", body: "{}" });
+      const attempt=await pendingTokenChange(token,true);
+      const data = await request<{ token: string }>("/api/me/token", { method: "POST", body: JSON.stringify(attempt) });
       onToken(data.token);
+      clearTokenChange();
       setShowToken(true);
       setConfirmTokenReset(false);
       setNotice("Новый токен создан. Обновите его на остальных устройствах.");

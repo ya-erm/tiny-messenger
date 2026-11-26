@@ -1,16 +1,18 @@
+import {readTestConfiguration,testOrigin} from "../cloud/yandex/tests/config.mjs";
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {publishToTarget} from './replication-bus/delivery.mjs';
 import {makeBusFrame} from './replication-bus/format.mjs';
-const dir=new URL('../.secrets/yandex-cloud/',import.meta.url);
-const deployment=JSON.parse(await readFile(new URL('deployment.json',dir),'utf8'));
-const [a,b]=JSON.parse(await readFile(new URL('test-users.json',dir),'utf8'));
-const bases={vps:'https://ch-1.api.tm.ya-erm.ru',cloud:deployment.gatewayUrl};
-const checkpoint=()=>JSON.parse(execFileSync('python3',['-c',"import sqlite3,json; c=sqlite3.connect('file:data/messenger.db?mode=ro',uri=True); print(c.execute('SELECT body FROM ReplicationState WHERE key=?',('peer:yandex-1',)).fetchone()[0]); c.close()"],{encoding:'utf8'}));
+const {directory:dir,deployment,users}=await readTestConfiguration();
+const [a,b]=users;
+const bases={vps:testOrigin('TM_TEST_PRIMARY_API_ORIGIN'),cloud:testOrigin('TM_CLOUD_TEST_ORIGIN')};
+const runtimeFile=process.env.TM_TEST_REPLICATION_CONFIG,databaseFile=process.env.TM_TEST_DATABASE_FILE;
+if(!runtimeFile||!databaseFile)throw Error('Set TM_TEST_REPLICATION_CONFIG and TM_TEST_DATABASE_FILE explicitly');
+const runtime=JSON.parse(await readFile(runtimeFile,'utf8'));
+const checkpoint=()=>JSON.parse(execFileSync('python3',['-c',"import sqlite3,sys; from pathlib import Path; c=sqlite3.connect(Path(sys.argv[1]).resolve().as_uri()+'?mode=ro',uri=True); print(c.execute('SELECT body FROM ReplicationState WHERE key=?',('peer:'+sys.argv[2],)).fetchone()[0]); c.close()",databaseFile,runtime.peerId],{encoding:'utf8'}));
 async function call(channel,path,user,body){const r=await fetch(bases[channel]+path,{method:body?'POST':'GET',headers:{authorization:'Bearer '+user.token,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});const data=await r.json();if(![200,201,202,404].includes(r.status))throw Error('Synthetic bus probe HTTP '+r.status);return {status:r.status,...data.data};}
-const runtime=JSON.parse(await readFile(new URL('../data/replication.json',import.meta.url),'utf8'));
 const directTarget=runtime.bus.targets.find(t=>t.installationId===runtime.peerId);
 const created=[],delays={};let directVerified=false;
 try{

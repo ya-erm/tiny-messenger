@@ -1,23 +1,26 @@
+import {readTestConfiguration,testOrigin} from "../cloud/yandex/tests/config.mjs";
 import assert from 'node:assert/strict';
 // Dedicated synthetic accounts only; tests the published client with VPS API blocked.
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {readFile,writeFile} from 'node:fs/promises';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PLAYWRIGHT_PACKAGE || 'playwright');
-const dir=fileURLToPath(new URL('../.secrets/yandex-cloud/',import.meta.url));
-const [a,b]=JSON.parse(await readFile(dir+'test-users.json','utf8'));
-const deployment=JSON.parse(await readFile(dir+'deployment.json','utf8'));
+const configuration=await readTestConfiguration(),dir=fileURLToPath(configuration.directory);
+const [a,b]=configuration.users,deployment=configuration.deployment;
+const clientOrigin=testOrigin('TM_TEST_CLIENT_ORIGIN'),primaryOrigin=testOrigin('TM_TEST_PRIMARY_API_ORIGIN');
+const blockedOrigins=(process.env.TM_TEST_BLOCKED_API_ORIGINS||'').split(',').filter(Boolean).map(value=>new URL(value).origin);
+if(!blockedOrigins.length)throw Error('Set TM_TEST_BLOCKED_API_ORIGINS explicitly');
 const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
 const context=await browser.newContext({serviceWorkers:'block'}),errors=[],mutations=[];
 let messageId,uploadId,blocked=0,page;
 async function api(origin,path,body,method=body?'POST':'GET'){const r=await fetch(origin+path,{method,headers:{authorization:'Bearer '+a.token,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(20000)});return {status:r.status,...(await r.json()).data};}
-async function onVps(predicate){const start=Date.now();while(Date.now()-start<45000){const result=await api('https://ch-1.api.tm.ya-erm.ru','/api/messages/'+messageId);if(predicate(result))return;await new Promise(r=>setTimeout(r,1000));}throw Error('VPS did not receive rich UI operation');}
+async function onVps(predicate){const start=Date.now();while(Date.now()-start<45000){const result=await api(primaryOrigin,'/api/messages/'+messageId);if(predicate(result))return;await new Promise(r=>setTimeout(r,1000));}throw Error('VPS did not receive rich UI operation');}
 try{
  await context.addInitScript(token=>{localStorage.setItem('tiny-messenger:v1:token',token);localStorage.setItem('tiny-messenger:v2:channel','yandex-1');},a.token);
- await context.route(/^https:\/\/(?:api\.tm|ch-1\.api\.tm|ch-2\.api\.tm)\.ya-erm\.ru\//,route=>{blocked++;return route.abort('internetdisconnected');});
+ for(const origin of blockedOrigins)await context.route(origin+'/**',route=>{blocked++;return route.abort('internetdisconnected');});
  page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
  page.on('response',async response=>{try{const url=new URL(response.url());if(url.origin!==deployment.gatewayUrl)return;if(url.pathname==='/api/messages'&&response.request().method()==='POST')messageId=(await response.json()).data?.message?.id;if(url.pathname==='/api/mutations'){const operation=JSON.parse(response.request().postData());mutations.push({status:response.status(),type:operation.type,editedSuffix:operation.message?.text?.endsWith(' edited'),errorCode:(await response.json()).error?.code});}if(url.pathname==='/api/attachments/uploads'&&response.request().method()==='POST')uploadId=(await response.json()).data?.attachment?.id;}catch{}});
- await page.goto('https://tm.ya-erm.ru/',{waitUntil:'domcontentloaded'});await page.locator('.contact-row').first().waitFor({timeout:45000});await page.locator('.contact-row').first().click();
+ await page.goto(clientOrigin+'/',{waitUntil:'domcontentloaded'});await page.locator('.contact-row').first().waitFor({timeout:45000});await page.locator('.contact-row').first().click();
  const input=page.getByRole('textbox',{name:'Сообщение',exact:true}),text='UI cloud file '+Date.now();
  await input.fill(text);
  await page.getByLabel('Выбрать файлы',{exact:true}).setInputFiles({name:'cloud-ui-check.txt',mimeType:'text/plain',buffer:Buffer.from('Private queue UI verification\n')});
@@ -34,7 +37,7 @@ try{
  await onVps(r=>r.status===404);assert.deepEqual(errors,[]);assert.ok(blocked>0);
  for(const type of ['message.edit','reaction.set','message.delete'])assert.ok(mutations.some(m=>m.type===type&&[200,201,202].includes(m.status)),type+' acknowledged');
  const proof={browserFileUploadWithoutVpsApi:true,richCaptionEditThroughClientQueue:true,richReactionThroughClientQueue:true,richDeletionThroughClientQueue:true,deliveredToVps:true,runtimeErrors:0,completedAt:new Date().toISOString()};await writeFile(dir+'rich-queue-browser-proof.json',JSON.stringify(proof,null,2),{mode:0o600});console.log(JSON.stringify(proof));
-}catch(error){console.log(JSON.stringify({mutations}));await page?.screenshot({path:'/tmp/tm-rich-queue-failure.png'}).catch(()=>{});throw error;}finally{
+}catch(error){console.error('Remote browser check failed; details saved locally.');await page?.screenshot({path:'/tmp/tm-rich-queue-failure.png'}).catch(()=>{});throw error;}finally{
  await context.close();await browser.close();
  if(messageId)await api(deployment.gatewayUrl,'/api/messages/'+messageId,{scope:'everyone'},'DELETE').catch(()=>{});
  if(uploadId)await api(deployment.gatewayUrl,'/api/attachments/uploads/'+uploadId,{},'DELETE').catch(()=>{});

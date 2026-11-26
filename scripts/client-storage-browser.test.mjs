@@ -7,10 +7,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_PACKAGE || 'playwright');
 const settings = Object.fromEntries((await readFile(new URL('../deploy/release.env', import.meta.url), 'utf8')).trim().split('\n').map(line => line.split('=')));
 const ts = require(settings.MESSENGER_DEPENDENCIES_DIR + '/typescript');
 const modules = new Map();
-for (const file of ['client-storage', 'client-transport', 'mutations/protocol', 'reactions', 'registration-client']) {
+for (const file of ['client-storage', 'client-transport', 'mutations/protocol', 'reactions', 'registration-client', 'token-rotation-client']) {
   const code = await readFile(new URL('../src/lib/' + file + '.ts', import.meta.url), 'utf8');
   modules.set('/' + file + '.mjs', ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
-    .replaceAll('process.env.NEXT_PUBLIC_STATIC_CLIENT', '"0"').replaceAll('"./mutations/protocol"', '"./mutations/protocol.mjs"').replaceAll('"../reactions"', '"../reactions.mjs"').replaceAll('"emoji-regex"', '"/emoji-regex.mjs"'));
+    .replaceAll('process.env.NEXT_PUBLIC_STATIC_CLIENT', '"0"').replaceAll('process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN', '"https://cloud.example"').replaceAll('"./mutations/protocol"', '"./mutations/protocol.mjs"').replaceAll('"../reactions"', '"../reactions.mjs"').replaceAll('"emoji-regex"', '"/emoji-regex.mjs"'));
 }
 modules.set('/emoji-regex.mjs', await readFile(settings.MESSENGER_DEPENDENCIES_DIR + '/emoji-regex/index.mjs', 'utf8'));
 const server = createServer((req, res) => { const code = modules.get(req.url); res.setHeader('Content-Type', code ? 'text/javascript' : 'text/html'); res.end(code || '<title>Client storage test</title>'); });
@@ -110,6 +110,9 @@ try {
       check(requests.length === before + 1, 'no silent cross-contour failover');
     } finally { window.fetch = originalFetch; }
     const registration=await import('/registration-client.mjs');
+    const rotation=await import('/token-rotation-client.mjs');const tokenChange=await rotation.pendingTokenChange('msg_test0123456789',true);
+    check((await rotation.pendingTokenChange('msg_test0123456789',true)).operationId===tokenChange.operationId,'stable token rotation');
+    sessionStorage.setItem('token-rotation-proof',tokenChange.operationId);
     const pendingRegistration=registration.registrationRequest('Stable registration','stable_registration');
     check(registration.registrationRequest('Stable registration','stable_registration').clientRequestId===pendingRegistration.clientRequestId,'stable registration retry');
     check(/^msg_[A-Za-z0-9_-]{16}$/.test(pendingRegistration.registrationToken),'cryptographic registration token format');
@@ -120,9 +123,13 @@ try {
     const s = await import('/client-storage.mjs');
     const registration=await import('/registration-client.mjs');
     if(registration.registrationRequest('Stable registration','stable_registration').clientRequestId!==proof.registrationId)return false;
+    const rotation=await import('/token-rotation-client.mjs');if((await rotation.pendingTokenChange('msg_test0123456789')).operationId!==sessionStorage.getItem('token-rotation-proof'))return false;
     return (await s.storedMutation(proof.operationId))?.state === 'accepted' && (await s.queuedMutations(proof.userId)).length === 1;
   }, proof);
   assert.equal(persisted, true);
-  console.log(JSON.stringify({ nativeIndexedDb: true, durableQueue: true, stableRetry: true, channelIsolation: true, historyMerge: true, deletionDominates: true, fullSnapshotTombstones: true, contactRemoval: true, groupFeed: true, quotePrivacy: true, groupRevocation: true, stableRegistrationAcrossReload: true, browserReload: true }));
+  const reopened=await context.newPage();await reopened.goto("http://127.0.0.1:"+server.address().port);
+  const recovered=await reopened.evaluate(async()=>{const r=await import("/token-rotation-client.mjs");return (await r.pendingTokenChange("msg_test0123456789"))?.operationId;});
+  assert.equal(recovered,await page.evaluate(()=>sessionStorage.getItem("token-rotation-proof")));await reopened.close();
+  console.log(JSON.stringify({ nativeIndexedDb: true, durableQueue: true, stableRetry: true, channelIsolation: true, historyMerge: true, deletionDominates: true, fullSnapshotTombstones: true, contactRemoval: true, groupFeed: true, quotePrivacy: true, groupRevocation: true, stableTokenRotationAcrossReloadAndNewTab: true, stableRegistrationAcrossReload: true, browserReload: true }));
   await context.close();
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

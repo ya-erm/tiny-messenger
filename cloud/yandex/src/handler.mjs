@@ -36,7 +36,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
     const started = Date.now();
     const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([key, value]) => [key.toLowerCase(), value]));
     const origin = headers.origin;
-    const allowed = (configuration.TM_ALLOWED_ORIGINS || "https://tm.ya-erm.ru").split(",").map((item) => item.trim());
+    const allowed = (configuration.TM_ALLOWED_ORIGINS || "").split(",").map((item) => item.trim());
     const responseHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
       "x-tm-installation-id": configuration.TM_INSTALLATION_ID || "yandex-1", vary: "Origin" };
     if (origin && allowed.includes(origin)) Object.assign(responseHeaders, { "access-control-allow-origin": origin,
@@ -56,7 +56,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);
@@ -78,10 +78,12 @@ export function createHandler(serviceProvider = getService, configuration = proc
       }
       const token = path === "/api/auth/session" && method === "POST" ? String(body.token || "").trim()
         : String(headers.authorization || "").replace(/^Bearer\s+/i, "").trim() || headers["x-api-key"] || "";
+      if(path==="/api/me/token"&&method==="POST"){const data=await service.identity.token(token,body);try{await flushCloudBus(service,configuration);}catch{console.warn(JSON.stringify({event:"cloud-bus",status:"publish_failed"}));}return response(200,{ok:true,data});}
       const user = await service.authenticate(token);
       let data;
       let status = 200;
       if ((path === "/api/auth/session" && method === "POST") || (path === "/api/me" && method === "GET")) data = { user: publicUser(user) };
+      else if(path==="/api/me"&&method==="PATCH"){const updated=await service.identity.profile(user,body);data={user:publicUser(updated.user)};}
       else if(path==="/api/contacts"&&method==="POST"){data=await service.registration.contact(user,body);status=201;}
       else if(/^\/api\/contacts\/[0-9a-f-]+$/.test(path)&&method==="DELETE")data=await service.registration.contact(user,{userId:path.split("/").at(-1)},true);
       else if (path === "/api/contacts" && method === "GET") data = { contacts: await service.contacts(user) };

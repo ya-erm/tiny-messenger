@@ -1,12 +1,12 @@
+import {readTestConfiguration,testOrigin} from "../cloud/yandex/tests/config.mjs";
 // Dedicated synthetic accounts only. Exercises the background worker through
 // the same public APIs as clients; no service key or manual cursor changes.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-const privateDirectory = new URL("../.secrets/yandex-cloud/", import.meta.url);
-const deployment = JSON.parse(await readFile(new URL("deployment.json", privateDirectory), "utf8"));
-const [a, b] = JSON.parse(await readFile(new URL("test-users.json", privateDirectory), "utf8"));
-const origins = { vps: "https://ch-1.api.tm.ya-erm.ru", cloud: deployment.gatewayUrl };
+const {directory:privateDirectory,deployment,users}=await readTestConfiguration();
+const [a,b]=users;
+const origins={vps:testOrigin('TM_TEST_PRIMARY_API_ORIGIN'),cloud:testOrigin('TM_CLOUD_TEST_ORIGIN')};
 let requests = 0;
 const delays = [];
 async function call(channel, path, user, body, method = body === undefined ? "GET" : "POST", expected = [200, 201, 202]) {

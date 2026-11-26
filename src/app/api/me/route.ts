@@ -1,3 +1,5 @@
+import { recordIdentity, identityStore } from "@/lib/replication/identity";
+import { nextIdentityTime } from "@/lib/replication/identity-protocol";
 import { recordNicknameClaim } from "@/lib/replication/users";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
@@ -42,8 +44,9 @@ export const PATCH = route(async (request) => {
     );
   }
   const user = await write(async (tx) => {
-    const item = await tx.user.findUnique({ where: { id: authenticated.id }, select: { id: true } });
+    const item = await tx.user.findUnique({ where: { id: authenticated.id }, select: { id: true, tokenHash:true } });
     if (!item) throw new ApiError(404, "user_not_found", "Пользователь не найден");
+    if(item.tokenHash!==authenticated.tokenHash)throw new ApiError(401,"invalid_token","Токен недействителен");
     if (nickname) {
       const taken = await tx.user.findFirst({
         where: { nickname, id: { not: authenticated.id } },
@@ -51,18 +54,12 @@ export const PATCH = route(async (request) => {
       });
       if (taken) throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
     }
-    const updatedAt = new Date().toISOString();
-    if (nicknameSupplied && (nickname || null) !== (authenticated.nickname || null)) await recordNicknameClaim(tx, authenticated.id, nickname || null, updatedAt);
-    return tx.user.update({
-      where: { id: authenticated.id },
-      data: {
-        name,
-        nickname: nickname || null,
-        avatarUrl: avatarUrl || null,
-        avatarBackground: avatarBackground || null,
-        updatedAt,
-      },
-    });
+    const store=identityStore(tx),state=await store.get("identity-state",authenticated.id)||{},claim=await store.get("nickname-claims",authenticated.id);
+    const updatedAt=nextIdentityTime(state.profile);
+    const nicknameAt=(nickname||null)!==(authenticated.nickname||null)?updatedAt:state.profile?.nicknameAt||claim?.at||authenticated.createdAt;
+    await recordIdentity(tx,authenticated.id,{kind:"profile",at:updatedAt,nicknameAt,profile:{name,nickname:nickname||null,avatarUrl:avatarUrl||null,avatarBackground:avatarBackground||null}});
+    if(nicknameSupplied)await recordNicknameClaim(tx,authenticated.id,nickname||null,nicknameAt);
+    return tx.user.findUniqueOrThrow({where:{id:authenticated.id}});
   });
   return ok({ user: publicUser(toUserRecord(user)) });
 });

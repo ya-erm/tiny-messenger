@@ -1,3 +1,5 @@
+import {POST as rotateLocal} from "../src/app/api/me/token/route";
+import {authenticateToken} from "../src/lib/auth";
 import assert from 'node:assert/strict';import{randomUUID,randomBytes}from'node:crypto';import{mkdtemp,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';
 import{prisma,read,write}from'../src/lib/db';import{synchronizeInstallations}from'../src/lib/replication/synchronize';
 import{memoryStore}from'../cloud/yandex/tests/memory-store.mjs';import{createService}from'../cloud/yandex/src/service.mjs';import{createHandler}from'../cloud/yandex/src/handler.mjs';import{createReplication}from'../cloud/yandex/src/replication.mjs';
@@ -34,5 +36,23 @@ try{
  const{importNewPeerUser}=await import('../src/lib/replication/users');await write(tx=>importNewPeerUser(tx,first.user));assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:current.id}}))).tokenHash,'a'.repeat(64));
  await local(localRegister,a,'',undefined,'POST',409);await drain();await remote('/api/auth/register',a,'','POST',409);
  const stable=registration('Stable VPS','stable_vps');const firstLocal=await local(localRegister,stable,'',undefined,'POST',201);assert.equal((await local(localRegister,stable)).token,firstLocal.token);
- console.log(JSON.stringify({cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
+
+ // Profile edits and rotations must remain usable during a partition.
+ await drain();
+ const change=()=>({operationId:randomUUID(),replacementToken:'msg_'+randomBytes(12).toString('base64url')});
+ const cloudChange=change();await remote('/api/me/token',cloudChange,firstLocal.token);
+ assert.equal((await authenticateToken(firstLocal.token)).id,firstLocal.user.id,'The disconnected VPS still accepts the previous credential');
+ await local(localProfile,{name:'Offline VPS edit',nickname:'stable_vps'},firstLocal.token,undefined,'PATCH');
+ await drain();assert.equal((await authenticateToken(cloudChange.replacementToken)).name,'Offline VPS edit');assert.equal((await cloud.authenticate(cloudChange.replacementToken)).name,'Offline VPS edit');
+ await assert.rejects(authenticateToken(firstLocal.token));await assert.rejects(cloud.authenticate(firstLocal.token));
+ assert.equal((await remote('/api/me/token',cloudChange,firstLocal.token)).token,cloudChange.replacementToken,'Retry after a lost cloud response');
+ const rootChange=change();await local(rotateLocal,rootChange,cloudChange.replacementToken);assert.equal((await local(rotateLocal,rootChange,cloudChange.replacementToken)).token,rootChange.replacementToken,'Retry after a lost VPS response');
+ await drain();assert.equal((await cloud.authenticate(rootChange.replacementToken)).id,firstLocal.user.id);
+ await remote('/api/me',{name:'Offline cloud edit',nickname:'stable_vps'},rootChange.replacementToken,'PATCH');await drain();assert.equal((await authenticateToken(rootChange.replacementToken)).name,'Offline cloud edit');
+ const left=change(),right=change();await local(rotateLocal,left,rootChange.replacementToken);await remote('/api/me/token',right,rootChange.replacementToken);
+ await drain();const finalLocal=await read(d=>d.user.findUniqueOrThrow({where:{id:firstLocal.user.id}}));let winning:string|undefined;for(const candidate of [left.replacementToken,right.replacementToken]){try{await authenticateToken(candidate);winning=candidate;}catch{}}
+ assert.ok(winning);assert.equal((await cloud.authenticate(winning)).tokenHash,finalLocal.tokenHash);await assert.rejects(cloud.authenticate(rootChange.replacementToken));
+ const shared={...change(),changedAt:new Date(Date.now()+1).toISOString()};await local(rotateLocal,shared,winning!);await remote('/api/me/token',shared,winning!);await drain();assert.equal((await cloud.authenticate(shared.replacementToken)).id,firstLocal.user.id);assert.equal((await authenticateToken(shared.replacementToken)).id,firstLocal.user.id);
+
+ console.log(JSON.stringify({independentTokenRotation:true,independentProfileEdits:true,lostResponseRetry:true,concurrentRotationsConverge:true,cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
 }finally{globalThis.fetch=originalFetch;await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

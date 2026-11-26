@@ -24,6 +24,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_STATIC_CLIENT: "0",
+    NEXT_PUBLIC_CLOUD_API_ORIGIN: process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN || "",
   },
 };
 

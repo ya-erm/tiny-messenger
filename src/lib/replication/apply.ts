@@ -1,3 +1,5 @@
+import { applyIdentityOperation } from "./identity-protocol";
+import { identityStore } from "./identity";
 import "server-only";
 import { importNewPeerUser } from "./users";
 import { importPeerContact } from "./contacts";
@@ -8,14 +10,15 @@ import { materializeRows, storeRow, ingestLocalRows } from "./row-store";
 import { queueMessagePush } from "@/lib/push-queue";
 export async function applyPeerEvents(tx: Prisma.TransactionClient, peerId: string, events: any[], users: any[] = [], selfId = process.env.TM_INSTALLATION_ID || "vps-1") {
   if (!await ingestLocalRows(tx, selfId)) throw Error("Local journal needs preparation");
-      // Peer users are only inserted if absent. Current profile/token/contact
-      // edits still use VPS APIs, so a stale cloud copy cannot roll them back.
+      // Birth snapshots only insert missing users. Versioned identity events
+      // merge profile and credential changes separately, in either direction.
       // Birth events carry the original nickname claim. Prefer them to a
       // directory projection that may already have cleared a conflicting nick.
       for (const event of events) if(event.type === "user") await importNewPeerUser(tx,event.user);
-      for (const user of users) await importNewPeerUser(tx,user);
+      for (const user of users) { await importNewPeerUser(tx,user); for(const operation of Object.values(user.identity||{})) await applyIdentityOperation(identityStore(tx),operation); }
       for (const event of events) {
         if (event.type === "user") await importNewPeerUser(tx,event.user);
+        else if (event.type === "identity") await applyIdentityOperation(identityStore(tx),event.operation);
         else if (event.type === "contact") await importPeerContact(tx,event.contact);
         else if (event.type === "mutation") {
           const operation = parseMutation(event.operation);

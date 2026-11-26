@@ -1,11 +1,11 @@
+import {readTestConfiguration,testOrigin} from "../cloud/yandex/tests/config.mjs";
 // Mutates only dedicated synthetic accounts; never call generic API smoke on production.
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-const dir=new URL('../.secrets/yandex-cloud/',import.meta.url);
-const deployment=JSON.parse(await readFile(new URL('deployment.json',dir),'utf8'));
-const [a,b]=JSON.parse(await readFile(new URL('test-users.json',dir),'utf8'));
-const bases={vps:'https://ch-1.api.tm.ya-erm.ru',cloud:deployment.gatewayUrl};
+const {directory:dir,deployment,users}=await readTestConfiguration();
+const [a,b]=users;
+const bases={vps:testOrigin('TM_TEST_PRIMARY_API_ORIGIN'),cloud:testOrigin('TM_CLOUD_TEST_ORIGIN')};
 const groups=[],messages=[],timings=[];let requests=0;
 async function call(channel,path,user=a,body,method=body===undefined?'GET':'POST',expected=[200,201]){
  requests++;const response=await fetch(bases[channel]+path,{method,headers:{authorization:'Bearer '+user.token,'content-type':'application/json','x-tm-request-id':randomUUID()},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(25000)});

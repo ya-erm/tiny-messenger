@@ -46,12 +46,13 @@ async function publish() {
     state={native:snapshot.sentSeq||0,rows:snapshot.rowSeq||0};
   }
   if((state.retryAt||0)>Date.now())return {enabled:true,retrying:true};
-  const [native,rows]=await Promise.all([
+  const [native,rows,identity]=await Promise.all([
     read(db=>db.mutationOperation.findMany({where:{seq:{gt:state.native}},orderBy:{seq:"asc"},take:25})),
     read(db=>db.replicaChange.findMany({where:{seq:{gt:state.rows}},orderBy:{seq:"asc"},take:25})),
+    read(db=>db.replicationState.findMany({where:{key:{startsWith:"identity-pending:"}},orderBy:{key:"asc"},take:25})),
   ]);
-  if(!native.length&&!rows.length)return{enabled:true,idle:true};
-  const events=[...native.filter(item=>!item.originId||item.originId===config.installationId).map(item=>({type:"mutation",operation:parseMutation(JSON.parse(item.body))})),
+  if(!native.length&&!rows.length&&!identity.length)return{enabled:true,idle:true};
+  const events=[...identity.map(item=>({type:"identity",operation:JSON.parse(item.body)})),...native.filter(item=>!item.originId||item.originId===config.installationId).map(item=>({type:"mutation",operation:parseMutation(JSON.parse(item.body))})),
     ...rows.map(item=>({type:"row",operation:operationFromChange(item,config.installationId)}))];
   if(events.length) health.activityAt=Date.now();
   try{
@@ -64,6 +65,7 @@ async function publish() {
         if(delivery.route==="direct")health.confirmedAt=Date.now();
       }
     }
+    await write(tx=>tx.replicationState.deleteMany({where:{key:{in:identity.map(item=>item.key)}}}));
     state={native:native.at(-1)?.seq||state.native,rows:rows.at(-1)?.seq||state.rows,failures:0};
     await write(tx=>tx.replicationState.upsert({where:{key:stateKey},create:{key:stateKey,body:JSON.stringify(state)},update:{body:JSON.stringify(state)}}));
     return{enabled:true,published:events.length};

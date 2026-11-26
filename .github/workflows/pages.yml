@@ -14,6 +14,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_CLOUD_API_ORIGIN: ${{ secrets.TM_CLOUD_API_ORIGIN }}
+      TM_PAGES_DOMAIN: ${{ vars.TM_PAGES_DOMAIN }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

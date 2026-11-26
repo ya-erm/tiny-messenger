@@ -49,6 +49,7 @@ export async function consumeCloudFrames(service, frames, environment = process.
     if (frame.kind === "pong") continue;
     for (const event of frame.events) {
       if(event.type==="user"||event.type==="contact")throw Error("Directory creation events are exported by this installation, not accepted from a broker");
+      else if(event.type==="identity")await service.identity.import(event.operation);
       else if (event.type === "mutation") await service.importMutation(event.operation,frame.from);
       else if (event.type === "row") {
         if (event.operation.origin !== frame.from) throw Error("Wrong row origin");

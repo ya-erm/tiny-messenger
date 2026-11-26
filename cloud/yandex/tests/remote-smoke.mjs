@@ -1,22 +1,20 @@
+import {readTestConfiguration,testOrigin} from "./config.mjs";
 // Uses synthetic YDB-only accounts. Never mutates a real user's messages.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
-const directory = new URL("../../../.secrets/yandex-cloud/", import.meta.url);
-const deployment = JSON.parse(await readFile(new URL("deployment.json", directory), "utf8"));
-const users = JSON.parse(await readFile(new URL("test-users.json", directory), "utf8"));
-const origin = process.env.TM_CLOUD_TEST_ORIGIN || deployment.gatewayUrl;
-assert.ok(origin.startsWith("https://") && !origin.includes("tm.ya-erm.ru") || origin === "https://ch-2.api.tm.ya-erm.ru");
+const {directory,deployment,users}=await readTestConfiguration();
+const origin=testOrigin('TM_CLOUD_TEST_ORIGIN'),clientOrigin=testOrigin('TM_TEST_CLIENT_ORIGIN');
 const timings = [];
 async function api(path, user, body, expected = 200, method = body === undefined ? "GET" : "POST") {
   const start = performance.now();
-  const response = await fetch(origin + path, { method, headers: { "content-type": "application/json", origin: "https://tm.ya-erm.ru",
+  const response = await fetch(origin + path, { method, headers: { "content-type": "application/json", origin: clientOrigin,
     ...(user ? { authorization: "Bearer " + user.token } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(25_000) });
   timings.push(Math.round(performance.now() - start));
   const result = await response.json();
   assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(result.error || {})}`);
-  assert.equal(response.headers.get("access-control-allow-origin"), "https://tm.ya-erm.ru");
+  assert.equal(response.headers.get("access-control-allow-origin"), clientOrigin);
   return result.data;
 }
 const [a, b] = users;

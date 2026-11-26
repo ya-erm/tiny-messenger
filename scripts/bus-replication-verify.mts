@@ -1,3 +1,4 @@
+import {recordIdentity} from "../src/lib/replication/identity";
 import assert from "node:assert/strict";
 import {randomUUID,createHash}from"node:crypto";
 import{readFile,writeFile,mkdtemp,rm}from"node:fs/promises";
@@ -42,6 +43,10 @@ try{
  })as typeof fetch;
  for(let i=0;i<10;i++){await write(async tx=>{const key="peer:yandex-1",record=await tx.replicationState.findUnique({where:{key}});if(record){const state=JSON.parse(record.body);state.nextPoll=0;await tx.replicationState.update({where:{key},data:{body:JSON.stringify(state)}});}});const r=await synchronizeInstallations()as any;assert.equal(r.error,undefined);if(!r.directoryItems&&!r.sent&&!r.sentRows&&!r.received)break;}
  await publishLocalBus();
+ const credentialChange={kind:"token",previousTokenHash:users[0].tokenHash,tokenHash:createHash("sha256").update("bus token change").digest("hex")};
+ await write(tx=>recordIdentity(tx,users[0].id,credentialChange));await publishLocalBus();await deliverCloud();assert.equal((await database.transaction(tx=>tx.get("users",users[0].id))).tokenHash,credentialChange.tokenHash);
+ const beforeIdentity=await read(db=>db.user.findUniqueOrThrow({where:{id:users[1].id}}));await cloud.identity.profile(beforeIdentity,{name:"Cloud bus profile"});await flushCloudBus(cloud,env);await deliverVps();assert.equal((await read(db=>db.user.findUniqueOrThrow({where:{id:users[1].id}}))).name,"Cloud bus profile");
+ await synchronizeInstallations();
  const baseline=exchanges;
  const outgoing=creation("Actual event body VPS → cloud");await write(tx=>acceptMutation(tx,outgoing,users[0]));await publishLocalBus();
  assert.equal(queues.get(config.bus.targets[0].address)![0].events[0].operation.message.text,outgoing.message.text);

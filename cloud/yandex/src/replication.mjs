@@ -36,9 +36,10 @@ export function createReplication(database, service, configuration) {
       let hasMore = events.length > REPLICATION_BATCH;
       if (hasMore) events.pop();
       while (events.length > 1 && Buffer.byteLength(JSON.stringify(events)) > 420 * 1024) { events.pop(); hasMore = true; }
-      if(events.some(event=>event.type==="user"||event.type==="contact")&&body.userProtocolVersion!==1)throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
+      if(events.some(event=>event.type==="user"||event.type==="contact")&&![1,2].includes(body.userProtocolVersion))throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
+      if(events.some(event=>event.type==="identity")&&body.userProtocolVersion!==2)throw new HttpError(409,"identity_protocol_unavailable","Нужна совместимая версия обмена профилями");
       const userIds = new Set();
-      for(const event of events)if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
+      for(const event of events)if(event.type==="identity")userIds.add(event.operation.userId);else if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
       for (const event of events) if (event.type === "mutation") {
         userIds.add(event.operation.actorId);
         if (event.operation.type === "message.create") {
@@ -51,8 +52,8 @@ export function createReplication(database, service, configuration) {
         for (const key of ["fromUserId", "toUserId", "ownerId", "uploaderId", "userId", "peerId"]) if (patch[key]) userIds.add(patch[key]);
       }
       const users = [];
-      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push(user); }
-      return { users, userProtocolVersion: 1, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
+      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{}}); }
+      return { users, userProtocolVersion: 2, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
         events, cursor: events.at(-1)?.sequence || after, hasMore };
     }, { readOnly: true });
     return result;

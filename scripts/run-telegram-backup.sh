@@ -9,11 +9,11 @@ fi
 exec 9>/run/lock/tiny-messenger-telegram-backup.lock
 flock -n 9 || { echo 'Backup already running'; exit 1; }
 source deploy/release.env
-secrets=${TELEGRAM_BACKUP_SECRETS:-/root/.config/tiny-messenger/telegram-backup.env}
+secrets=${TELEGRAM_BACKUP_SECRETS:-${XDG_CONFIG_HOME:-$HOME/.config}/tiny-messenger/telegram-backup.env}
 test -r "$secrets"
 test "$(stat -c %a "$secrets")" = 600
 test -d "$MESSENGER_DEPENDENCIES_DIR"
-# Keep a reserve for the app, Valheim and the remaining services.
+# Keep a reserve for the application and other workloads.
 available_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
 test "$available_kb" -ge $((256 * 1024)) || { echo 'Backup refused: less than 256 MiB available'; exit 1; }
 install -d -m 700 backups/telegram
