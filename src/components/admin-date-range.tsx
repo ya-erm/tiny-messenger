@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useId,useRef,useState,type CSSProperties} from "react";
 import {civilInstant,dayAt,presetRange,rangeValid,timeAt,type AdminRange} from "@/lib/admin/time";
-const quick=[['5m','5 мин'],['15m','15 мин'],['1h','1 ч'],['3h','3 ч'],['6h','6 ч'],['12h','12 ч'],['24h','24 ч'],['48h','48 ч'],['7d','7 д'],['14d','14 д'],['30d','30 д'],['90d','90 д']] as const;
+const quick=[['30m','30 мин'],['1h','1 ч'],['3h','3 ч'],['6h','6 ч'],['12h','12 ч'],['24h','24 ч'],['48h','48 ч'],['7d','7 д'],['14d','14 д'],['30d','30 д'],['90d','90 д']] as const;
 function shortRange(value:AdminRange){
  const preset=/^(\d+)([mhd])$/.exec(value.preset||'');if(preset)return preset[1]+({m:'мин',h:'ч',d:'д'}[preset[2] as 'm'|'h'|'d']);if(value.preset==='all')return 'Весь период';
  const minutes=Math.max(1,Math.round((Date.parse(value.to)-Date.parse(value.from))/60000));return [Math.floor(minutes/1440)?Math.floor(minutes/1440)+'д':'',Math.floor(minutes%1440/60)?Math.floor(minutes%1440/60)+'ч':'',minutes%60?minutes%60+'мин':''].filter(Boolean).join(' ');

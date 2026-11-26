@@ -27,7 +27,7 @@ export function startOfDay(day:string,timeZone:string):number{
  return low;
 }
 export function presetRange(preset:string,timeZone:string,now=Date.now(),minimum?:string):AdminRange {
- const durations:Record<string,number>={"5m":300000,"15m":900000,"1h":3600000,"3h":10800000,"6h":21600000,"12h":43200000,"24h":86400000,"48h":172800000};
+ const durations:Record<string,number>={"5m":300000,"15m":900000,"30m":1800000,"1h":3600000,"3h":10800000,"6h":21600000,"12h":43200000,"24h":86400000,"48h":172800000};
  if(durations[preset])return{from:new Date(now-durations[preset]).toISOString(),to:new Date(now).toISOString(),preset};
  const today=dayAt(now,timeZone),count=Number(preset.replace("d",""))||30;
  const first=preset==="all"?minimum||shiftDay(today,-365):shiftDay(today,-Math.min(365,count-1));
