@@ -1,3 +1,4 @@
+import { realtimeSocketUrl } from "@/lib/client-transport";
 import { parseServerEvent, type RealtimeConnectionState, type ServerRealtimeEvent } from "@/realtime/protocol";
 
 const INSTALLATION_KEY = "tiny-messenger:v1:installation";
@@ -94,8 +95,7 @@ export class RealtimeClient {
     if (this.stopped) return;
     this.setState("connecting");
     this.ready = false;
-    const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${scheme}//${window.location.host}/ws`);
+    const socket = new WebSocket(realtimeSocketUrl());
     this.socket = socket;
 
     socket.addEventListener("open", () => {

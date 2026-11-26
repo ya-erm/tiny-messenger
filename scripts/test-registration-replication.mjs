@@ -1,0 +1,4 @@
+import {mkdtempSync,rmSync}from'node:fs';import{tmpdir}from'node:os';import{spawnSync}from'node:child_process';
+const directory=mkdtempSync(tmpdir()+'/tm-registration-db-'),env={...process.env,NODE_ENV:'test',DATABASE_URL:'file:'+directory+'/test.db'};
+const register=`import{register}from'node:module';register(${JSON.stringify(new URL('./tasks-test-loader.mjs',import.meta.url).href)});`;
+try{for(const args of [['node_modules/prisma/build/index.js','migrate','deploy'],['--conditions=react-server','--import','data:text/javascript,'+encodeURIComponent(register),'scripts/registration-replication-verify.mts']]){const r=spawnSync(process.execPath,args,{env,stdio:'inherit',timeout:180000});if(r.status!==0)throw Error('Registration replication test failed');}}finally{rmSync(directory,{recursive:true,force:true});}

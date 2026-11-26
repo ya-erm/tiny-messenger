@@ -1,3 +1,4 @@
+import { createRegistrationService } from "./registration.mjs";
 import { createFileService } from "./row-files.mjs";
 import { createRowService } from "./row-service.mjs";
 import { appendReplication } from "./replication.mjs";
@@ -67,7 +68,7 @@ export function createService(database, installationId = "yandex-1") {
         const rich = await service.rows.snapshot(tx, user.id, limit);
         const knownGroups = new Set(rich.groups.map((entry) => entry.id));
         for (const group of state.groups || []) if (await service.rows.state(tx, "Group", [group.id])) knownGroups.add(group.id);
-        return { contacts: state.contacts || [], groups: [...(state.groups || []).filter((item) => !knownGroups.has(item.id)), ...rich.groups],
+        return { user: publicUser(user), contacts: state.contacts || [], groups: [...(state.groups || []).filter((item) => !knownGroups.has(item.id)), ...rich.groups],
           groupMessages: [...(state.groupMessages || []).filter((item) => !knownGroups.has(item.groupId)), ...rich.groupMessages],
           hiddenPeerIds: state.hiddenPeerIds || [], readStates: state.readStates || [], messages,
           deletedMessageIds: (await tx.scan("deleted:" + user.id, 10000)).map((item) => item.id),
@@ -100,7 +101,7 @@ export function createService(database, installationId = "yandex-1") {
           throw new HttpError(409, "snapshot_required", "Нужен новый снимок");
         const hasMore = changes.length > limit;
         if (hasMore) changes.pop();
-        return { installationId, cursor: cursor(changes.at(-1)?.sequence || sequence), changes, hasMore };
+        return { user: publicUser(user), installationId, cursor: cursor(changes.at(-1)?.sequence || sequence), changes, hasMore };
       }, { readOnly: true });
     },
     async mutate(user, value, sourceId) {
@@ -174,6 +175,7 @@ export function createService(database, installationId = "yandex-1") {
         const user = Object.fromEntries(["id", "name", "nickname", "avatarUrl", "avatarBackground", "tokenHash", "createdAt", "updatedAt"]
           .filter((key) => input[key] != null).map((key) => [key, input[key]]));
         await database.transaction(async (tx) => {
+          if(user.nickname)for(const other of await tx.scan("users",10001))if(other.id!==user.id&&other.nickname===user.nickname){const {nickname,...withoutNickname}=other;await tx.put("users",other.id,withoutNickname);}
           const previous = await tx.get("users", user.id);
           if (JSON.stringify(previous) !== JSON.stringify(user)) await tx.put("users", user.id, user);
           if (!previous || previous.tokenHash !== user.tokenHash) await tx.put("tokens", user.tokenHash, { userId: user.id });
@@ -183,8 +185,10 @@ export function createService(database, installationId = "yandex-1") {
         if (!await tx.get("users", state.userId) || !Array.isArray(state.contacts) || state.contacts.length > 500)
           throw new HttpError(422, "invalid_directory_contacts", "Некорректные контакты");
         const before = await tx.get("user-state", state.userId) || {};
-        if (JSON.stringify(before.contacts || []) !== JSON.stringify(state.contacts))
+        if (JSON.stringify(before.contacts || []) !== JSON.stringify(state.contacts)) {
           await tx.put("user-state", state.userId, { ...before, contacts: state.contacts });
+          await tx.addFeed(state.userId, await tx.nextSequence(), { type: "snapshot.required" });
+        }
       });
       for (const receipt of directory.receipts) await service.importReceipt(receipt);
     },
@@ -231,5 +235,6 @@ export function createService(database, installationId = "yandex-1") {
   };
   service.rows = createRowService(database, service, installationId);
   service.files = createFileService(service.rows);
+  service.registration = createRegistrationService(database,service,publicUser);
   return service;
 }

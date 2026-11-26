@@ -5,6 +5,7 @@ import type { ChannelId } from "./client-transport";
 
 export const STORAGE_EVENT = "tiny-messenger:storage";
 export interface CachedSnapshot {
+  user?: PublicUser;
   deletedMessageIds?: string[];
   contacts: PublicContact[]; messages: PublicMessage[]; groups: PublicGroup[];
   groupMessages: PublicGroupMessage[]; hiddenPeerIds: string[];
@@ -69,7 +70,7 @@ export async function channelSnapshot(userId: string, channel: ChannelId): Promi
   return rows.filter((row) => row.channel === channel).sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))[0]?.snapshot;
 }
 export function applyCloudChanges(snapshot: CachedSnapshot, batch: {
-  cursor: string; installationId: string; changes: Array<{ type: string; message?: PublicMessage | PublicGroupMessage; group?: PublicGroup; id?: string; hidden?: boolean; delivered?: string[]; read?: string[] }>;
+  cursor: string; installationId: string; user?: PublicUser; changes: Array<{ type: string; message?: PublicMessage | PublicGroupMessage; group?: PublicGroup; id?: string; hidden?: boolean; delivered?: string[]; read?: string[] }>;
 }) {
   const messages = new Map(snapshot.messages.map((message) => [message.id, message]));
   const groups = new Map(snapshot.groups.map((group) => [group.id, group]));
@@ -102,7 +103,7 @@ export function applyCloudChanges(snapshot: CachedSnapshot, batch: {
     else if (target) collection.set(id, { ...message, reply: { id: target.id, available: true, senderName: target.senderName,
       text: Array.from(target.text || target.attachments?.[0]?.originalName || "Вложение").slice(0, 180).join("") } } as never);
   }
-  return { snapshot: { ...snapshot, hiddenPeerIds: [...hiddenPeers], groups: [...groups.values()], groupMessages: [...groupMessages.values()], messages: [...messages.values()], cursor: batch.cursor, installationId: batch.installationId,
+  return { snapshot: { ...snapshot, user: batch.user || snapshot.user, hiddenPeerIds: [...hiddenPeers], groups: [...groups.values()], groupMessages: [...groupMessages.values()], messages: [...messages.values()], cursor: batch.cursor, installationId: batch.installationId,
     syncedAt: new Date().toISOString() }, deletedIds };
 }
 export async function queueMutation(userId: string, channel: ChannelId, operation: Mutation, senderName: string) {
@@ -167,7 +168,7 @@ export async function readCachedSnapshot(userId: string, channel: ChannelId): Pr
   }
   for (const collection of [messages, groupMessages]) for (const [id, message] of collection) if (message.replyToId && hidden.has(message.replyToId))
     collection.set(id, { ...message, reply: { id: message.replyToId, available: false } } as never);
-  return { contacts: preferred ? preferred.contacts : [...contacts.values()], groups: preferred ? preferred.groups : [...groups.values()], messages: [...messages.values()].filter((item) => !hidden.has(item.id))
+  return { user: preferred?.user, contacts: preferred ? preferred.contacts : [...contacts.values()], groups: preferred ? preferred.groups : [...groups.values()], messages: [...messages.values()].filter((item) => !hidden.has(item.id))
     .sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id)), groupMessages: [...groupMessages.values()].filter((item) => !hidden.has(item.id) && (!preferred || preferred.groups.some((group) => group.id === item.groupId))),
     hiddenPeerIds: preferred?.hiddenPeerIds || [], readStates: preferred?.readStates || [], syncedAt: preferred?.syncedAt || new Date().toISOString(),
     cursor: preferred?.cursor, installationId: preferred?.installationId };

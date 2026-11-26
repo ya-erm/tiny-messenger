@@ -1,0 +1,39 @@
+name: Publish web client mirror
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'public/**', 'package.json', 'pnpm-lock.yaml', 'prisma/schema.prisma', 'scripts/prepare-pages.mjs', '.github/workflows/pages.yml']
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm exec prisma generate
+      - run: node scripts/prepare-pages.mjs
+      - run: ../node_modules/.bin/next build --webpack
+        working-directory: .pages-build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NODE_OPTIONS: --max-old-space-size=3072
+      - run: cp .pages-build/out/index.html .pages-build/out/404.html
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .pages-build/out
+      - uses: actions/deploy-pages@v5
+        id: deployment

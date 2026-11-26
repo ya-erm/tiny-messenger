@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';import{randomUUID,randomBytes}from'node:crypto';import{mkdtemp,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';
+import{prisma,read,write}from'../src/lib/db';import{synchronizeInstallations}from'../src/lib/replication/synchronize';
+import{memoryStore}from'../cloud/yandex/tests/memory-store.mjs';import{createService}from'../cloud/yandex/src/service.mjs';import{createHandler}from'../cloud/yandex/src/handler.mjs';import{createReplication}from'../cloud/yandex/src/replication.mjs';
+import{POST as localRegister}from'../src/app/api/auth/register/route';import{PATCH as localProfile}from'../src/app/api/me/route';import{DELETE as localDeleteContact}from'../src/app/api/contacts/[id]/route';
+const temporary=await mkdtemp(tmpdir()+'/tm-registration-'),originalFetch=globalThis.fetch;
+const db=memoryStore(),cloud=createService(db,'yandex-1'),secret='x'.repeat(64),config={TM_INSTALLATION_ID:'yandex-1',TM_REPLICATION_PEER:'vps-1',TM_REPLICATION_SECRET:secret};cloud.exchange=createReplication(db,cloud,config);const handler=createHandler(async()=>cloud,config);
+const registration=(name:string,nickname:string)=>({name,nickname,clientRequestId:randomUUID(),registrationToken:'msg_'+randomBytes(12).toString('base64url')});
+async function local(method:any,body:any,token='',id?:string,verb='POST',expected=200){const response=await method(new Request('https://local.example/api/test',{method:verb,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:JSON.stringify(body)}),{params:Promise.resolve({id})});const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value.error));return value.data;}
+async function remote(path:string,body:any,token='',verb='POST',expected=200){const response=await handler({httpMethod:verb,path,headers:{...(token?{authorization:'Bearer '+token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),requestContext:{identity:{sourceIp:'198.51.100.'+(++ip)}}});const value=JSON.parse(response.body);assert.equal(response.statusCode,expected,JSON.stringify(value.error));return value.data;}
+let ip=0;
+async function drain(){for(let i=0;i<50;i++){await write(async tx=>{const key='peer:yandex-1',r=await tx.replicationState.findUnique({where:{key}});if(r){const state=JSON.parse(r.body);state.nextPoll=0;state.retryAt=0;await tx.replicationState.update({where:{key},data:{body:JSON.stringify(state)}});}});const r=await synchronizeInstallations()as any;assert.equal(r.error,undefined,JSON.stringify(r));if(!r.sent&&!r.sentRows&&!r.received&&!r.directoryItems)return;}throw Error('Sync did not converge');}
+try{
+ process.env.TM_INSTALLATION_ID='vps-1';process.env.TM_REPLICATION_CONFIG=temporary+'/config.json';await writeFile(process.env.TM_REPLICATION_CONFIG,JSON.stringify({url:'https://cloud.example/exchange',secret,installationId:'vps-1',peerId:'yandex-1',bootstrapFile:temporary+'/bootstrap.json'}));await writeFile(temporary+'/bootstrap.json',JSON.stringify({formatVersion:1,createdAt:new Date().toISOString(),messages:[],operations:[],deletions:[]}));
+ globalThis.fetch=(async(url,init)=>{assert.equal(String(url),'https://cloud.example/exchange');const response=await handler({httpMethod:'POST',path:'/api/internal/replication/exchange',headers:init?.headers,body:init?.body});return new Response(response.body,{status:response.statusCode});})as typeof fetch;
+ const home=await local(localRegister,registration('Home','home'),'',undefined,'POST',201);await drain();
+ const a=registration('Cloud account','cloud_account'),created=await remote('/api/auth/register',a,'','POST',201);assert.equal(created.user.id,a.clientRequestId);assert.equal(created.token,a.registrationToken);
+ assert.equal((await remote('/api/auth/register',a)).replayed,true);await remote('/api/auth/register',{...a,name:'Collision'},'','POST',409);await remote('/api/auth/register',registration('Duplicate','cloud_account'),'','POST',409);
+ assert.equal((await remote('/api/auth/session',{token:created.token})).user.id,created.user.id);
+ await remote('/api/contacts',{identifier:'@home'},created.token,'POST',201);
+ await drain();assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:created.user.id}}))).tokenHash,(await cloud.authenticate(created.token)).tokenHash);assert.equal(await read(d=>d.contact.count({where:{ownerId:created.user.id,userId:home.user.id}})),1);
+ await remote('/api/messages',{toUserId:home.user.id,text:'New user independently online',clientRequestId:randomUUID()},created.token,'POST',201);await drain();assert.equal(await read(d=>d.message.count({where:{fromUserId:created.user.id,toUserId:home.user.id}})),1);
+ await remote('/api/contacts/'+home.user.id,{},created.token,'DELETE');await drain();assert.equal(await read(d=>d.contact.count({where:{ownerId:created.user.id,userId:home.user.id}})),0);
+ // Both isolated servers acknowledge the same nickname. Earlier server time wins.
+ const early=await remote('/api/auth/register',registration('Earlier cloud','contested'),'','POST',201);
+ await new Promise(r=>setTimeout(r,5));const late=await local(localRegister,registration('Later VPS','contested'),'',undefined,'POST',201);await drain();
+ assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:early.user.id}}))).nickname,'contested');assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:late.user.id}}))).nickname,null);assert.equal((await cloud.authenticate(late.token)).nickname,undefined);
+ const renamedEarly=await remote('/api/auth/register',registration('Early rename','rename_conflict'),'','POST',201);
+ await new Promise(r=>setTimeout(r,5));await local(localProfile,{name:'Home',nickname:'rename_conflict'},home.token,undefined,'PATCH');await drain();
+ assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:renamedEarly.user.id}}))).nickname,'rename_conflict');
+ assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:home.user.id}}))).nickname,null,'Claim time, not the old account creation time, decides a renamed nickname');
+ // A replay must not restore a token rotated on the VPS.
+ const current=await read(d=>d.user.findUniqueOrThrow({where:{id:created.user.id}}));await write(tx=>tx.user.update({where:{id:current.id},data:{tokenHash:'a'.repeat(64),updatedAt:new Date().toISOString()}}));
+ const events=await db.transaction(tx=>tx.feed('@tm-replication-v1','0',1000),{readOnly:true});const first=events.find(e=>e.type==='user'&&e.user.id===created.user.id);
+ const{importNewPeerUser}=await import('../src/lib/replication/users');await write(tx=>importNewPeerUser(tx,first.user));assert.equal((await read(d=>d.user.findUniqueOrThrow({where:{id:current.id}}))).tokenHash,'a'.repeat(64));
+ await local(localRegister,a,'',undefined,'POST',409);await drain();await remote('/api/auth/register',a,'','POST',409);
+ const stable=registration('Stable VPS','stable_vps');const firstLocal=await local(localRegister,stable,'',undefined,'POST',201);assert.equal((await local(localRegister,stable)).token,firstLocal.token);
+ console.log(JSON.stringify({cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
+}finally{globalThis.fetch=originalFetch;await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

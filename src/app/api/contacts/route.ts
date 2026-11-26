@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { recordContactVersion } from "@/lib/replication/contacts";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { read, write } from "@/lib/db";
@@ -52,6 +54,7 @@ export const POST = route(async (request) => {
       create: { ownerId: authenticated.id, userId: target.id, createdAt: now, updatedAt: now },
       update: { updatedAt: now },
     });
+    await recordContactVersion(tx,{id:randomUUID(),ownerId:authenticated.id,userId:target.id,createdAt:item.createdAt,at:now,deleted:false});
     await showConversationForUser(tx, authenticated.id, target.id);
     return {
       userId: item.userId,

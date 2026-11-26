@@ -1,3 +1,4 @@
+export const STATIC_CLIENT = process.env.NEXT_PUBLIC_STATIC_CLIENT === "1";
 export const CHANNEL_KEY = "tiny-messenger:v2:channel";
 export const CHANNEL_EVENT = "tiny-messenger:channel";
 export type ChannelId = "default" | "vps-1" | "yandex-1";
@@ -11,11 +12,12 @@ export const API_CHANNELS = [
 export const YANDEX_GATEWAY_ORIGIN = "https://d5dbsbpos3rfligv4k7h.nnekmrav.apigw.yandexcloud.net";
 let gatewayUntil = 0;
 export function selectedChannel(): ChannelId {
-  if (typeof window === "undefined") return "default";
+  const fallback: ChannelId = STATIC_CLIENT ? "yandex-1" : "default";
+  if (typeof window === "undefined") return fallback;
   try {
     const value = window.localStorage.getItem(CHANNEL_KEY);
-    return API_CHANNELS.some((channel) => channel.id === value) ? value as ChannelId : "default";
-  } catch { return "default"; }
+    return API_CHANNELS.some((channel) => channel.id === value) ? value as ChannelId : fallback;
+  } catch { return fallback; }
 }
 export function chooseChannel(id: ChannelId) {
   window.localStorage.setItem(CHANNEL_KEY, id);
@@ -43,4 +45,9 @@ export async function fetchChannel(path: string, init: RequestInit = {}, channel
     gatewayUntil = Date.now() + 5 * 60_000;
     return response;
   }
+}
+
+export function realtimeSocketUrl() {
+  if(STATIC_CLIENT)return "wss://ch-1.api.tm.ya-erm.ru/ws";
+  return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
 }

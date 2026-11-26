@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { STATIC_CLIENT } from "@/lib/client-transport";
 import { createUpdateChecker } from "@/lib/app-updates";
 
 const CHECK_INTERVAL = 5 * 60_000;
@@ -20,7 +21,7 @@ export function useAppUpdates(paused: boolean) {
       currentVersion: process.env.NEXT_PUBLIC_APP_VERSION || "",
       loadVersion: async () => {
         // Version belongs to the web client, independently of the selected API contour.
-        const response = await fetch("/api/version", { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
+        const response = await fetch(STATIC_CLIENT ? "/version.json" : "/api/version", { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
         if (!response.ok) return undefined;
         const body = await response.json();
         return body.ok && typeof body.data?.version === "string" ? body.data.version : undefined;

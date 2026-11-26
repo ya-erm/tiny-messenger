@@ -110,6 +110,7 @@ export const POST = route(async (request) => {
       .sort((a, b) => a.user.name.localeCompare(b.user.name, "ru"));
 
     return {
+      user: publicUser(authenticated),
       contacts,
       deletedMessageIds: loaded.deletedMessageIds,
       messages: loaded.messages.map((message) => publicMessage(message, loaded.readStates)),

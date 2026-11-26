@@ -1,12 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { createToken, hashToken, publicUser } from "@/lib/auth";
+import { recordNicknameClaim } from "@/lib/replication/users";
 import { LIMITS } from "@/lib/constants";
 import { write } from "@/lib/db";
 import { animalProfileByName, randomAnimalProfile } from "@/lib/names";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { toUserRecord } from "@/lib/store";
-import { cleanNickname, cleanString, validLength, validNickname } from "@/lib/validation";
+import { cleanNickname, cleanString, isUuid, validLength, validNickname } from "@/lib/validation";
 
 export const POST = route(async (request) => {
   assertRateLimit(request);
@@ -26,15 +27,28 @@ export const POST = route(async (request) => {
     );
   }
 
-  const token = createToken();
+  const stable = body.clientRequestId !== undefined || body.registrationToken !== undefined;
+  if(stable&&(!isUuid(body.clientRequestId)||typeof body.registrationToken!=="string"||!/^msg_[A-Za-z0-9_-]{16}$/.test(body.registrationToken)))throw new ApiError(422,"invalid_registration_request","Некорректный идентификатор регистрации");
+  const id=stable?String(body.clientRequestId).toLowerCase():randomUUID();
+  const token = stable?String(body.registrationToken):createToken();
+  const fingerprint=createHash("sha256").update(JSON.stringify({name:suppliedName,nickname,tokenHash:hashToken(token)})).digest("hex");
+  let replayed=false;
   const now = new Date().toISOString();
   const user = await write(async (tx) => {
+    if(stable){
+      const receipt=await tx.replicationState.findUnique({where:{key:"registration:"+id}}),known=await tx.user.findUnique({where:{id}});
+      if(receipt||known){
+        if(receipt?JSON.parse(receipt.body).hash!==fingerprint:known?.tokenHash!==hashToken(token))throw new ApiError(409,"registration_conflict","ID регистрации уже использован");
+        if(!known||known.tokenHash!==hashToken(token))throw new ApiError(409,"registration_conflict","Регистрация недоступна");replayed=true;return known;
+      }
+    }
+    if(await tx.user.findUnique({where:{tokenHash:hashToken(token)}}))throw new ApiError(409,"registration_conflict","Токен уже используется");
     if (nickname && await tx.user.findUnique({ where: { nickname }, select: { id: true } })) {
       throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
     }
-    return tx.user.create({
+    const created=await tx.user.create({
       data: {
-        id: randomUUID(),
+        id,
         name,
         nickname: nickname || null,
         avatarUrl: animalProfile?.avatarUrl || null,
@@ -43,7 +57,10 @@ export const POST = route(async (request) => {
         updatedAt: now,
       },
     });
+    await recordNicknameClaim(tx,id,nickname||null,now);
+    if(stable)await tx.replicationState.create({data:{key:"registration:"+id,body:JSON.stringify({hash:fingerprint})}});
+    return created;
   });
 
-  return ok({ user: publicUser(toUserRecord(user)), token }, { status: 201 });
+  return ok({ user: publicUser(toUserRecord(user)), token }, { status: replayed?200:201 });
 });

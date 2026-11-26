@@ -30,8 +30,9 @@ import { animalAvatars, animalNames, randomAnimalName } from "@/lib/names";
 import { reactionLabel } from "@/lib/reactions";
 import type { MessageReply, MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
+import { registrationRequest, clearRegistrationRequest } from "@/lib/registration-client";
 import { ApiChannelSelector } from "@/components/api-channel-selector";
-import { CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, type ChannelId } from "@/lib/client-transport";
+import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, type ChannelId } from "@/lib/client-transport";
 import { applyCloudChanges, cacheProfile, cachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
 import type { Mutation } from "@/lib/mutations/protocol";
 
@@ -270,7 +271,7 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", cha
 }
 
 async function shareProfileLink(user: PublicUser) {
-  const url = user.nickname
+  const url = STATIC_CLIENT ? `${window.location.origin}/?contact=${encodeURIComponent(user.nickname ? "@"+user.nickname : user.id)}` : user.nickname
     ? `${window.location.origin}/@${user.nickname}`
     : `${window.location.origin}/id/${user.id}`;
   if (navigator.share) {
@@ -938,6 +939,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       } catch { /* Online messages remain usable if browser storage is unavailable. */ }
       if (sequence !== syncSequence.current || activeTokenRef.current !== token) return data;
     }
+    if(data.user&&user&&data.user.id===user.id&&JSON.stringify(data.user)!==JSON.stringify(user)){
+      if(user?.nickname&&!data.user.nickname)setNotice("Ник оказался занят при синхронизации. Учётная запись и переписка сохранены.");
+      setUser(data.user);void cacheProfile(token,data.user).catch(()=>{});
+    }
     setInstallationId(data.installationId || "vps-1");
     setContacts(data.contacts);
     setMessages(data.messages);
@@ -1364,9 +1369,10 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     try {
       const data = await request<{ user: PublicUser; token: string }>("/api/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name, nickname }),
+        body: JSON.stringify({ name, nickname, ...registrationRequest(name,nickname) }),
       }, "");
       saveSession(data.user, data.token);
+      clearRegistrationRequest();
     } catch (error) {
       setNotice((error as Error).message);
     } finally {

@@ -1,4 +1,6 @@
 import "server-only";
+import { importNewPeerUser } from "./users";
+import { importPeerContact } from "./contacts";
 import type { Prisma } from "@/generated/prisma/client";
 import { acceptMutation } from "@/lib/mutations/accept";
 import { parseMutation, mutationMessageId } from "@/lib/mutations/protocol";
@@ -8,14 +10,14 @@ export async function applyPeerEvents(tx: Prisma.TransactionClient, peerId: stri
   if (!await ingestLocalRows(tx, selfId)) throw Error("Local journal needs preparation");
       // Peer users are only inserted if absent. Current profile/token/contact
       // edits still use VPS APIs, so a stale cloud copy cannot roll them back.
-      for (const user of users) {
-        if (!/^[0-9a-f-]{36}$/.test(user.id) || !/^[0-9a-f]{64}$/.test(user.tokenHash)) throw Error("Invalid peer user");
-        const fields = { id: user.id, name: user.name, nickname: user.nickname || null, avatarUrl: user.avatarUrl || null,
-          avatarBackground: user.avatarBackground || null, tokenHash: user.tokenHash, createdAt: user.createdAt, updatedAt: user.updatedAt || user.createdAt };
-        await tx.user.upsert({ where: { id: user.id }, create: fields, update: {} });
-      }
+      // Birth events carry the original nickname claim. Prefer them to a
+      // directory projection that may already have cleared a conflicting nick.
+      for (const event of events) if(event.type === "user") await importNewPeerUser(tx,event.user);
+      for (const user of users) await importNewPeerUser(tx,user);
       for (const event of events) {
-        if (event.type === "mutation") {
+        if (event.type === "user") await importNewPeerUser(tx,event.user);
+        else if (event.type === "contact") await importPeerContact(tx,event.contact);
+        else if (event.type === "mutation") {
           const operation = parseMutation(event.operation);
           const actor = await tx.user.findUniqueOrThrow({ where: { id: operation.actorId } });
           await acceptMutation(tx, operation, actor, { peerImport: true, sourceId: peerId });

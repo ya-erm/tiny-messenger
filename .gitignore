@@ -31,3 +31,10 @@ cloud/yandex/dist/
 
 # Runtime replication credentials and the private reconciliation snapshot.
 /data/replication*.json
+
+# Isolated client-only export staging area.
+.pages-build/
+
+# Local process crash dumps.
+/core
+/core.*

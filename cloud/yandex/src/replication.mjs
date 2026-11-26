@@ -36,7 +36,9 @@ export function createReplication(database, service, configuration) {
       let hasMore = events.length > REPLICATION_BATCH;
       if (hasMore) events.pop();
       while (events.length > 1 && Buffer.byteLength(JSON.stringify(events)) > 420 * 1024) { events.pop(); hasMore = true; }
+      if(events.some(event=>event.type==="user"||event.type==="contact")&&body.userProtocolVersion!==1)throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
       const userIds = new Set();
+      for(const event of events)if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
       for (const event of events) if (event.type === "mutation") {
         userIds.add(event.operation.actorId);
         if (event.operation.type === "message.create") {
@@ -50,7 +52,7 @@ export function createReplication(database, service, configuration) {
       }
       const users = [];
       for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push(user); }
-      return { users, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
+      return { users, userProtocolVersion: 1, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
         events, cursor: events.at(-1)?.sequence || after, hasMore };
     }, { readOnly: true });
     return result;

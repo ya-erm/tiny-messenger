@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchChannel } from "@/lib/client-transport";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RealtimeClient } from "@/realtime/realtime-client";
@@ -356,7 +357,7 @@ export function useVoiceExperience({
     if (cachedConfiguration && cachedConfiguration.expiresAt > Date.now()) {
       configuration = cachedConfiguration.value;
     } else {
-      configuration = await fetch("/api/rtc/config", {
+      configuration = await fetchChannel("/api/rtc/config", {
         headers: { Authorization: `Bearer ${token}` },
       }).then(async (response) => {
         const payload = await response.json();

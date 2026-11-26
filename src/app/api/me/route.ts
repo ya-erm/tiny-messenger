@@ -1,3 +1,4 @@
+import { recordNicknameClaim } from "@/lib/replication/users";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
 import { LIMITS } from "@/lib/constants";
@@ -50,6 +51,8 @@ export const PATCH = route(async (request) => {
       });
       if (taken) throw new ApiError(409, "nickname_taken", "Этот ник уже занят");
     }
+    const updatedAt = new Date().toISOString();
+    if (nicknameSupplied && (nickname || null) !== (authenticated.nickname || null)) await recordNicknameClaim(tx, authenticated.id, nickname || null, updatedAt);
     return tx.user.update({
       where: { id: authenticated.id },
       data: {
@@ -57,7 +60,7 @@ export const PATCH = route(async (request) => {
         nickname: nickname || null,
         avatarUrl: avatarUrl || null,
         avatarBackground: avatarBackground || null,
-        updatedAt: new Date().toISOString(),
+        updatedAt,
       },
     });
   });
