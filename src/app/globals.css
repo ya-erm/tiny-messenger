@@ -1154,3 +1154,24 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 
 [data-tooltip]::after { overflow-wrap: anywhere; white-space: pre-line; }
 .chart-tooltip { position: fixed; z-index: 10000; pointer-events: none; width: max-content; max-width: min(268px, calc(100vw - 16px)); padding: 9px 12px; border-radius: 8px; background: var(--inverse); color: #fff; font-size: 11px; line-height: 1.5; box-shadow: 0 7px 18px #0002; }
+
+/* Use the messenger's surfaces and theme tokens throughout administration. */
+.admin-shell { --admin-line: var(--line); --admin-muted: var(--muted); --admin-accent: var(--green-ink); }
+.admin-users, .admin-detail, .admin-global-timeline { background: var(--card); border-color: var(--line); box-shadow: 0 3px 16px color-mix(in srgb, var(--ink) 4%, transparent); }
+.admin-stat { background: var(--raised); border-color: var(--line); box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 3%, transparent); }
+.admin-user-stats .admin-stat, .admin-device { background: var(--panel); box-shadow: none; }
+.admin-search input, .admin-zone-control select, .admin-zone-control input { background: var(--field); }
+.admin-user:hover { background: var(--hover-warm); }
+.admin-user.active { background: var(--green-tint); border-color: var(--green-line-3); }
+.admin-source, .admin-main-tabs, .admin-presets { background: var(--sidebar); }
+.admin-distribution-card { background: var(--raised); border-top: 3px solid var(--channel-color); }
+.admin-distribution-card:hover { background: var(--hover-warm); }
+.admin-timeline-scroll { background: var(--raised); }
+.admin-timeline-axis, .admin-timeline-axis-label { background: var(--sidebar); }
+.admin-timeline-user-name { background: var(--card); }
+.admin-timeline-lanes { background: var(--raised); }
+.admin-timeline-lane:hover, .admin-timeline-lane:focus-within { background: var(--green-tint); }
+.admin-message-bar { transition: opacity .08s ease, fill .08s ease; }
+.admin-message-bar.active { fill: var(--green-dark-ink); }
+.admin-chart-hit { outline: none; cursor: crosshair; }
+.admin-chart-hit:focus-visible { stroke: var(--green-ink); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
