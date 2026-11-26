@@ -10,6 +10,6 @@ export const GET = route<{ params: Promise<{ id: string }> }>(async (request, { 
   const { id } = await params;
   if (!isUuid(id)) throw new ApiError(400, "invalid_attachment_id", "Некорректный идентификатор файла");
   const mode = new URL(request.url).searchParams.get("mode") || "download";
-  if (!["download", "preview"].includes(mode)) throw new ApiError(422, "invalid_attachment_mode", "Неизвестный режим открытия файла");
-  return ok(await attachmentLink(user.id, id, mode === "preview"));
+  if (!["download", "preview", "thumbnail"].includes(mode)) throw new ApiError(422, "invalid_attachment_mode", "Неизвестный режим открытия файла");
+  return ok(await attachmentLink(user.id, id, mode !== "download", mode === "thumbnail"));
 });

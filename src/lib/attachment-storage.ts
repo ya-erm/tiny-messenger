@@ -104,7 +104,7 @@ export async function signedDownload(id: string, key: string, name: string, cont
     const url = await getSignedUrl(s.client, new GetObjectCommand({
       Bucket: s.bucket, Key: key, ResponseContentDisposition: disposition(name, preview),
       ResponseContentType: preview ? contentType : "application/octet-stream",
-      ResponseCacheControl: "private, max-age=0",
+      ResponseCacheControl: "private, max-age=3600",
     }), { expiresIn: s.downloadTTL });
     return { url, expiresAt: new Date(Date.now() + s.downloadTTL * 1000).toISOString() };
   });

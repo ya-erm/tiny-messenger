@@ -89,12 +89,14 @@ try{
  await local(deleteMessage,{scope:"everyone"},0,originalId,"DELETE");await drain();assert.equal((await remote("GET","/api/messages/"+quoted.id,undefined,1)).message.reply.available,false);
  // Real file workflow with isolated object storage double; no file bytes or
  // production credentials are used in this integration test.
- const upload=await remote("POST","/api/attachments/uploads",{chatKind:"peer",chatId:users[1].id,name:"test.png",size:12,contentType:"image/png",clientRequestId:randomUUID()},0,201);
- const completed=await remote("POST","/api/attachments/uploads/"+upload.attachment.id+"/complete",{},0);assert.equal(completed.attachment.id,upload.attachment.id);
+ const upload=await remote("POST","/api/attachments/uploads",{chatKind:"peer",chatId:users[1].id,name:"test.png",size:120000,thumbnailSize:12000,contentType:"image/png",clientRequestId:randomUUID()},0,201);
+ const completed=await remote("POST","/api/attachments/uploads/"+upload.attachment.id+"/complete",{},0);assert.equal(completed.attachment.id,upload.attachment.id);assert.equal(completed.attachment.hasThumbnail,true);
  const fileMessage=(await remote("POST","/api/messages",{toUserId:users[1].id,text:"File",kind:"text",attachmentIds:[upload.attachment.id],clientRequestId:randomUUID()},0,201)).message;
  assert.equal(fileMessage.attachments.length,1);await drain();
- const onVps=await read(db=>db.attachment.findUniqueOrThrow({where:{id:upload.attachment.id}}));assert.equal(onVps.status,"attached");assert.equal(onVps.messageId,fileMessage.id);
+ const onVps=await read(db=>db.attachment.findUniqueOrThrow({where:{id:upload.attachment.id}}));assert.equal(onVps.status,"attached");assert.equal(onVps.messageId,fileMessage.id);assert.equal(onVps.thumbnailSize,12000n);assert.ok(onVps.thumbnailKey?.endsWith(".thumbnail.webp"));assert.equal(onVps.reservedBytes,132000n);
  assert.match((await remote("GET","/api/attachments/"+upload.attachment.id+"/url?mode=preview",undefined,1)).url,/objects\.example/);
+ assert.ok((await remote("GET","/api/attachments/"+upload.attachment.id+"/url?mode=thumbnail",undefined,1)).url.endsWith(".thumbnail.webp"));
+ await remote("GET","/api/attachments/"+upload.attachment.id+"/url?mode=thumbnail",undefined,2,404);
  await remote("GET","/api/attachments/"+upload.attachment.id+"/url",undefined,2,404);
  await remote("POST","/api/attachments/uploads",{chatKind:"peer",chatId:users[0].id,name:"hijack.png",size:12,contentType:"image/png",clientRequestId:upload.attachment.id},1,409);
  const queuedEdit={protocolVersion:1,operationId:randomUUID(),actorId:users[0].id,deviceId:randomUUID(),occurredAt:new Date().toISOString(),type:"message.edit",message:{id:fileMessage.id,fromUserId:users[0].id,toUserId:users[1].id,kind:"text",text:"Edited through durable queue",sentAt:fileMessage.sentAt}};

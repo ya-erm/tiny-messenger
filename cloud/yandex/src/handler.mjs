@@ -60,7 +60,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login", "image-thumbnails"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);
@@ -203,7 +203,10 @@ export function createHandler(serviceProvider = getService, configuration = proc
         if (path.endsWith("/complete") && method === "POST") data = await service.files.complete(user, id);
         else if (!path.endsWith("/complete") && method === "DELETE") data = await service.files.cancel(user, id);
         else throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
-      } else if (/^\/api\/attachments\/[0-9a-f-]+\/url$/.test(path) && method === "GET") data = await service.files.link(user, path.split("/")[3], url.searchParams.get("mode") === "preview");
+      } else if (/^\/api\/attachments\/[0-9a-f-]+\/url$/.test(path) && method === "GET") {
+        const mode=url.searchParams.get("mode")||"download";if(!["preview","download","thumbnail"].includes(mode))throw new HttpError(422,"invalid_attachment_mode","Неизвестный режим файла");
+        data=await service.files.link(user,path.split("/")[3],mode!=="download",mode==="thumbnail");
+      }
       else if (path === "/api/groups" && method === "GET") data = { groups: (await service.snapshot(user, 1)).groups };
       else throw new HttpError(501, "channel_capability_unavailable", "Это действие пока доступно только через Канал 1");
       if (["POST","PATCH","PUT","DELETE"].includes(method) && !["/api/sync","/api/changes","/api/auth/session"].includes(path)) {

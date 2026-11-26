@@ -33,6 +33,7 @@ import type { MessageReply, MessageReaction, MessageStatus, PublicContact, Publi
 
 import { registrationRequest, clearRegistrationRequest } from "@/lib/registration-client";
 import { startChannelTelemetry } from "@/lib/channel-telemetry";
+import {clearImageCache,enableImageCache} from "@/lib/image-cache";
 import { YandexAccount } from "@/components/yandex-auth";
 import { ApiChannelSelector } from "@/components/api-channel-selector";
 import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, selectedMode, type ChannelId } from "@/lib/client-transport";
@@ -705,6 +706,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [pendingSentMessage, setPendingSentMessage] = useState<{ chat: string; id: string } | null>(null);
   const [documentVisible, setDocumentVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  useEffect(()=>{if(user?.id)enableImageCache(user.id);},[user?.id]);
   const { preference: themePreference, chooseTheme } = useThemePreference();
   const { enabled: messageSoundEnabled, choose: chooseMessageSound, observe: observeMessageSound, preview: previewMessageSound } = useMessageSound(user?.id, onIncomingMessage);
   const [contactFormDefaultId, setContactFormDefaultId] = useState<string | null>(null);
@@ -1495,9 +1497,11 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       const registration = await navigator.serviceWorker.getRegistration();
       registration?.active?.postMessage({ type: "notification_logout", userId: user?.id });
     }
+    const mediaCleanup=user?clearImageCache(user.id):Promise.resolve();
+    window.localStorage.removeItem(TOKEN_KEY);
+    await mediaCleanup;
     await disablePushNotifications(true);
     initialPeerSelectionHandledRef.current = false;
-    window.localStorage.removeItem(TOKEN_KEY);
     setToken("");
     setUser(null);
     setContacts([]);
@@ -2213,7 +2217,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
                         onClick={() => setPendingNotification({ messageId: message.replyToId!, accountId: user.id, chat: selectedEntry.ref, nonce: ++notificationNonce.current })}>
                         {message.reply?.available ? <><strong>{message.reply.senderName}</strong><span><EmojiText text={message.reply.text || "Вложение"} /></span></> : <span>Сообщение удалено или недоступно</span>}
                       </button> : null}
-                      {message.attachments?.map((file) => <AttachmentCard key={file.id} file={file} request={request} disabled={selectionMode} meta={file.id === imageMetaId ? messageMeta : undefined} />)}
+                      {message.attachments?.map((file) => <AttachmentCard userId={user.id} key={file.id} file={file} request={request} disabled={selectionMode} meta={file.id === imageMetaId ? messageMeta : undefined} />)}
                       {message.text || !imageMetaId ? <p><MessageText text={message.text} disabled={selectionMode} />{plainText && !imageMetaId ? messageMeta : null}</p> : null}
                       {direct ? <QuestionOptions message={direct} outgoing={outgoing} selectionMode={selectionMode} onAnswer={answer} /> : null}
                       {!plainText && !imageMetaId ? <footer>{message.editedAt ? <span className="edited-mark" role="img" aria-label="Изменено" title="Изменено"><Glyph name="edit" /></span> : null}<time>{formatTime(message.sentAt)}</time>{outgoing && (isDirectMessage(message) && message.localState ? <span className="message-local-state">{message.localState === "failed" ? "Не отправлено" : "В очереди"}</span> : <StatusTicks status={message.status} />)}</footer> : null}

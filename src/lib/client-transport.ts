@@ -6,9 +6,9 @@ export type PhysicalChannel = "default" | "vps-1" | "yandex-1" | "vps-direct";
 export type ChannelId = PhysicalChannel | "auto";
 export const API_CHANNELS = [
   { id: "default", name: "По умолчанию", alias: "default", origin: "https://api.tm.ya-erm.ru" },
-  { id: "vps-1", name: "pro-vm", alias: "pro-vm", origin: "https://ch-1.api.tm.ya-erm.ru" },
-  { id: "yandex-1", name: "ya", alias: "ya", origin: "https://ch-2.api.tm.ya-erm.ru" },
-  { id: "vps-direct", name: "vm", alias: "vm", origin: "https://ch-3.api.tm.ya-erm.ru" },
+  { id: "vps-1", name: "Канал 1", alias: "pro-vm", origin: "https://ch-1.api.tm.ya-erm.ru" },
+  { id: "yandex-1", name: "Канал 2", alias: "ya", origin: "https://ch-2.api.tm.ya-erm.ru" },
+  { id: "vps-direct", name: "Канал 3", alias: "vm", origin: "https://ch-3.api.tm.ya-erm.ru" },
 ] as const;
 export const CHANNEL_OPTIONS = [{id:"auto",name:"Авто"},...API_CHANNELS] as const;
 export const YANDEX_GATEWAY_ORIGIN = process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN || API_CHANNELS[2].origin;
@@ -89,13 +89,13 @@ async function ensureRoute(force=false,excluded?:PhysicalChannel,credential=curr
   if(force||!active||activeMode!==mode||substantial)select(best.channel,force?"unavailable":mode==="default"?"primary-fallback":"latency");
  })();selecting=run;try{await run;}finally{selecting=undefined;}
 }
-export async function checkChannels(){const result=await Promise.all(API_CHANNELS.map(c=>probeChannel(c.id)));checkedAt=0;await ensureRoute().catch(()=>{});return result;}
+export async function checkChannels(onResult?:(result:Measurement)=>void){const result=await Promise.all(API_CHANNELS.map(c=>probeChannel(c.id).then(result=>{onResult?.(result);return result;})));checkedAt=0;await ensureRoute().catch(()=>{});return result;}
 function retrySafe(path:string,init:RequestInit){
  if(!init.method||["GET","HEAD","OPTIONS"].includes(init.method))return true;
  if(init.method!=="POST")return false;
  if(["/api/auth/session","/api/sync","/api/changes","/api/messages/poll"].includes(path))return true;
  let body:any;try{body=JSON.parse(String(init.body));}catch{return false;}
- return path==="/api/mutations"&&typeof body.operationId==="string"||path==="/api/auth/register"&&typeof body.clientRequestId==="string"&&typeof body.registrationToken==="string"||path==="/api/me/token"&&typeof body.operationId==="string"&&typeof body.replacementToken==="string"||path==="/api/client/telemetry"&&typeof body.id==="string";
+ return path==="/api/auth/yandex/finish"&&typeof body.proof==="string"&&typeof body.verifier==="string"||path==="/api/mutations"&&typeof body.operationId==="string"||path==="/api/auth/register"&&typeof body.clientRequestId==="string"&&typeof body.registrationToken==="string"||path==="/api/me/token"&&typeof body.operationId==="string"&&typeof body.replacementToken==="string"||path==="/api/client/telemetry"&&typeof body.id==="string";
 }
 function voiceChannel():PhysicalChannel{
  const selected=selectedChannel();if(["vps-1","vps-direct"].includes(selected))return selected;

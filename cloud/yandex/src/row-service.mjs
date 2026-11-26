@@ -26,7 +26,7 @@ export function createRowService(baseDatabase, native, installationId) {
     return value;
   }
   async function state(tx, table, keys) { return tx.get(rowBucket(table), JSON.stringify(keys)); }
-  async function row(tx, table, keys) { const item = await state(tx, table, keys); return item && !rowDeleted(item) && ROW_TABLES[table].fields.every((key) => Object.hasOwn(item.data, key)) ? effectiveRowData(item) : undefined; }
+  async function row(tx, table, keys) { const item = await state(tx, table, keys); return item && !rowDeleted(item) && ROW_TABLES[table].fields.every((key) => Object.hasOwn(effectiveRowData(item), key)) ? effectiveRowData(item) : undefined; }
   async function children(tx, table, parent) { return (await tx.scanPrefix(rowBucket(table), JSON.stringify([parent]).slice(0, -1) + ",", 1000)).filter((item) => !rowDeleted(item)).map((item) => item.data); }
   async function user(tx, id) { return tx.get("users", id); }
   async function members(tx, groupId) { return (await tx.scanPrefix(rowBucket("GroupMember"), JSON.stringify([groupId]).slice(0,-1)+",", 1000)).filter(item=>!rowDeleted(item)).sort((a,b)=>a.aliveVersion.localeCompare(b.aliveVersion)).map(item=>item.data); }
@@ -38,7 +38,7 @@ export function createRowService(baseDatabase, native, installationId) {
     return value.public = { ...Object.fromEntries(["id", "name", "ownerId", "createdAt", "updatedAt", "avatarUrl", "avatarBackground"].filter((key) => data[key] != null).map((key) => [key, data[key]])), members: people };
   }
   async function file(tx, id) { return row(tx, "Attachment", [id]); }
-  function fileInfo(data) { return { id: data.id, originalName: data.originalName, contentType: data.contentType,
+  function fileInfo(data) { return { hasThumbnail:Boolean(data.thumbnailKey), id: data.id, originalName: data.originalName, contentType: data.contentType,
     size: Number(data.confirmedSize ?? data.requestedSize), preview: attachmentPreview(data.contentType) }; }
   async function messageRecord(tx, data, viewer, groupMessage = false, resolveReply = true) {
     if (!data) throw new HttpError(404, "message_not_found", "Сообщение не найдено");

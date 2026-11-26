@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatFileSize, type AttachmentInfo, type AttachmentLimits } from "@/lib/attachment-types";
+import {imageSource} from "@/lib/image-cache";
+import {imageThumbnail} from "@/lib/image-thumbnail";
 import { prepareAttachment, type AttachmentMode } from "@/lib/prepare-attachment";
 
 export type AttachmentRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 type Upload = { url: string; headers: Record<string, string>; expiresAt: string };
 type DraftFile = { localId: string; file: File; requestId: string; id?: string; uploaded?: boolean; progress: number; state: "preparing" | "uploading" | "ready" | "error"; error?: string; preparationNote?: string; originalSize?: number };
-type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: boolean; canceled: boolean; preparation: AbortController; xhr?: XMLHttpRequest };
+type Job = { item: DraftFile; original: File; mode: AttachmentMode; prepared?: boolean; thumbnails?:boolean; thumbnail?:Blob; canceled: boolean; preparation: AbortController; xhr?: XMLHttpRequest };
 
 export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string }, request: AttachmentRequest) {
   const [files, setFiles] = useState<DraftFile[]>([]);
@@ -41,6 +43,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
           if (job.canceled) return;
           const result = await prepareAttachment(job.original, job.mode, job.preparation.signal);
           if (job.canceled) return;
+          if(job.thumbnails)job.thumbnail=await imageThumbnail(result.file,job.preparation.signal);
           update(job, { file: result.file, preparationNote: result.note, originalSize: result.originalSize });
           job.prepared = true;
         });
@@ -50,8 +53,8 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
       if (job.canceled) return;
       update(job, { state: "uploading" });
       if (!job.item.uploaded) {
-        const response = await request<{ attachment: AttachmentInfo; upload: Upload | null }>("/api/attachments/uploads", {
-          method: "POST", body: JSON.stringify({ chatKind: chat.kind, chatId: chat.id, name: job.item.file.name, size: job.item.file.size, contentType: job.item.file.type, clientRequestId: job.item.requestId }),
+        const response = await request<{ attachment: AttachmentInfo; upload: Upload | null; thumbnailUpload?:Upload|null }>("/api/attachments/uploads", {
+          method: "POST", body: JSON.stringify({ chatKind: chat.kind, chatId: chat.id, name: job.item.file.name, size: job.item.file.size, contentType: job.item.file.type, clientRequestId: job.item.requestId, thumbnailSize:job.thumbnail?.size }),
         });
         job.item.id = response.attachment.id;
         if (job.canceled) {
@@ -74,6 +77,9 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
             xhr.send(job.item.file);
           });
         }
+        if(response.thumbnailUpload&&job.thumbnail&&!job.canceled){
+          try{await fetch(response.thumbnailUpload.url,{method:"PUT",headers:response.thumbnailUpload.headers,body:job.thumbnail,signal:job.preparation.signal});}catch{/* The original remains sendable if optional preview transfer fails. */}
+        }
         job.item.uploaded = true;
       }
       if (job.canceled) return;
@@ -82,11 +88,11 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     } catch (error) { update(job, { state: "error", error: (error as Error).message }); }
     finally { job.xhr = undefined; }
   }
-  function add(selected: File[], maximum: number, mode: AttachmentMode = "file") {
+  function add(selected: File[], maximum: number, mode: AttachmentMode = "file", thumbnails=false) {
     const free = Math.max(0, maximum - jobs.current.size);
     for (const file of selected.slice(0, free)) {
       const item: DraftFile = { localId: crypto.randomUUID(), requestId: crypto.randomUUID(), file, progress: 0, state: "preparing" };
-      const job: Job = { item, original: file, mode, canceled: false, preparation: new AbortController() };
+      const job: Job = { item, original: file, mode, thumbnails, canceled: false, preparation: new AbortController() };
       jobs.current.set(item.localId, job);
       setFiles((old) => [...old, item]);
       void run(job);
@@ -96,7 +102,7 @@ export function useAttachmentDraft(chat: { kind: "peer" | "group"; id: string },
     if (!limits.enabled || !selected.length) return;
     if (selected.some((file) => file.size > limits.maxFileBytes)) { setSelectionError(`Файл превышает ${formatFileSize(limits.maxFileBytes)}`); return; }
     if (selected.length + jobs.current.size > limits.maxFilesPerMessage) { setSelectionError(`Можно прикрепить до ${limits.maxFilesPerMessage} файлов`); return; }
-    setSelectionError(""); add(selected, limits.maxFilesPerMessage, mode);
+    setSelectionError(""); add(selected, limits.maxFilesPerMessage, mode, !!limits.thumbnails);
   }
   function remove(localId: string) {
     const job = jobs.current.get(localId);
@@ -137,8 +143,11 @@ export function AttachmentDrafts({ draft, disabled }: { draft: ReturnType<typeof
   </div>;
 }
 
-export function AttachmentCard({ file, request, disabled, meta }: { file: AttachmentInfo; request: AttachmentRequest; disabled: boolean; meta?: ReactNode }) {
+export function AttachmentCard({ file, request, disabled, meta, userId }: { userId:string; file: AttachmentInfo; request: AttachmentRequest; disabled: boolean; meta?: ReactNode }) {
   const card = useRef<HTMLDivElement>(null);
+  const thumbnailRelease=useRef<(()=>void)|undefined>(undefined),imageRelease=useRef<(()=>void)|undefined>(undefined);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;thumbnailRelease.current?.();imageRelease.current?.();};},[]);
   const [thumbnail, setThumbnail] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -147,18 +156,19 @@ export function AttachmentCard({ file, request, disabled, meta }: { file: Attach
   const video = useRef<HTMLVideoElement>(null);
   const resumeAt = useRef(0);
   const retried = useRef(false);
+  const previewSequence=useRef(0);
   useEffect(() => {
     if (file.preview !== "image" || disabled || !card.current) return;
     const controller = new AbortController();
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       observer.disconnect();
-      void request<{ url: string }>(`/api/attachments/${file.id}/url?mode=preview`, { signal: controller.signal })
-        .then((result) => { if (!controller.signal.aborted) setThumbnail(result.url); }).catch(() => {});
+      void imageSource(userId,file,request,true)
+        .then((result) => { if (!controller.signal.aborted) {thumbnailRelease.current?.();thumbnailRelease.current=result.release;setThumbnail(result.url);} else result.release(); }).catch(() => {});
     }, { rootMargin: "80px" });
     observer.observe(card.current);
     return () => { observer.disconnect(); controller.abort(); };
-  }, [file.id, file.preview, disabled, request]);
+  }, [file.id, file.preview, file.hasThumbnail, disabled, request, userId]);
   async function link(preview: boolean) {
     return request<{ url: string; expiresAt: string }>(`/api/attachments/${file.id}/url?mode=${preview ? "preview" : "download"}`);
   }
@@ -172,19 +182,25 @@ export function AttachmentCard({ file, request, disabled, meta }: { file: Attach
     finally { setBusy(false); }
   }
   async function preview(refresh = false) {
+    const attempt=++previewSequence.current;
     setError(""); setBusy(true);
     if (!refresh) { retried.current = false; resumeAt.current = 0; }
+    if(file.preview==="image"){
+      setUrl(thumbnail);if(!dialog.current?.open)dialog.current?.showModal();
+    }
     try {
-      const response = await link(true); setUrl(response.url);
+      const response = file.preview==="image"?(!file.hasThumbnail&&thumbnail&&!refresh?{url:thumbnail}:await imageSource(userId,file,request)):await link(true);
+      if(!mounted.current||attempt!==previewSequence.current){if("release" in response)response.release();return;}
+      imageRelease.current?.();imageRelease.current="release" in response?response.release:undefined;setUrl(response.url);
       if (!dialog.current?.open) dialog.current?.showModal();
-    } catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(false); }
+    } catch (cause) {if(attempt===previewSequence.current)setError((cause as Error).message);}
+    finally {if(attempt===previewSequence.current)setBusy(false);}
   }
   function mediaError() {
     if (retried.current) { setError("Не удалось открыть предпросмотр. Файл можно скачать."); return; }
     retried.current = true; resumeAt.current = video.current?.currentTime || 0; void preview(true);
   }
-  function close() { video.current?.pause(); dialog.current?.close(); setUrl(""); }
+  function close() { previewSequence.current++;setBusy(false);imageRelease.current?.();imageRelease.current=undefined;video.current?.pause(); dialog.current?.close(); setUrl(""); }
   return <div ref={card} className={`attachment-card${file.preview === "image" ? " attachment-image-card" : ""}`} onClick={(event) => { if (!disabled) event.stopPropagation(); }} onContextMenu={(event) => event.stopPropagation()} onPointerDown={(event) => { if (!disabled) event.stopPropagation(); }}>
     {file.preview === "image" ? <>
       <div className="attachment-image-header">
@@ -204,8 +220,8 @@ export function AttachmentCard({ file, request, disabled, meta }: { file: Attach
         <button type="button" disabled={disabled || busy} onClick={() => void download()}>Скачать</button>
       </div>{error ? <p className="attachment-error" role="alert">{error}</p> : null}</div>
     </>}
-    <dialog ref={dialog} className="attachment-viewer" aria-label={file.originalName} onCancel={close} onClose={() => { video.current?.pause(); setUrl(""); }} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <div className="attachment-viewer-bar"><strong>{file.originalName}</strong><button type="button" onClick={close} aria-label="Закрыть предпросмотр">×</button></div>
+    <dialog ref={dialog} className="attachment-viewer" aria-label={file.originalName} aria-busy={busy} onCancel={close} onClose={close} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <div className="attachment-viewer-bar"><strong>{file.originalName}</strong>{busy?<small role="status">Загружаем…</small>:null}<button type="button" onClick={close} aria-label="Закрыть предпросмотр">×</button></div>
       {url && file.preview === "image" ? /* Native image: the bytes stay between browser and S3. */ <img src={url} alt={file.originalName} referrerPolicy="no-referrer" onError={mediaError} /> : null}
       {url && file.preview === "video" ? <video ref={video} src={url} controls playsInline preload="metadata" onError={mediaError} onLoadedMetadata={() => { if (resumeAt.current && video.current) video.current.currentTime = resumeAt.current; }} /> : null}
       {error ? <p role="alert">{error}</p> : null}

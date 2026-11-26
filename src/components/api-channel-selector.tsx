@@ -14,7 +14,7 @@ export function ApiChannelSelector({ userId }: { userId?: string }) {
   useEffect(() => {
     let cancelled = false;
     const update = () => {
-      setChannel(selectedMode());setActiveAlias(transportStatus().alias);
+      setChannel(selectedMode());const active=transportStatus();const target=API_CHANNELS.find(item=>item.id===active.channel);setActiveAlias(target ? `${target.name} · ${target.alias}` : "");
       if (userId) void queuedMutations(userId).then((rows) => {
         if (!cancelled) { setPending(rows.filter((row) => row.state !== "accepted").length); setFailed(rows.filter((row) => row.state === "failed").length); }
       }).catch(() => {});
@@ -24,22 +24,22 @@ export function ApiChannelSelector({ userId }: { userId?: string }) {
     return () => { cancelled = true; window.removeEventListener(ROUTE_EVENT,update);window.removeEventListener(CHANNEL_EVENT, update); window.removeEventListener(STORAGE_EVENT, update); window.removeEventListener("storage", storage); };
   }, [userId]);
   async function measure() {
-    setChecking(true);
-    try{const values=(await checkChannels()).map(item=>[item.channel,item.ok?`${item.latencyMs} мс`:"Нет ответа"]);setMeasurements(Object.fromEntries(values));}finally{setChecking(false);}
+    setChecking(true);setMeasurements({});
+    try{await checkChannels(item=>setMeasurements(previous=>({...previous,[item.channel]:item.ok?`${item.latencyMs} мс`:"Нет ответа"})));}finally{setChecking(false);}
   }
   return <section className="settings-section api-channel-settings" aria-label="Канал связи">
     <label className="field-label" htmlFor={selectId}>Канал связи</label>
     <div className="api-channel-controls">
       <div className="api-channel-select">
       <select id={selectId} value={channel} onChange={(event) => { const id = event.target.value as ChannelId; chooseChannel(id); setChannel(id); }}>
-        {CHANNEL_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {CHANNEL_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.name}{"alias" in item ? ` · ${item.alias}` : ""}</option>)}
       </select>
       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
       </div>
       <button type="button" className="secondary-button" disabled={checking} onClick={() => { void measure(); }}>{checking ? "Проверяем…" : "Проверить"}</button>
     </div>
     {["auto","default"].includes(channel)?<p className="form-hint" role="status">Используется: {activeAlias||"Определяем…"}</p>:null}
-    <ul className="api-channel-measurements" aria-live="polite">{API_CHANNELS.map((item) => <li key={item.id}><span>{item.name}</span><span>{measurements[item.id] || "Не проверен"}</span></li>)}</ul>
+    <ul className="api-channel-measurements" aria-live="polite">{API_CHANNELS.map((item) => <li key={item.id}><span>{item.name} <small className="api-channel-alias">{item.alias}</small></span><span>{measurements[item.id] || (checking ? "Проверяем…" : "Не проверен")}</span></li>)}</ul>
     {pending > 0 ? <div className="api-channel-queue" role="status">На устройстве ожидают отправки: {pending}{failed ? `, с ошибкой: ${failed}` : ""}.
       <button type="button" className="secondary-button" onClick={() => { if (userId) void retryQueuedMutations(userId); }}>Повторить отправку</button>
     </div> : null}

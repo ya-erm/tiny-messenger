@@ -1,3 +1,4 @@
+import {THUMBNAIL_SUFFIX,thumbnailRequestedSize,completeThumbnail} from "@/lib/attachment-thumbnail";
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import type { Attachment, Prisma } from "@/generated/prisma/client";
@@ -12,8 +13,8 @@ export interface AttachmentChat { kind: "peer" | "group"; id: string }
 const leaseDuration = 120_000;
 const stagingGrace = 3600_000;
 
-export function attachmentInfo(row: Pick<Attachment, "id" | "originalName" | "requestedSize" | "confirmedSize" | "contentType">): AttachmentInfo {
-  return { id: row.id, originalName: row.originalName, size: Number(row.confirmedSize ?? row.requestedSize), contentType: row.contentType, preview: attachmentPreview(row.contentType) };
+export function attachmentInfo(row: Pick<Attachment, "id" | "originalName" | "requestedSize" | "confirmedSize" | "contentType"> & {thumbnailKey?:string|null}): AttachmentInfo {
+  return { hasThumbnail:Boolean(row.thumbnailKey), id: row.id, originalName: row.originalName, size: Number(row.confirmedSize ?? row.requestedSize), contentType: row.contentType, preview: attachmentPreview(row.contentType) };
 }
 
 export function attachmentIds(value: unknown) {
@@ -54,29 +55,30 @@ export async function beginAttachment(userId: string, body: Record<string, unkno
   if (!name || Buffer.byteLength(name) > 255) throw new ApiError(422, "invalid_filename", "Имя файла должно занимать от 1 до 255 байт");
   const rawType = typeof body.contentType === "string" ? body.contentType.split(";")[0].trim().toLowerCase() : "";
   const contentType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(rawType) ? rawType : "application/octet-stream";
+  const thumbnailSize=thumbnailRequestedSize(body.thumbnailSize,contentType);
   const now = new Date();
   const row = await write(async (tx) => {
     await chatAccess(tx, userId, chat);
     const existing = await tx.attachment.findUnique({ where: { uploaderId_clientRequestId: { uploaderId: userId, clientRequestId: requestId } } });
     if (existing) {
-      if (existing.chatKind !== chat.kind || existing.chatId !== chat.id || existing.originalName !== name || existing.requestedSize !== BigInt(Number(size)) || existing.contentType !== contentType) throw new ApiError(409, "upload_request_conflict", "Идентификатор уже использован для другого файла");
+      if (existing.chatKind !== chat.kind || existing.chatId !== chat.id || existing.originalName !== name || existing.requestedSize !== BigInt(Number(size)) || existing.contentType !== contentType || Number(existing.thumbnailSize||0)!==Number(thumbnailSize||0)) throw new ApiError(409, "upload_request_conflict", "Идентификатор уже использован для другого файла");
       if (!["pending", "uploaded", "attached"].includes(existing.status)) throw new ApiError(409, "upload_not_available", "Загрузка недоступна. Выберите файл заново.");
       return existing;
     }
     const pending = await tx.attachment.count({ where: { uploaderId: userId, status: { in: ["pending", "verifying", "uploaded"] } } });
     const used = await tx.attachment.aggregate({ where: { uploaderId: userId }, _sum: { reservedBytes: true } });
     if (pending >= settings.maxPending) throw new ApiError(429, "too_many_uploads", "Слишком много незавершённых загрузок. Удалите лишние файлы или дождитесь очистки.");
-    if ((used._sum.reservedBytes ?? 0n) + BigInt(Number(size)) > BigInt(settings.userQuotaBytes)) throw new ApiError(413, "attachment_quota_exceeded", "Недостаточно места для файлов в вашем профиле");
+    if ((used._sum.reservedBytes ?? 0n) + BigInt(Number(size)+(thumbnailSize||0)) > BigInt(settings.userQuotaBytes)) throw new ApiError(413, "attachment_quota_exceeded", "Недостаточно места для файлов в вашем профиле");
     const id = requestId;
     if (await tx.attachment.findUnique({ where: { id }, select: { id: true } })) throw new ApiError(409, "upload_request_conflict", "Идентификатор уже использован");
     return tx.attachment.create({ data: {
       id, uploaderId: userId, clientRequestId: requestId, chatKind: chat.kind, chatId: chat.id,
-      originalName: name, requestedSize: BigInt(Number(size)), reservedBytes: BigInt(Number(size)), contentType,
+      originalName: name, requestedSize: BigInt(Number(size)), reservedBytes: BigInt(Number(size)+(thumbnailSize||0)), thumbnailSize:thumbnailSize===null?null:BigInt(thumbnailSize), contentType,
       stagingKey: attachmentObjectKey("staging", id), objectKey: attachmentObjectKey("attachments", id), status: "pending",
       createdAt: now.toISOString(), expiresAt: new Date(+now + settings.uploadTTL * 1000).toISOString(), abandonAt: new Date(+now + settings.unattachedTTL).toISOString(),
     } });
   });
-  return { attachment: attachmentInfo(row), upload: row.status === "pending" ? await signedUpload(row.id, row.stagingKey, Number(row.requestedSize), row.contentType, row.expiresAt) : null };
+  return { thumbnailUpload:row.status==="pending"&&row.thumbnailSize ? await signedUpload(row.id+"-thumbnail",row.stagingKey+THUMBNAIL_SUFFIX,Number(row.thumbnailSize),"image/webp",row.expiresAt):null, attachment: attachmentInfo(row), upload: row.status === "pending" ? await signedUpload(row.id, row.stagingKey, Number(row.requestedSize), row.contentType, row.expiresAt) : null };
 }
 
 export async function completeAttachment(userId: string, id: string) {
@@ -109,8 +111,9 @@ export async function completeAttachment(userId: string, id: string) {
     if (!final || !final.ETag || final.ContentLength !== Number(row.requestedSize) || final.ContentType !== row.contentType || final.Metadata?.["upload-id"] !== id || !row.sourceEtag || final.Metadata?.["source-etag"] !== row.sourceEtag.replace(/^"|"$/g, "")) {
       throw new ApiError(422, "attachment_mismatch", "Не удалось подтвердить неизменяемую копию файла");
     }
+    const thumbnail=await completeThumbnail(id,row.stagingKey,row.objectKey,row.thumbnailSize===null?null:Number(row.thumbnailSize),{headAttachment,freezeAttachment});
     return await write(async (tx) => {
-      const count = await tx.attachment.updateMany({ where: { id, status: "verifying", leaseToken: token }, data: { status: "uploaded", confirmedSize: BigInt(final.ContentLength!), etag: final.ETag, leaseUntil: null, leaseToken: null } });
+      const count = await tx.attachment.updateMany({ where: { id, status: "verifying", leaseToken: token }, data: { status: "uploaded", confirmedSize: BigInt(final.ContentLength!), thumbnailKey:thumbnail.thumbnailKey, reservedBytes:BigInt(final.ContentLength!+Number(row.thumbnailSize||0)), etag: final.ETag, leaseUntil: null, leaseToken: null } });
       if (!count.count) throw new ApiError(409, "upload_changed", "Состояние загрузки изменилось");
       return attachmentInfo((await tx.attachment.findUnique({ where: { id } }))!);
     });
@@ -139,7 +142,7 @@ export async function attachFiles(tx: Prisma.TransactionClient, userId: string, 
   if (changed.count !== ids.length) throw new ApiError(409, "attachment_changed", "Вложения уже использованы или изменились");
 }
 
-export async function attachmentLink(userId: string, id: string, preview: boolean) {
+export async function attachmentLink(userId: string, id: string, preview: boolean, thumbnail=false) {
   const row = await read(async (db) => {
     const row = await db.attachment.findUnique({ where: { id } });
     if (!row || row.status !== "attached") throw new ApiError(404, "attachment_not_found", "Файл недоступен");
@@ -155,7 +158,7 @@ export async function attachmentLink(userId: string, id: string, preview: boolea
     return row;
   });
   if (preview && !attachmentPreview(row.contentType)) throw new ApiError(422, "preview_unavailable", "Для этого типа файла доступно только скачивание");
-  return signedDownload(row.id, row.objectKey, row.originalName, row.contentType, preview);
+  return signedDownload(row.id, thumbnail&&row.thumbnailKey?row.thumbnailKey:row.objectKey, row.originalName, thumbnail&&row.thumbnailKey?"image/webp":row.contentType, preview);
 }
 
 let cleanupRunning = false;
@@ -201,7 +204,9 @@ export async function cleanupAttachments() {
     const deleting = await read((db) => db.attachment.findMany({ where: { status: "deleting", deleteAfter: { lte: now }, messageId: null, groupMessageId: null }, orderBy: { deleteAfter: "asc" }, take: settings.cleanupBatch }));
     for (const row of deleting) {
       await deleteAttachmentObject(row.id, row.stagingKey);
+      if(row.thumbnailSize)await deleteAttachmentObject(row.id+"-thumbnail",row.stagingKey+THUMBNAIL_SUFFIX);
       await deleteAttachmentObject(row.id, row.objectKey);
+      if(row.thumbnailSize)await deleteAttachmentObject(row.id+"-thumbnail",row.objectKey+THUMBNAIL_SUFFIX);
       await write((tx) => tx.attachment.updateMany({ where: { id: row.id, status: "deleting", messageId: null, groupMessageId: null }, data: { status: "deleted", reservedBytes: 0n, stagingDeletedAt: now, originalName: "", contentType: "application/octet-stream" } }));
       processed++;
     }
@@ -209,7 +214,8 @@ export async function cleanupAttachments() {
       const staging = await read((db) => db.attachment.findMany({ where: { status: { in: ["uploaded", "attached"] }, stagingDeletedAt: null, expiresAt: { lt: stagingCutoff } }, orderBy: { expiresAt: "asc" }, take: settings.cleanupBatch - processed }));
       for (const row of staging) {
         await deleteAttachmentObject(row.id, row.stagingKey);
-        await write((tx) => tx.attachment.updateMany({ where: { id: row.id }, data: { stagingDeletedAt: now } }));
+      if(row.thumbnailSize)await deleteAttachmentObject(row.id+"-thumbnail",row.stagingKey+THUMBNAIL_SUFFIX);
+        await write((tx) => tx.attachment.updateMany({ where: { id: row.id }, data: { stagingDeletedAt: now, ...(!row.thumbnailKey&&row.thumbnailSize?{reservedBytes:row.confirmedSize??row.requestedSize}:{}) } }));
         processed++;
       }
     }
@@ -223,10 +229,10 @@ export async function cleanupAttachments() {
       for (const object of objects.Contents || []) {
         if (processed >= settings.cleanupBatch) { stopped = true; break; }
         sweepCursor = object.Key;
-        if (!object.Key?.startsWith(prefix) || !isUuid(object.Key.slice(prefix.length)) || !object.LastModified) continue;
+        if (!object.Key?.startsWith(prefix) || !isUuid(object.Key.slice(prefix.length).replace(/\.thumbnail\.webp$/, "")) || !object.LastModified) continue;
         const cutoff = Date.now() - (sweepKind === "staging" ? stagingGrace : settings.deleteGrace);
         if (+object.LastModified > cutoff) continue;
-        const id = object.Key.slice(prefix.length);
+        const id = object.Key.slice(prefix.length).replace(/\.thumbnail\.webp$/, "");
         const row = await read((db) => db.attachment.findUnique({ where: { id } }));
         if (sweepKind === "attachments") {
           if (row && row.status !== "deleted") continue;

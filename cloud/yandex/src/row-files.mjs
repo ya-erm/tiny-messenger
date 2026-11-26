@@ -1,3 +1,4 @@
+import {THUMBNAIL_SUFFIX,thumbnailRequestedSize,completeThumbnail} from "../shared/attachment-thumbnail.mjs";
 import { randomUUID } from "node:crypto";
 import { HttpError } from "./errors.mjs";
 import { attachmentSettings, attachmentLimits, attachmentObjectKey } from "../shared/attachment-config.mjs";
@@ -21,12 +22,13 @@ export function createFileService(rows, storage = { signedUpload, signedDownload
         || !/^[0-9a-f-]{36}$/.test(requestId) || !/^[0-9a-f-]{36}$/.test(chat.id)) throw new HttpError(422, "invalid_attachment", "Некорректные параметры файла");
       const rawType = typeof body.contentType === "string" ? body.contentType.split(";")[0].trim().toLowerCase() : "";
       const contentType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(rawType) ? rawType : "application/octet-stream";
+      const thumbnailSize=thumbnailRequestedSize(body.thumbnailSize,contentType);
       const item = await database.transaction(async (tx) => {
         await access(tx, actor.id, chat.kind, chat.id);
         const prior = await tx.get("file-request:" + actor.id, requestId);
         if (prior) {
           const old = await file(tx, prior.id);
-          if (!old || old.chatKind !== chat.kind || old.chatId !== chat.id || old.originalName !== name || Number(old.requestedSize) !== size || old.contentType !== contentType)
+          if (!old || old.chatKind !== chat.kind || old.chatId !== chat.id || old.originalName !== name || Number(old.requestedSize) !== size || old.contentType !== contentType || Number(old.thumbnailSize||0)!==Number(thumbnailSize||0))
             throw new HttpError(409, "upload_request_conflict", "Идентификатор уже использован");
           if (!["pending", "uploaded", "attached"].includes(old.status)) throw new HttpError(409, "upload_not_available", "Загрузка недоступна");
           return old;
@@ -35,16 +37,16 @@ export function createFileService(rows, storage = { signedUpload, signedDownload
         const existing = [];
         for (const ref of await tx.scan("files-by:" + actor.id, 10000)) { const old = await file(tx, ref.id); if (old) existing.push(old); }
         if (existing.filter((item) => ["pending", "verifying", "uploaded"].includes(item.status)).length >= settings.maxPending) throw new HttpError(429, "too_many_uploads", "Слишком много незавершённых загрузок");
-        if (existing.reduce((sum, item) => sum + Number(item.reservedBytes), 0) + size > settings.userQuotaBytes) throw new HttpError(413, "attachment_quota_exceeded", "Недостаточно места");
+        if (existing.reduce((sum, item) => sum + Number(item.reservedBytes), 0) + size + (thumbnailSize||0) > settings.userQuotaBytes) throw new HttpError(413, "attachment_quota_exceeded", "Недостаточно места");
         const id = requestId, now = Date.now();
         if (await rows.state(tx, "Attachment", [id])) throw new HttpError(409, "upload_request_conflict", "Идентификатор уже использован");
         const data = { id, uploaderId: actor.id, clientRequestId: requestId, chatKind: chat.kind, chatId: chat.id,
           stagingKey: attachmentObjectKey("staging", id), objectKey: attachmentObjectKey("attachments", id), originalName: name, contentType,
-          requestedSize: size, reservedBytes: size, status: "pending", createdAt: new Date(now).toISOString(), expiresAt: new Date(now + settings.uploadTTL * 1000).toISOString(), abandonAt: new Date(now + settings.unattachedTTL).toISOString() };
+          requestedSize: size, thumbnailSize, reservedBytes: size+(thumbnailSize||0), status: "pending", createdAt: new Date(now).toISOString(), expiresAt: new Date(now + settings.uploadTTL * 1000).toISOString(), abandonAt: new Date(now + settings.unattachedTTL).toISOString() };
         const state = await put(tx, "Attachment", data);
         return state.data;
       });
-      return { attachment: fileInfo(item), upload: item.status === "pending" ? await storage.signedUpload(item.id, item.stagingKey, Number(item.requestedSize), item.contentType, item.expiresAt) : null };
+      return { thumbnailUpload:item.status==="pending"&&item.thumbnailSize?await storage.signedUpload(item.id+"-thumbnail",item.stagingKey+THUMBNAIL_SUFFIX,Number(item.thumbnailSize),"image/webp",item.expiresAt):null, attachment: fileInfo(item), upload: item.status === "pending" ? await storage.signedUpload(item.id, item.stagingKey, Number(item.requestedSize), item.contentType, item.expiresAt) : null };
     },
     async complete(actor, id) {
       const leaseToken = randomUUID();
@@ -71,10 +73,11 @@ export function createFileService(rows, storage = { signedUpload, signedDownload
         }
         if (!final || !final.ETag || !sourceEtag || final.ContentLength !== Number(item.requestedSize) || final.ContentType !== item.contentType
           || final.Metadata?.["upload-id"] !== id || final.Metadata?.["source-etag"] !== sourceEtag.replace(/^"|"$/g, "")) throw new HttpError(422, "attachment_mismatch", "Не удалось подтвердить файл");
+        const thumbnail=await completeThumbnail(id,item.stagingKey,item.objectKey,item.thumbnailSize?Number(item.thumbnailSize):null,storage);
         return database.transaction(async (tx) => {
           const current = await file(tx, id);
           if (current.leaseToken !== leaseToken || current.status !== "verifying") throw new HttpError(409, "upload_changed", "Загрузка изменилась");
-          const value = await put(tx, "Attachment", { id, status: "uploaded", confirmedSize: Number(final.ContentLength), etag: final.ETag, leaseToken: null, leaseUntil: null }, false, true);
+          const value = await put(tx, "Attachment", { id, status: "uploaded", confirmedSize: Number(final.ContentLength), thumbnailKey:thumbnail.thumbnailKey, reservedBytes:Number(final.ContentLength)+Number(item.thumbnailSize||0), etag: final.ETag, leaseToken: null, leaseUntil: null }, false, true);
           return { attachment: fileInfo(value.data) };
         });
       } catch (error) {
@@ -91,7 +94,7 @@ export function createFileService(rows, storage = { signedUpload, signedDownload
       });
       return { cancelled: true };
     },
-    async link(actor, id, preview) {
+    async link(actor, id, preview, thumbnail=false) {
       const data = await database.transaction(async (tx) => {
         const item = await file(tx, id);
         if (!item || item.status !== "attached") throw new HttpError(404, "attachment_not_found", "Файл недоступен");
@@ -103,7 +106,7 @@ export function createFileService(rows, storage = { signedUpload, signedDownload
         return item;
       }, { readOnly: true });
       if (preview && !attachmentPreview(data.contentType)) throw new HttpError(422, "preview_unavailable", "Для файла доступно только скачивание");
-      return storage.signedDownload(id, data.objectKey, data.originalName, data.contentType, preview);
+      return storage.signedDownload(id, thumbnail&&data.thumbnailKey?data.thumbnailKey:data.objectKey, data.originalName, thumbnail&&data.thumbnailKey?"image/webp":data.contentType, preview);
     },
   };
 }

@@ -3,6 +3,7 @@ export interface AttachmentInfo {
   originalName: string;
   size: number;
   contentType: string;
+  hasThumbnail?: boolean;
   preview: "image" | "video" | null;
 }
 
@@ -12,6 +13,7 @@ export interface AttachmentLimits {
   maxFilesPerMessage: number;
   maxPending: number;
   userQuotaBytes: number;
+  thumbnails?: boolean;
 }
 
 export function attachmentPreview(type: string): AttachmentInfo["preview"] {

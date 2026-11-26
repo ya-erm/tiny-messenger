@@ -299,6 +299,8 @@ model Attachment {
   originalName    String
   contentType     String
   requestedSize   BigInt
+  thumbnailSize   BigInt?
+  thumbnailKey    String?
   confirmedSize   BigInt?
   reservedBytes   BigInt
   etag            String?

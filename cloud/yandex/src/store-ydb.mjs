@@ -36,6 +36,27 @@ export async function connectYdb(connectionString, credentialsProvider = new Met
             await tx`UPSERT INTO tm_kv (bucket, key, body) VALUES (${bucket}, ${key}, ${body})`;
           },
           async delete(bucket,key){await tx`DELETE FROM tm_kv WHERE bucket = ${bucket} AND key = ${key}`;},
+          async adminRows(){
+            const [rows]=await tx`SELECT bucket, key,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.id'),JSON_VALUE(CAST(body AS Json),'$.operation.message.id'),JSON_VALUE(CAST(body AS Json),'$.archive.id')) AS id,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.fromUserId'),JSON_VALUE(CAST(body AS Json),'$.operation.message.fromUserId'),JSON_VALUE(CAST(body AS Json),'$.archive.fromUserId')) AS fromUserId,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.toUserId'),JSON_VALUE(CAST(body AS Json),'$.operation.message.toUserId'),JSON_VALUE(CAST(body AS Json),'$.archive.toUserId')) AS toUserId,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.groupId'),JSON_VALUE(CAST(body AS Json),'$.archive.groupId')) AS groupId,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.userId'),JSON_VALUE(CAST(body AS Json),'$.data.uploaderId'),JSON_VALUE(CAST(body AS Json),'$.userId')) AS userId,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.sentAt'),JSON_VALUE(CAST(body AS Json),'$.operation.message.sentAt'),JSON_VALUE(CAST(body AS Json),'$.archive.sentAt')) AS at,
+              JSON_VALUE(CAST(body AS Json),'$.lastSeenAt') AS lastSeenAt,
+              JSON_VALUE(CAST(body AS Json),'$.operation.type') AS opType,
+              JSON_VALUE(CAST(body AS Json),'$.data.status') AS status,
+              JSON_VALUE(CAST(body AS Json),'$.data.messageId') AS messageId,
+              JSON_VALUE(CAST(body AS Json),'$.data.groupMessageId') AS groupMessageId,
+              COALESCE(JSON_VALUE(CAST(body AS Json),'$.data.confirmedSize'),JSON_VALUE(CAST(body AS Json),'$.data.requestedSize')) AS size,
+              JSON_VALUE(CAST(body AS Json),'$.deletedVersion') AS deletedVersion,
+              JSON_VALUE(CAST(body AS Json),'$.aliveVersion') AS aliveVersion,
+              CAST(JSON_QUERY(CAST(body AS Json),'$.contacts') AS Utf8) AS contacts
+              FROM tm_kv WHERE bucket IN ('rows:Message'u,'rows:GroupMessage'u,'operations'u,'states'u,'rows:GroupMember'u,'rows:Attachment'u,'device-telemetry'u,'user-state'u)
+              ORDER BY bucket,key LIMIT 20001`;
+            return rows.map(row=>({...row,...(row.bucket==='user-state'?{userId:row.key}:{})}));
+          },
           async scan(bucket, limit = 100) {
             const [rows] = await tx`SELECT body FROM tm_kv WHERE bucket = ${bucket} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
             return rows.map((row) => JSON.parse(row.body));

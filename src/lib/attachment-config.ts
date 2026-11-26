@@ -27,7 +27,7 @@ export function attachmentSettings() {
     maxPending: integer("ATTACHMENTS_MAX_PENDING", 4, 20),
     userQuotaBytes: integer("ATTACHMENTS_USER_QUOTA_BYTES", 1024 ** 3),
     uploadTTL: integer("ATTACHMENTS_UPLOAD_TTL_SECONDS", 600, 1800),
-    downloadTTL: integer("ATTACHMENTS_DOWNLOAD_TTL_SECONDS", 120, 300),
+    downloadTTL: integer("ATTACHMENTS_DOWNLOAD_TTL_SECONDS", 3600, 86400),
     unattachedTTL: integer("ATTACHMENTS_UNATTACHED_TTL_HOURS", 24) * 3600_000,
     deleteGrace: integer("ATTACHMENTS_DELETE_GRACE_HOURS", 168) * 3600_000,
     cleanupBatch: integer("ATTACHMENTS_CLEANUP_BATCH", 20, 100),
@@ -36,7 +36,7 @@ export function attachmentSettings() {
 
 export function attachmentLimits(): AttachmentLimits {
   const { enabled, maxFileBytes, maxFilesPerMessage, maxPending, userQuotaBytes } = attachmentSettings();
-  return { enabled, maxFileBytes, maxFilesPerMessage, maxPending, userQuotaBytes };
+  return { enabled, maxFileBytes, maxFilesPerMessage, maxPending, userQuotaBytes, thumbnails: true };
 }
 
 export function attachmentObjectKey(kind: "staging" | "attachments", id: string) {

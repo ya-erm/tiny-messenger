@@ -92,6 +92,7 @@ try{
  const adminAccounts=await local(adminRoot,undefined,afterRotation.token,undefined,'GET');
  assert.ok(adminAccounts.users.some((user:any)=>user.id===actor.id));assert.ok(!JSON.stringify(adminAccounts).includes('tokenHash'));
  const cloudAccounts=await remote('/api/admin/users',undefined,afterRotation.token,'GET');assert.equal(cloudAccounts.users.length,adminAccounts.users.length);
+ const metrics=(users:any[])=>users.map(user=>({id:user.id,counters:user.counters,daily:user.daily})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(metrics(cloudAccounts.users),metrics(adminAccounts.users),'Admin counters and daily history converge across adapters');
  await local(adminRoot,undefined,home.token,undefined,'GET',403);await remote('/api/admin/users',undefined,home.token,'GET',403);
  console.log(JSON.stringify({adminExplicitAllowlist:true,adminNativeAndYandexSessions:true,noCredentialsInAdmin:true}));
  console.log(JSON.stringify({yandexBindingBidirectional:true,portableSessions:true,sessionRevocationReplicated:true}));

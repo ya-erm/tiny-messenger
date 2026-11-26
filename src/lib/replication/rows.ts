@@ -13,7 +13,7 @@ export const ROW_TABLES = {
   GroupMessageDeletion: { keys: ["messageId", "userId"], fields: ["messageId", "userId"] },
   ReadState: { keys: ["userId", "chatId"], fields: ["userId", "chatId", "lastDeliveredAt", "lastReadAt"] },
   HiddenConversation: { keys: ["ownerId", "peerId"], fields: ["ownerId", "peerId", "hiddenAt"] },
-  Attachment: { keys: ["id"], fields: ["id", "uploaderId", "clientRequestId", "chatKind", "chatId", "stagingKey", "objectKey", "originalName", "contentType", "requestedSize", "confirmedSize", "reservedBytes", "etag", "sourceEtag", "status", "createdAt", "expiresAt", "abandonAt", "leaseUntil", "leaseToken", "stagingDeletedAt", "deleteAfter", "messageId", "groupMessageId"] },
+  Attachment: { keys: ["id"], fields: ["id", "uploaderId", "clientRequestId", "chatKind", "chatId", "stagingKey", "objectKey", "originalName", "contentType", "requestedSize", "confirmedSize", "thumbnailSize", "thumbnailKey", "reservedBytes", "etag", "sourceEtag", "status", "createdAt", "expiresAt", "abandonAt", "leaseUntil", "leaseToken", "stagingDeletedAt", "deleteAfter", "messageId", "groupMessageId"] },
 } as const;
 export type RowTable = keyof typeof ROW_TABLES;
 export type RowData = Record<string, string | number | null>;
@@ -75,7 +75,7 @@ export function mergeRow(previous: RowState | undefined, operation: RowOperation
 export function effectiveRowData(state: RowState): RowData {
   // Derive lifecycle protection without altering the field-versioned state:
   // mutating the winning value itself would break out-of-order convergence.
-  if (state.table === "Attachment" && (state.data.messageId || state.data.groupMessageId)) return { ...state.data, status: "attached" };
+  if (state.table === "Attachment") return {thumbnailKey:null,thumbnailSize:null,...state.data,...(state.data.messageId||state.data.groupMessageId?{status:"attached"}:{})};
   return state.data;
 }
 export function rowBucket(table: RowTable) { return "rows:" + table; }
