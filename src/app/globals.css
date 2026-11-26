@@ -1175,3 +1175,11 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .admin-message-bar.active { fill: var(--green-dark-ink); }
 .admin-chart-hit { outline: none; cursor: crosshair; }
 .admin-chart-hit:focus-visible { stroke: var(--green-ink); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+
+button.admin-timeline-device { border: 0; background: transparent; text-align: left; padding: 2px 0 4px; cursor: pointer; font: inherit; font-size: 9px; color: var(--admin-muted); line-height: 1.5; }
+button.admin-timeline-device:disabled { opacity: 1; cursor: default; }
+button.admin-timeline-device:not(:disabled):hover { color: var(--green-ink); }
+.admin-timeline-group-heading { min-height: 28px; }
+.admin-timeline-group-heading svg { display: none; }
+.admin-timeline-group-heading .admin-timeline-device { color: var(--ink); font-weight: 700; }
+.admin-timeline-nested .admin-timeline-device { padding-left: 12px; }
