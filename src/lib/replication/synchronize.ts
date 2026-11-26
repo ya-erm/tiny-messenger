@@ -57,7 +57,7 @@ async function synchronize() {
     const messages = await tx.message.findMany({ select: { id: true, fromUserId: true, toUserId: true, sentAt: true, receiptStatus: true } });
     const operations = await tx.mutationOperation.findMany({ where: { seq: { gt: state.sentSeq } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
     const rowChanges = await tx.replicaChange.findMany({ where: { seq: { gt: state.rowSeq || 0 } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
-    const identities=await tx.replicationState.findMany({where:{OR:[{key:{startsWith:"identity-state:"}},{key:{startsWith:"nickname-claim:"}}]}});
+    const identities=await tx.replicationState.findMany({where:{OR:[{key:{startsWith:"identity-state:"}},{key:{startsWith:"nickname-claim:"}},{key:{startsWith:"external-users:"}}]}});
     const outboxes=await tx.replicationState.findMany({where:{key:{startsWith:"telemetry-outbox:"}},take:5});
     const telemetry=outboxes.flatMap(item=>JSON.parse(item.body).items).slice(0,5);
     return { users, telemetry, identities, contacts, marks, messages, operations, rowChanges, rowsIngested };
@@ -69,7 +69,7 @@ async function synchronize() {
     const key = kind + ":" + id, hash = digest(value);
     if (state.hashes[key] !== hash) entries.push({ key, kind, value, hash });
   };
-  for (const user of local.users) {const state=local.identities.find(item=>item.key==="identity-state:"+user.id); const claim=local.identities.find(item=>item.key==="nickname-claim:"+user.id); note("users",user.id,{...user,...(state?{identity:JSON.parse(state.body)}:{}),...(claim?{nicknameClaim:JSON.parse(claim.body)}:{})});}
+  for (const user of local.users) {const state=local.identities.find(item=>item.key==="identity-state:"+user.id); const claim=local.identities.find(item=>item.key==="nickname-claim:"+user.id),external=local.identities.find(item=>item.key==="external-users:"+user.id); note("users",user.id,{...user,...(state?{identity:JSON.parse(state.body)}:{}),...(claim?{nicknameClaim:JSON.parse(claim.body)}:{}),...(external?{externalIdentity:JSON.parse(external.body)}:{})});}
   for (const user of local.users) note("contacts", user.id, { userId: user.id, contacts: local.contacts.filter((item) => item.ownerId === user.id)
     .map((item) => ({ userId: item.userId, createdAt: item.createdAt, updatedAt: item.updatedAt, user: publicUser(toUserRecord(usersById.get(item.userId)!)) })) });
   const marks = new Map(local.marks.map((mark) => [mark.userId + ":" + mark.chatId, mark]));
@@ -92,7 +92,7 @@ async function synchronize() {
   const rowChanges = canSendOperations ? local.rowChanges.slice(0, REPLICATION_BATCH - operations.length) : [];
   const directory: Record<string, unknown[]> = { users: [], contacts: [], receipts: [] };
   for (const entry of changed) directory[entry.kind].push(entry.value);
-  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 3, sourceId: config.installationId, targetId: config.peerId,
+  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 4, sourceId: config.installationId, targetId: config.peerId,
     after: state.cursor, telemetry:local.telemetry,telemetryAcks:state.telemetryAcks||[], rows: rowChanges.map((entry) => operationFromChange(entry, config.installationId)), operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
   if (Buffer.byteLength(body) > REPLICATION_MAX_BYTES) throw Error("Replication batch exceeds byte limit");
   try {
@@ -107,8 +107,8 @@ async function synchronize() {
       || !Array.isArray(data.events) || data.events.length > REPLICATION_BATCH || !Array.isArray(data.users) || data.users.length > REPLICATION_BATCH * 5)
       throw Error("Invalid peer response");
     if ((rowChanges.length || data.events.some((event: { type: string }) => event.type === "row")) && data.rowProtocolVersion !== 1) throw Error("Peer row protocol unavailable");
-    if((local.telemetry.length||data.telemetry?.length)&&data.userProtocolVersion!==3)throw Error("Peer telemetry protocol unavailable");
-    if(data.events.some((event:{type:string})=>["user","contact","identity","telemetry"].includes(event.type))&&![1,2,3].includes(data.userProtocolVersion))throw Error("Peer user protocol unavailable");
+    if((local.telemetry.length||data.telemetry?.length)&&![3,4].includes(data.userProtocolVersion))throw Error("Peer telemetry protocol unavailable");
+    if(data.events.some((event:{type:string})=>["user","contact","identity","telemetry","external"].includes(event.type))&&![1,2,3,4].includes(data.userProtocolVersion))throw Error("Peer user protocol unavailable");
     const cursor = replicationCursor(data.cursor);
     let previous = BigInt(state.cursor);
     for (const event of data.events) {

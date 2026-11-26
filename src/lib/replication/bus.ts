@@ -48,15 +48,16 @@ async function publish() {
     state={native:snapshot.sentSeq||0,rows:snapshot.rowSeq||0};
   }
   if((state.retryAt||0)>Date.now())return {enabled:true,retrying:true};
-  const [native,rows,identity,telemetry]=await Promise.all([
+  const [native,rows,identity,telemetry,external]=await Promise.all([
     read(db=>db.mutationOperation.findMany({where:{seq:{gt:state.native}},orderBy:{seq:"asc"},take:25})),
     read(db=>db.replicaChange.findMany({where:{seq:{gt:state.rows}},orderBy:{seq:"asc"},take:25})),
     read(db=>db.replicationState.findMany({where:{key:{startsWith:"identity-pending:"}},orderBy:{key:"asc"},take:25})),
     read(db=>db.replicationState.findMany({where:{key:{startsWith:"telemetry-outbox:"}},orderBy:{key:"asc"},take:25})),
+    read(db=>db.replicationState.findMany({where:{key:{startsWith:"external-pending:"}},orderBy:{key:"asc"},take:25})),
   ]);
-  if(!native.length&&!rows.length&&!identity.length&&!telemetry.length)return{enabled:true,idle:true};
+  if(!native.length&&!rows.length&&!identity.length&&!telemetry.length&&!external.length)return{enabled:true,idle:true};
   const observations=telemetry.flatMap(item=>JSON.parse(item.body).items).slice(0,25);
-  const events=[...observations.map(observation=>({type:"telemetry",observation})),...identity.map(item=>({type:"identity",operation:JSON.parse(item.body)})),...native.filter(item=>!item.originId||item.originId===config.installationId).map(item=>({type:"mutation",operation:parseMutation(JSON.parse(item.body))})),
+  const events=[...external.map(item=>({type:"external",operation:JSON.parse(item.body)})),...observations.map(observation=>({type:"telemetry",observation})),...identity.map(item=>({type:"identity",operation:JSON.parse(item.body)})),...native.filter(item=>!item.originId||item.originId===config.installationId).map(item=>({type:"mutation",operation:parseMutation(JSON.parse(item.body))})),
     ...rows.map(item=>({type:"row",operation:operationFromChange(item,config.installationId)}))];
   if(events.length) health.activityAt=Date.now();
   try{
@@ -69,7 +70,7 @@ async function publish() {
         if(delivery.route==="direct")health.confirmedAt=Date.now();
       }
     }
-    await write(async tx=>{await tx.replicationState.deleteMany({where:{key:{in:identity.map(item=>item.key)}}});await acknowledgeObservations(identityStore(tx),observations);});
+    await write(async tx=>{await tx.replicationState.deleteMany({where:{key:{in:[...identity,...external].map(item=>item.key)}}});await acknowledgeObservations(identityStore(tx),observations);});
     state={native:native.at(-1)?.seq||state.native,rows:rows.at(-1)?.seq||state.rows,failures:0};
     await write(tx=>tx.replicationState.upsert({where:{key:stateKey},create:{key:stateKey,body:JSON.stringify(state)},update:{body:JSON.stringify(state)}}));
     return{enabled:true,published:events.length};

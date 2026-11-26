@@ -1,3 +1,6 @@
+import {GET as adminGet} from "../src/app/api/admin/[action]/route";
+import {POST as yandexPost} from "../src/app/api/auth/yandex/[action]/route";
+import {makeYandexFlow,exchangeYandexCode,sha256url} from "../src/lib/yandex/protocol";
 import {POST as localTelemetry} from "../src/app/api/client/telemetry/route";
 import {POST as rotateLocal} from "../src/app/api/me/token/route";
 import {authenticateToken} from "../src/lib/auth";
@@ -6,7 +9,9 @@ import{prisma,read,write}from'../src/lib/db';import{synchronizeInstallations}fro
 import{memoryStore}from'../cloud/yandex/tests/memory-store.mjs';import{createService}from'../cloud/yandex/src/service.mjs';import{createHandler}from'../cloud/yandex/src/handler.mjs';import{createReplication}from'../cloud/yandex/src/replication.mjs';
 import{POST as localRegister}from'../src/app/api/auth/register/route';import{PATCH as localProfile}from'../src/app/api/me/route';import{DELETE as localDeleteContact}from'../src/app/api/contacts/[id]/route';
 const temporary=await mkdtemp(tmpdir()+'/tm-registration-'),originalFetch=globalThis.fetch;
-const db=memoryStore(),cloud=createService(db,'yandex-1'),secret='x'.repeat(64),config={TM_INSTALLATION_ID:'yandex-1',TM_REPLICATION_PEER:'vps-1',TM_REPLICATION_SECRET:secret};cloud.exchange=createReplication(db,cloud,config);const handler=createHandler(async()=>cloud,config);
+const yandex={clientId:'test-client',clientSecret:'test-secret',sessionKey:'a'.repeat(64),origins:['https://client.example']};
+process.env.YANDEX_OAUTH_CLIENT_ID=yandex.clientId;process.env.YANDEX_OAUTH_CLIENT_SECRET=yandex.clientSecret;process.env.TM_WEB_SESSION_SECRET=yandex.sessionKey;process.env.TM_AUTH_ALLOWED_ORIGINS=yandex.origins.join(',');
+const db=memoryStore(),cloud=createService(db,'yandex-1',{yandex}),secret='x'.repeat(64),config={TM_INSTALLATION_ID:'yandex-1',TM_REPLICATION_PEER:'vps-1',TM_REPLICATION_SECRET:secret};cloud.exchange=createReplication(db,cloud,config);const handler=createHandler(async()=>cloud,config);
 const registration=(name:string,nickname:string)=>({name,nickname,clientRequestId:randomUUID(),registrationToken:'msg_'+randomBytes(12).toString('base64url')});
 async function local(method:any,body:any,token='',id?:string,verb='POST',expected=200){const response=await method(new Request('https://local.example/api/test',{method:verb,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:JSON.stringify(body)}),{params:Promise.resolve({id})});const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value.error));return value.data;}
 async function remote(path:string,body:any,token='',verb='POST',expected=200){const response=await handler({httpMethod:verb,path,headers:{...(token?{authorization:'Bearer '+token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),requestContext:{identity:{sourceIp:'198.51.100.'+(++ip)}}});const value=JSON.parse(response.body);assert.equal(response.statusCode,expected,JSON.stringify(value.error));return value.data;}
@@ -59,5 +64,36 @@ try{
  const device=randomUUID(),observation={id:randomUUID(),deviceId:device,sessionId:randomUUID(),sequence:1,at:new Date().toISOString(),mode:'auto',channel:'yandex-1',reason:'startup',latencyMs:37,browser:'Test',platform:'Test',pwa:true,appVersion:'test',origin:'https://client.example'};
  await remote('/api/client/telemetry',observation,shared.replacementToken);await drain();const telemetryKey='device-telemetry:'+firstLocal.user.id+':'+device;const localDevice=await read(d=>d.replicationState.findUniqueOrThrow({where:{key:telemetryKey}}));assert.equal(JSON.parse(localDevice.body).current.channel,'yandex-1');
  await local(localTelemetry,{...observation,id:randomUUID(),sequence:2,channel:'vps-direct',reason:'manual'},shared.replacementToken);await drain();const remoteDevice=await db.transaction(tx=>tx.get('device-telemetry',firstLocal.user.id+':'+device));assert.equal(remoteDevice.current.channel,'vps-direct');assert.equal(remoteDevice.history.length,2);
+ // Provider verification is mocked; SQLite/YDB adapters and HTTP replication remain real.
+ const verifier='v'.repeat(64);
+ async function yandexProof(mode:'link'|'login',actor?:any,subject='test-provider-subject'){
+  const flow=makeYandexFlow(yandex,{mode,origin:yandex.origins[0],challenge:sha256url(verifier)},actor);
+  return {...await exchangeYandexCode(yandex,{state:flow.state,code:'test-code',verifier},(async(url:any)=>Response.json(String(url).includes('/token')?{access_token:'temporary-provider-token'}:{psuid:subject,client_id:yandex.clientId,display_name:'Example'}))as typeof fetch),verifier};
+ }
+ const rootYandex=(request:Request)=>yandexPost(request,{params:Promise.resolve({action:'finish'})});
+ const actor=await authenticateToken(shared.replacementToken),linkProof=await yandexProof('link',actor);
+ await local(rootYandex,linkProof,shared.replacementToken);await drain();
+ const loginProof=await yandexProof('login');
+ const cloudSession=await remote('/api/auth/yandex/finish',loginProof);
+ assert.equal((await authenticateToken(cloudSession.token)).id,actor.id);
+ assert.equal((await cloud.authenticate(cloudSession.token)).id,actor.id);
+ const rootSession=await local(rootYandex,loginProof);
+ assert.equal((await cloud.authenticate(rootSession.token)).id,actor.id);
+ const rotation={...change(),changedAt:new Date(Date.now()+2).toISOString()};
+ await local(rotateLocal,rotation,rootSession.token);await local(rotateLocal,rotation,rootSession.token);await drain();
+ await assert.rejects(authenticateToken(rootSession.token));await assert.rejects(cloud.authenticate(rootSession.token));
+ const afterRotation=await remote('/api/auth/yandex/finish',loginProof);assert.equal((await authenticateToken(afterRotation.token)).id,actor.id);
+ const cloudActor=await cloud.authenticate(early.token),cloudLink=await yandexProof('link',cloudActor,'second-provider-subject');
+ await remote('/api/auth/yandex/finish',cloudLink,early.token);await drain();
+ const secondLogin=await local(rootYandex,await yandexProof('login',undefined,'second-provider-subject'));
+ assert.equal((await cloud.authenticate(secondLogin.token)).id,early.user.id);
+ process.env.TM_ADMIN_USER_IDS=actor.id;(config as any).TM_ADMIN_USER_IDS=actor.id;
+ const adminRoot=(request:Request)=>adminGet(request,{params:Promise.resolve({action:'users'})});
+ const adminAccounts=await local(adminRoot,undefined,afterRotation.token,undefined,'GET');
+ assert.ok(adminAccounts.users.some((user:any)=>user.id===actor.id));assert.ok(!JSON.stringify(adminAccounts).includes('tokenHash'));
+ const cloudAccounts=await remote('/api/admin/users',undefined,afterRotation.token,'GET');assert.equal(cloudAccounts.users.length,adminAccounts.users.length);
+ await local(adminRoot,undefined,home.token,undefined,'GET',403);await remote('/api/admin/users',undefined,home.token,'GET',403);
+ console.log(JSON.stringify({adminExplicitAllowlist:true,adminNativeAndYandexSessions:true,noCredentialsInAdmin:true}));
+ console.log(JSON.stringify({yandexBindingBidirectional:true,portableSessions:true,sessionRevocationReplicated:true}));
  console.log(JSON.stringify({deviceTelemetryReplicated:true,independentTokenRotation:true,independentProfileEdits:true,lostResponseRetry:true,concurrentRotationsConverge:true,cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
 }finally{globalThis.fetch=originalFetch;await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

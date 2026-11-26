@@ -41,12 +41,13 @@ export function createReplication(database, service, configuration) {
       let hasMore = events.length > REPLICATION_BATCH;
       if (hasMore) events.pop();
       while (events.length > 1 && Buffer.byteLength(JSON.stringify(events)) > 420 * 1024) { events.pop(); hasMore = true; }
-      if(events.some(event=>event.type==="user"||event.type==="contact")&&![1,2,3].includes(body.userProtocolVersion))throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
-      if(events.some(event=>event.type==="identity")&&![2,3].includes(body.userProtocolVersion))throw new HttpError(409,"identity_protocol_unavailable","Нужна совместимая версия обмена профилями");
-      if(events.some(event=>event.type==="telemetry")&&body.userProtocolVersion!==3)throw new HttpError(409,"telemetry_protocol_unavailable","Нужна совместимая версия обмена");
-      const telemetry=body.userProtocolVersion===3?(await tx.scanEntries("telemetry-outbox",5)).flatMap(item=>item.value.items).slice(0,5):[];
+      if(events.some(event=>event.type==="user"||event.type==="contact")&&![1,2,3,4].includes(body.userProtocolVersion))throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
+      if(events.some(event=>event.type==="identity")&&![2,3,4].includes(body.userProtocolVersion))throw new HttpError(409,"identity_protocol_unavailable","Нужна совместимая версия обмена профилями");
+      if(events.some(event=>event.type==="telemetry")&&![3,4].includes(body.userProtocolVersion))throw new HttpError(409,"telemetry_protocol_unavailable","Нужна совместимая версия обмена");
+      const telemetry=[3,4].includes(body.userProtocolVersion)?(await tx.scanEntries("telemetry-outbox",5)).flatMap(item=>item.value.items).slice(0,5):[];
+      if(events.some(event=>event.type==="external")&&body.userProtocolVersion!==4)throw new HttpError(409,"external_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
       const userIds = new Set(telemetry.map(observation=>observation.userId));
-      for(const event of events)if(event.type==="telemetry")userIds.add(event.observation.userId);else if(event.type==="identity")userIds.add(event.operation.userId);else if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
+      for(const event of events)if(event.type==="telemetry")userIds.add(event.observation.userId);else if(event.type==="external")userIds.add(event.operation.userId);else if(event.type==="identity")userIds.add(event.operation.userId);else if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
       for (const event of events) if (event.type === "mutation") {
         userIds.add(event.operation.actorId);
         if (event.operation.type === "message.create") {
@@ -59,8 +60,8 @@ export function createReplication(database, service, configuration) {
         for (const key of ["fromUserId", "toUserId", "ownerId", "uploaderId", "userId", "peerId"]) if (patch[key]) userIds.add(patch[key]);
       }
       const users = [];
-      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{}}); }
-      return { users, userProtocolVersion: 3, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
+      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{},externalIdentity:await tx.get("external-users",id)}); }
+      return { users, userProtocolVersion: 4, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
         events, telemetry, cursor: events.at(-1)?.sequence || after, hasMore };
     }, { readOnly: true });
     return result;

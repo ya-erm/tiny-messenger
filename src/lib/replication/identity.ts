@@ -14,7 +14,8 @@ export function identityStore(tx:Prisma.TransactionClient){
 }
 export async function recordIdentity(tx:Prisma.TransactionClient,userId:string,change:any){
  const store=identityStore(tx),state=await store.get("identity-state",userId)||{};
- const operation={version:1,id:change.id||randomUUID(),userId,at:nextIdentityTime(state[change.kind]),...change} as IdentityOperation;
+ const user=await tx.user.findUniqueOrThrow({where:{id:userId}});
+ const operation={version:1,id:change.id||randomUUID(),userId,at:nextIdentityTime(state[change.kind]||{at:user.createdAt}),...change} as IdentityOperation;
  await applyIdentityOperation(store,operation);
  await store.put("identity-pending",operation.id,operation);
  return operation;

@@ -52,6 +52,7 @@ export async function consumeCloudFrames(service, frames, environment = process.
     for (const event of frame.events) {
       if(event.type==="user"||event.type==="contact")throw Error("Directory creation events are exported by this installation, not accepted from a broker");
       else if(event.type==="telemetry")await service.importTelemetry(event.observation);
+      else if(event.type==="external")await service.importExternal(event.operation);
       else if(event.type==="identity")await service.identity.import(event.operation);
       else if (event.type === "mutation") await service.importMutation(event.operation,frame.from);
       else if (event.type === "row") {

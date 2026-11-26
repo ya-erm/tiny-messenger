@@ -1,3 +1,4 @@
+import {applyExternalLink} from "./external-protocol";
 import {storeObservation} from "./telemetry-protocol";
 import { applyIdentityOperation } from "./identity-protocol";
 import { identityStore } from "./identity";
@@ -16,10 +17,11 @@ export async function applyPeerEvents(tx: Prisma.TransactionClient, peerId: stri
       // Birth events carry the original nickname claim. Prefer them to a
       // directory projection that may already have cleared a conflicting nick.
       for (const event of events) if(event.type === "user") await importNewPeerUser(tx,event.user);
-      for (const user of users) { await importNewPeerUser(tx,user); for(const operation of Object.values(user.identity||{})) await applyIdentityOperation(identityStore(tx),operation); }
+      for (const user of users) { await importNewPeerUser(tx,user); for(const operation of Object.values(user.identity||{})) await applyIdentityOperation(identityStore(tx),operation); if(user.externalIdentity)await applyExternalLink(identityStore(tx),user.externalIdentity); }
       for (const event of events) {
         if (event.type === "user") await importNewPeerUser(tx,event.user);
         else if (event.type === "telemetry") await storeObservation(identityStore(tx),event.observation);
+        else if(event.type==="external")await applyExternalLink(identityStore(tx),event.operation);
         else if (event.type === "identity") await applyIdentityOperation(identityStore(tx),event.operation);
         else if (event.type === "contact") await importPeerContact(tx,event.contact);
         else if (event.type === "mutation") {

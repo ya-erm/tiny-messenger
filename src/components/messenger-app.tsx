@@ -33,6 +33,7 @@ import type { MessageReply, MessageReaction, MessageStatus, PublicContact, Publi
 
 import { registrationRequest, clearRegistrationRequest } from "@/lib/registration-client";
 import { startChannelTelemetry } from "@/lib/channel-telemetry";
+import { YandexAccount } from "@/components/yandex-auth";
 import { ApiChannelSelector } from "@/components/api-channel-selector";
 import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, selectedMode, type ChannelId } from "@/lib/client-transport";
 import { applyCloudChanges, cacheProfile, cachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
@@ -2584,7 +2585,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
       </div>
     </section>
     <section className="welcome-card">
-      <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>У меня есть токен</button></div>
+      <div className="mode-tabs"><button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Я здесь впервые</button><button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Войти</button></div>
       {sharedLabel ? <div className="shared-link-invite"><Glyph name="user" /><span><strong>{sharedLabel}</strong> приглашает вас в диалог. После входа чат откроется автоматически.</span></div> : null}
       {mode === "new" ? (
         <form onSubmit={(event) => { event.preventDefault(); void onRegister(name.trim() || suggestion, nickname); }}>
@@ -2614,6 +2615,7 @@ function WelcomeScreen({ busy, notice, sharedLabel, onRegister, onLogin, appInst
           <button className="primary-button wide login-button" disabled={busy}>{busy ? "Проверяем…" : "Войти по токену"}</button>
         </form>
       )}
+      <YandexAccount />
       <ApiChannelSelector />
       {notice && <p className="inline-error">{notice}</p>}
     </section>
@@ -3157,6 +3159,12 @@ function SettingsDialog({
   const [showToken, setShowToken] = useState(false);
   const [confirmTokenReset, setConfirmTokenReset] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [adminAccess, setAdminAccess] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void request<{admin: boolean}>("/api/admin/access", {signal: controller.signal}).then(data => {if (!controller.signal.aborted) setAdminAccess(data.admin);}).catch(() => {});
+    return () => controller.abort();
+  }, [request]);
   const [busy, setBusy] = useState(false);
 
   async function updateProfile() {
@@ -3354,27 +3362,29 @@ function SettingsDialog({
           </div>
         </div> : null}
 
+        {view === "profile" && adminAccess ? <div className="settings-section"><a className="notification-help-link" href="/admin/">Администрирование</a></div> : null}
+        {view === "profile" ? <YandexAccount token={token} userId={user.id} /> : null}
         {view === "profile" ? <div className="settings-section token-section">
           {/* Not a <label>: it wraps no input, so the first button became its
               implicit labelled control and inherited :hover from the whole block. */}
-          <div className="field-label">Секретный токен
+          {token.startsWith("tmw_") ? <><strong>Вход через Яндекс ID</strong><p className="form-hint">Сессия действует 30 дней. Затем можно снова войти через Яндекс. Для входа по токену создайте резервный токен ниже.</p></> : <><div className="field-label">Секретный токен
             <div className="copy-field">
               <code>{showToken ? token : "•".repeat(Math.min(token.length, 20))}</code>
               <button type="button" onClick={() => setShowToken((visible) => !visible)} aria-label={showToken ? "Скрыть токен" : "Показать токен"} data-tooltip={showToken ? "Скрыть токен" : "Показать токен"}><Glyph name={showToken ? "eyeOff" : "eye"} /></button>
               <button type="button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }} aria-label="Скопировать токен" data-tooltip="Скопировать токен"><Glyph name="copy" /></button>
             </div>
           </div>
-          <p className="form-hint">Он работает как пароль и API-ключ. Сохраните его и никому не показывайте.</p>
+          <p className="form-hint">Он работает как пароль и API-ключ. Сохраните его и никому не показывайте.</p></>}
 
           <div className="account-actions">
-            <button type="button" className="danger-link token-reset-link" onClick={() => { setConfirmLogout(false); setConfirmTokenReset(true); }}><Glyph name="refresh" /> Сбросить токен</button>
+            <button type="button" className="danger-link token-reset-link" onClick={() => { setConfirmLogout(false); setConfirmTokenReset(true); }}><Glyph name="refresh" /> {token.startsWith("tmw_") ? "Создать резервный токен" : "Сбросить токен"}</button>
             <button type="button" className="danger-link logout-link" onClick={() => { setConfirmTokenReset(false); setConfirmLogout(true); }}><Glyph name="logout" /> Выйти из этого браузера</button>
           </div>
 
           {confirmTokenReset ? (
             <div className="account-confirmation" role="alert">
               <strong>Сбросить секретный токен?</strong>
-              <p>Старый токен сразу перестанет работать. Устройство и другие браузеры потеряют доступ, пока вы не укажете им новый токен. В этом браузере новый токен сохранится автоматически.</p>
+              <p>Старый токен сразу перестанет работать. Устройство и другие браузеры потеряют доступ. В них можно будет войти по новому токену или через привязанный Яндекс ID. В этом браузере новый токен сохранится автоматически.</p>
               <div>
                 <button type="button" className="cancel-button" disabled={busy} onClick={() => setConfirmTokenReset(false)}>Отмена</button>
                 <button type="button" className="danger-button" disabled={busy} onClick={resetToken}>{busy ? "Сбрасываем…" : "Да, сбросить"}</button>
@@ -3385,9 +3395,9 @@ function SettingsDialog({
           {confirmLogout ? (
             <div className="account-confirmation" role="alert">
               <strong>Выйти из этого браузера?</strong>
-              <p>Секретный токен будет удалён из этого браузера. Чтобы снова открыть свои диалоги, потребуется ввести его заново. Перед выходом скопируйте и сохраните токен в надёжном месте.</p>
+              <p>Данные входа будут удалены из этого браузера. Чтобы снова открыть диалоги, используйте привязанный Яндекс ID или резервный токен.</p>
               <div>
-                <button type="button" className="copy-token-button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }}><Glyph name="copy" /> Скопировать токен</button>
+                {!token.startsWith("tmw_") ? <button type="button" className="copy-token-button" onClick={() => { void navigator.clipboard.writeText(token); setNotice("Токен скопирован"); }}><Glyph name="copy" /> Скопировать токен</button> : null}
                 <button type="button" className="cancel-button" onClick={() => setConfirmLogout(false)}>Отмена</button>
                 <button type="button" className="danger-button" onClick={() => { void onLogout(); }}>Выйти</button>
               </div>

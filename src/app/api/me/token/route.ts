@@ -1,3 +1,5 @@
+import {webSessionClaims,webGeneration} from "@/lib/yandex/protocol";
+import {yandexConfig} from "@/lib/yandex/config";
 import { ApiError, ok, readJson, route } from "@/lib/api";
 import { createToken, hashToken } from "@/lib/auth";
 import { write } from "@/lib/db";
@@ -12,11 +14,13 @@ export const POST = route(async (request) => {
  const id=stable?String(body.operationId):randomUUID(),token=stable?String(body.replacementToken):createToken(),tokenHash=hashToken(token);
  const oldToken=(request.headers.get("authorization")||"").replace(/^Bearer\s+/i,"").trim()||request.headers.get("x-api-key")||"";
  if(!oldToken)throw new ApiError(401,"missing_token","Передайте токен Messenger");
- const previousTokenHash=hashToken(oldToken);
+ const session=oldToken.startsWith("tmw_")?webSessionClaims(oldToken,yandexConfig()):undefined;
+ const callerHash=hashToken(oldToken);
  await write(async tx=>{
   const store=identityStore(tx),receipt=await store.get("identity-operations",id);
-  if(receipt){const current=await tx.user.findUnique({where:{id:receipt.userId}});if(receipt.kind!=="token"||receipt.previousTokenHash!==previousTokenHash||receipt.tokenHash!==tokenHash||current?.tokenHash!==tokenHash||body.changedAt!==undefined&&receipt.at!==body.changedAt)throw new ApiError(409,"token_change_conflict","Замена токена конфликтует с другой операцией");return;}
-  const user=await tx.user.findUnique({where:{tokenHash:previousTokenHash}});if(!user)throw new ApiError(401,"invalid_token","Токен недействителен");
+  if(receipt){const current=await tx.user.findUnique({where:{id:receipt.userId}});if(receipt.kind!=="token"||(session?(receipt.userId!==session.userId||webGeneration(receipt.previousTokenHash)!==session.generation):receipt.previousTokenHash!==callerHash)||receipt.tokenHash!==tokenHash||current?.tokenHash!==tokenHash||body.changedAt!==undefined&&receipt.at!==body.changedAt)throw new ApiError(409,"token_change_conflict","Замена токена конфликтует с другой операцией");return;}
+  const user=await tx.user.findUnique({where:session?{id:session.userId}:{tokenHash:callerHash}});if(!user||session&&webGeneration(user.tokenHash)!==session.generation)throw new ApiError(401,"invalid_token","Токен недействителен");
+  const previousTokenHash=user.tokenHash;
   if(await tx.user.findUnique({where:{tokenHash}}))throw new ApiError(409,"token_taken","Такой токен уже используется");
   if(body.changedAt&&Date.parse(String(body.changedAt))>Date.now()+300000)throw new ApiError(422,"invalid_token_change","Проверьте часы устройства");
   await recordIdentity(tx,user.id,{id,kind:"token",tokenHash,previousTokenHash,...(body.changedAt?{at:String(body.changedAt)}:{})});

@@ -105,6 +105,7 @@ export async function fetchChannel(path:string,init:RequestInit={},explicit?:Cha
  const pinned=/^\/api\/(?:rtc|realtime|integrations|push)(?:\/|$)/.test(path);
  const automatic=explicit===undefined&&["auto","default"].includes(selectedMode())&&!pinned;
  let credential=new Headers(init.headers).get("Authorization")?.replace(/^Bearer\s+/i,"")||currentCredential();
+ if(path.startsWith("/api/auth/yandex/")&&!new Headers(init.headers).has("Authorization"))credential="";
  if(path==="/api/auth/session")try{credential=JSON.parse(String(init.body)).token||credential;}catch{}
  if(automatic)await ensureRoute(false,undefined,credential);
  const channel=pinned?voiceChannel():explicit&&explicit!=="auto"?explicit:selectedChannel();

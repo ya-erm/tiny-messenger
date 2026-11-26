@@ -1,3 +1,5 @@
+import {webSessionClaims,webGeneration} from "@/lib/yandex/protocol";
+import {yandexConfig} from "@/lib/yandex/config";
 import "server-only";
 import {sessionClaims} from "@/lib/tasks-integration";
 
@@ -17,6 +19,7 @@ export function createToken() {
 }
 
 export async function authenticateToken(token: string) {
+  if(token.startsWith("tmw_")){const claims=webSessionClaims(token,yandexConfig()),user=await read(db=>db.user.findUnique({where:{id:claims.userId}}));if(!user||webGeneration(user.tokenHash)!==claims.generation)throw new ApiError(401,"invalid_token","Сессия отозвана");return toUserRecord(user); }
   const claims = token.startsWith("tms_") ? sessionClaims(token) : null;
   const user = await read((db) => db.user.findUnique({ where: claims ? {id: String(claims.tmUserId)} : { tokenHash: hashToken(token) } }));
   if (claims && user && createHash("sha256").update(user.tokenHash).digest("hex") !== claims.version) throw new ApiError(401, "invalid_token", "Сессия отозвана");

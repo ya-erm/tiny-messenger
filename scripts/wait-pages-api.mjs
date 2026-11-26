@@ -4,7 +4,7 @@ if(!origin||new URL(origin).protocol!=='https:')throw Error('Configure the indep
 const endpoint=new URL('/api/transport',origin);
 const deadline=Date.now()+9*60_000;
 while(Date.now()<deadline){
- try{const response=await fetch(endpoint,{signal:AbortSignal.timeout(10000)}),value=await response.json();if(response.ok&&value.ok&&['registration','token-rotation','profile-write','device-telemetry'].every(capability=>value.data?.capabilities?.includes(capability))){console.log('Independent API supports registration, profiles and token rotation.');process.exit(0);}}catch{}
+ try{const response=await fetch(endpoint,{signal:AbortSignal.timeout(10000)}),value=await response.json();if(response.ok&&value.ok&&['registration','token-rotation','profile-write','device-telemetry','yandex-login'].every(capability=>value.data?.capabilities?.includes(capability))){console.log('Independent account API is ready.');process.exit(0);}}catch{}
  await new Promise(resolve=>setTimeout(resolve,10000));
 }
 throw Error('Independent account API is not ready; mirror was not published.');

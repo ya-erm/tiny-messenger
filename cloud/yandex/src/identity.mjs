@@ -1,3 +1,4 @@
+import {webSessionClaims,webGeneration} from "../shared/yandex-protocol.mjs";
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {applyIdentityOperation,nextIdentityTime} from '../shared/identity-protocol.mjs';
 import {appendReplication} from './replication.mjs';
@@ -9,17 +10,18 @@ export function tokenAttempt(body={}){
  if(body.changedAt!==undefined&&(typeof body.changedAt!=="string"||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(body.changedAt)||!Number.isFinite(Date.parse(body.changedAt))))throw new HttpError(422,"invalid_token_change","Некорректное время операции");
  return {id:stable?body.operationId:randomUUID(),token:stable?body.replacementToken:'msg_'+randomBytes(12).toString('base64url')};
 }
-export function createIdentityService(database){
+export function createIdentityService(database,config={}){
  return {
   async token(token,body){
-   const attempt=tokenAttempt(body),oldHash=hash(token),newHash=hash(attempt.token);
+   const attempt=tokenAttempt(body),session=token.startsWith("tmw_")?webSessionClaims(token,config):undefined,callerHash=hash(token),newHash=hash(attempt.token);
    return database.transaction(async tx=>{
     const receipt=await tx.get('identity-operations',attempt.id);
-    if(receipt){const user=await tx.get('users',receipt.userId);if(receipt.kind!=='token'||receipt.previousTokenHash!==oldHash||receipt.tokenHash!==newHash||user?.tokenHash!==newHash||body.changedAt!==undefined&&receipt.at!==body.changedAt)throw new HttpError(409,'token_change_conflict','Замена токена конфликтует с другой операцией');return {token:attempt.token};}
-    const index=await tx.get('tokens',oldHash),user=index&&await tx.get('users',index.userId);if(!user||user.tokenHash!==oldHash)throw new HttpError(401,'invalid_token','Токен недействителен');
+    if(receipt){const user=await tx.get('users',receipt.userId);if(receipt.kind!=='token'||(session?(receipt.userId!==session.userId||webGeneration(receipt.previousTokenHash)!==session.generation):receipt.previousTokenHash!==callerHash)||receipt.tokenHash!==newHash||user?.tokenHash!==newHash||body.changedAt!==undefined&&receipt.at!==body.changedAt)throw new HttpError(409,'token_change_conflict','Замена токена конфликтует с другой операцией');return {token:attempt.token};}
+    const index=session?{userId:session.userId}:await tx.get('tokens',callerHash),user=index&&await tx.get('users',index.userId);if(!user||(session?webGeneration(user.tokenHash)!==session.generation:user.tokenHash!==callerHash))throw new HttpError(401,'invalid_token','Токен недействителен');
+    const oldHash=user.tokenHash;
     if(body.changedAt&&Date.parse(body.changedAt)>Date.now()+300000)throw new HttpError(422,"invalid_token_change","Проверьте часы устройства");
     if(oldHash===newHash||await tx.get("tokens",newHash))throw new HttpError(409,"token_taken","Такой токен уже используется");
-    const state=await tx.get('identity-state',user.id)||{},operation={version:1,id:attempt.id,userId:user.id,kind:'token',at:body.changedAt||nextIdentityTime(state.token),tokenHash:newHash,previousTokenHash:oldHash};
+    const state=await tx.get('identity-state',user.id)||{},operation={version:1,id:attempt.id,userId:user.id,kind:'token',at:body.changedAt||nextIdentityTime(state.token||{at:user.createdAt}),tokenHash:newHash,previousTokenHash:oldHash};
     await applyIdentityOperation(tx,operation);if((await tx.get("users",user.id)).tokenHash!==newHash)throw new HttpError(409,"token_change_conflict","Уже применена более новая замена токена");await appendReplication(tx,'identity:'+operation.id,{type:'identity',operation});return {token:attempt.token};
    });
   },

@@ -949,3 +949,24 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .api-channel-queue { font-size: .85rem; }
 .api-channel-queue button { margin-top: 8px; }
 .message-local-state { font-size: 10px; white-space: nowrap; }
+
+.yandex-login-section { margin-top: 18px; }
+.yandex-section > strong { display: block; font-size: 14px; }
+.yandex-section .form-hint { margin: 8px 0 12px; }
+
+.admin-shell { max-width: 1200px; padding: 28px 20px; margin: auto; }
+.admin-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.admin-header h1 { font-size: 26px; margin: 18px 0 8px; }
+.admin-columns { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; margin-top: 24px; }
+.admin-user { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; }
+.admin-user.active { border-color: var(--accent, #6871e8); background: #88888818; }
+.admin-user span, .admin-detail > code, .admin-device > code { font-size: 12px; overflow-wrap: anywhere; }
+.admin-device { border: 1px solid #88888840; padding: 18px; border-radius: 16px; margin: 18px 0; }
+.admin-device h3 { margin-top: 0; }
+.admin-device p, .admin-detail > p { line-height: 1.6; }
+.admin-device details { margin-top: 14px; }
+.admin-device summary { cursor: pointer; }
+.admin-table-scroll { overflow-x: auto; }
+.admin-device table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 10px; }
+.admin-device td, .admin-device th { text-align: left; padding: 8px; border-bottom: 1px solid #88888830; white-space: nowrap; }
+@media (max-width: 700px) { .admin-columns { grid-template-columns: 1fr; } .admin-users { max-height: 330px; overflow-y: auto; } .admin-shell { padding: 18px 12px; } }

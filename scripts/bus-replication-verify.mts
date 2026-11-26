@@ -1,3 +1,5 @@
+import {applyExternalLink} from "../src/lib/replication/external-protocol";
+import {appendReplication} from "../cloud/yandex/src/replication.mjs";
 import {storeObservation,queueObservation} from "../src/lib/replication/telemetry-protocol";
 import {identityStore} from "../src/lib/replication/identity";
 import {recordIdentity} from "../src/lib/replication/identity";
@@ -52,6 +54,12 @@ try{
  const observation={id:randomUUID(),userId:users[0].id,deviceId:randomUUID(),sessionId:randomUUID(),sequence:1,at:new Date().toISOString(),mode:'auto',channel:'vps-direct',reason:'latency',latencyMs:12,browser:'Test',platform:'Test',pwa:true,appVersion:'test',origin:'https://client.example',receivedAt:new Date().toISOString(),installationId:'vps-1'};
  await write(async tx=>{const store=identityStore(tx);await storeObservation(store,observation);await queueObservation(store,observation);});await publishLocalBus();await deliverCloud();assert.equal((await database.transaction(tx=>tx.get('device-telemetry',users[0].id+':'+observation.deviceId))).current.channel,'vps-direct');
  await cloud.telemetry(users[0],{...observation,id:randomUUID(),sequence:2,channel:'yandex-1'});await flushCloudBus(cloud,env);await deliverVps();assert.equal(JSON.parse((await read(db=>db.replicationState.findUniqueOrThrow({where:{key:'device-telemetry:'+users[0].id+':'+observation.deviceId}}))).body).current.channel,'yandex-1');
+ const external={version:1 as const,id:randomUUID(),userId:users[0].id,provider:'yandex' as const,subjectHash:'a'.repeat(64),at:new Date().toISOString(),deleted:false,label:'Test binding'};
+ await write(async tx=>{const store=identityStore(tx);await applyExternalLink(store,external);await store.put('external-pending',external.id,external);});
+ await publishLocalBus();await deliverCloud();assert.equal((await database.transaction(tx=>tx.get('external-users',users[0].id))).id,external.id);
+ const cloudExternal={...external,id:randomUUID(),userId:users[1].id,subjectHash:'b'.repeat(64)};
+ await database.transaction(async tx=>{await applyExternalLink(tx,cloudExternal);await appendReplication(tx,'external:'+cloudExternal.id,{type:'external',operation:cloudExternal});});
+ await flushCloudBus(cloud,env);await deliverVps();assert.equal(JSON.parse((await read(db=>db.replicationState.findUniqueOrThrow({where:{key:'external-users:'+users[1].id}}))).body).id,cloudExternal.id);
  await synchronizeInstallations();
  const baseline=exchanges;
  const outgoing=creation("Actual event body VPS → cloud");await write(tx=>acceptMutation(tx,outgoing,users[0]));await publishLocalBus();

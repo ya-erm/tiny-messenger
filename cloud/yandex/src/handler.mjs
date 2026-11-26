@@ -1,3 +1,7 @@
+import {adminAllowed,adminUsers,adminDevices} from "../shared/admin-protocol.mjs";
+import {yandexAvailable,makeYandexFlow,exchangeYandexCode} from "../shared/yandex-protocol.mjs";
+import {externalStatus,finishYandex} from "../shared/yandex-service.mjs";
+import {appendReplication} from "./replication.mjs";
 import { consumeQueueEvent, consumeCloudFrames, flushCloudBus } from "./bus.mjs";
 import { randomUUID } from "node:crypto";
 import { createFileService } from "./row-files.mjs";
@@ -56,7 +60,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);
@@ -78,8 +82,28 @@ export function createHandler(serviceProvider = getService, configuration = proc
       }
       const token = path === "/api/auth/session" && method === "POST" ? String(body.token || "").trim()
         : String(headers.authorization || "").replace(/^Bearer\s+/i, "").trim() || headers["x-api-key"] || "";
+      if(path.startsWith("/api/auth/yandex/")){
+       const action=path.split("/").at(-1),config=service.yandexConfig;let data;
+       if(action==="config"&&method==="GET")data={enabled:yandexAvailable(config)};
+       else if(action==="start"&&method==="POST"){if(origin&&origin!==body.origin)throw new HttpError(403,"invalid_origin","Источник входа не совпадает");const actor=body.mode==="link"?await service.authenticate(token):undefined;data=makeYandexFlow(config,body,actor);}
+       else if(action==="exchange"&&method==="POST")data=await exchangeYandexCode(config,body);
+       else if(action==="finish"&&method==="POST"){const actor=token?await service.authenticate(token):undefined;data=await service.database.transaction(tx=>finishYandex(config,tx,body,actor,operation=>appendReplication(tx,"external:"+operation.id,{type:"external",operation})));if(data.user)data={...data,user:publicUser(data.user)};}
+       else if(action==="link"&&method==="GET"){const actor=await service.authenticate(token);data=await service.database.transaction(tx=>externalStatus(tx,actor.id),{readOnly:true});}
+       else throw new HttpError(404,"not_found","Не найдено");
+       if(action==="finish")try{await flushCloudBus(service,configuration);}catch{console.warn(JSON.stringify({event:"cloud-bus",status:"publish_failed"}));}
+       return response(200,{ok:true,data});
+      }
       if(path==="/api/me/token"&&method==="POST"){const data=await service.identity.token(token,body);try{await flushCloudBus(service,configuration);}catch{console.warn(JSON.stringify({event:"cloud-bus",status:"publish_failed"}));}return response(200,{ok:true,data});}
       const user = await service.authenticate(token);
+      if(path.startsWith("/api/admin/")&&method==="GET"){
+        const admin=adminAllowed(user.id,configuration.TM_ADMIN_USER_IDS||""),action=path.split("/").at(-1);
+        if(action==="access")return response(200,{ok:true,data:{admin}});
+        if(!admin)throw new HttpError(403,"admin_required","Доступ только для администратора");
+        if(action==="devices"&&!/^[0-9a-f-]{36}$/.test(url.searchParams.get("userId")||""))throw new HttpError(422,"invalid_user","Некорректный UUID");
+        if(!["users","devices"].includes(action))throw new HttpError(404,"not_found","Не найдено");
+        const data=await service.database.transaction(tx=>action==="users"?adminUsers(tx):adminDevices(tx,url.searchParams.get("userId")),{readOnly:true});
+        return response(200,{ok:true,data});
+      }
       let data;
       let status = 200;
       if ((path === "/api/auth/session" && method === "POST") || (path === "/api/me" && method === "GET")) data = { user: publicUser(user) };

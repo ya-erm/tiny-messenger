@@ -1,3 +1,5 @@
+import {applyExternalLink} from "../shared/external-protocol.mjs";
+import {webSessionClaims,webGeneration} from "../shared/yandex-protocol.mjs";
 import {parseObservation,storeObservation,queueObservation} from "../shared/telemetry-protocol.mjs";
 import { createIdentityService } from "./identity.mjs";
 import { applyIdentityOperation, reconcileIdentityNicknames } from "../shared/identity-protocol.mjs";
@@ -25,7 +27,8 @@ function parse(value) {
   catch (error) { if (error instanceof MutationValidationError) throw new HttpError(422, "invalid_mutation", error.message); throw error; }
 }
 
-export function createService(database, installationId = "yandex-1") {
+export function createService(database, installationId = "yandex-1",options={}) {
+ const yandexConfig=options.yandex||{clientId:process.env.YANDEX_OAUTH_CLIENT_ID||"",clientSecret:process.env.YANDEX_OAUTH_CLIENT_SECRET||"",sessionKey:process.env.TM_WEB_SESSION_SECRET||"",origins:(process.env.TM_AUTH_ALLOWED_ORIGINS||"").split(",").map(value=>value.trim()).filter(Boolean)};
   const cursor = (sequence) => `${installationId}:${sequence}`;
   function sequenceFrom(value) {
     if (typeof value !== "string" || !value.startsWith(installationId + ":")) throw new HttpError(409, "cursor_installation_mismatch", "Нужен снимок этого контура");
@@ -40,9 +43,13 @@ export function createService(database, installationId = "yandex-1") {
   }
   const service = {
     installationId,
+    yandexConfig,
+    database,
+    async importExternal(operation){return database.transaction(tx=>applyExternalLink(tx,operation));},
     async telemetry(actor,body){let observation;try{observation=parseObservation({...body,userId:actor.id,receivedAt:new Date().toISOString(),installationId});}catch{throw new HttpError(422,"invalid_telemetry","Некорректные данные устройства");}return database.transaction(async tx=>{if(await storeObservation(tx,observation,true))await queueObservation(tx,observation);return {accepted:true,id:observation.id};});},
     async importTelemetry(input){return database.transaction(tx=>storeObservation(tx,input));},
     async authenticate(token) {
+      if(token.startsWith("tmw_")){const claims=webSessionClaims(token,yandexConfig);return database.transaction(async tx=>{const user=await tx.get("users",claims.userId);if(!user||webGeneration(user.tokenHash)!==claims.generation)throw new HttpError(401,"invalid_token","Сессия отозвана");return user;},{readOnly:true});}
       if (!token) throw new HttpError(401, "missing_token", "Передайте токен Messenger");
       return database.transaction(async (tx) => {
         const index = await tx.get("tokens", hash(token));
@@ -189,6 +196,7 @@ export function createService(database, installationId = "yandex-1") {
           if (JSON.stringify(previous) !== JSON.stringify(user)) await tx.put("users", user.id, user);
           if (!previous || previous.tokenHash !== user.tokenHash) await tx.put("tokens", user.tokenHash, { userId: user.id });
           for(const operation of Object.values(input.identity||{}))await applyIdentityOperation(tx,operation);
+          if(input.externalIdentity)await applyExternalLink(tx,input.externalIdentity);
         });
       }
       await database.transaction(tx=>reconcileIdentityNicknames(tx));
@@ -246,7 +254,7 @@ export function createService(database, installationId = "yandex-1") {
   };
   service.rows = createRowService(database, service, installationId);
   service.files = createFileService(service.rows);
-  service.identity = createIdentityService(database);
+  service.identity = createIdentityService(database,yandexConfig);
   service.registration = createRegistrationService(database,service,publicUser);
   return service;
 }

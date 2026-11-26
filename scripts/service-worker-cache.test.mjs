@@ -67,7 +67,7 @@ test("temporary server errors use the cached shell rather than an error page", a
 
 test("API responses and writes are never intercepted by the shell cache", () => {
   const app = harness();
-  for (const [method, url] of [["GET", "/api/sync"], ["POST", "/api/mutations"], ["GET", "https://other.example/"]]) {
+  for (const [method, url] of [["GET", "/auth/yandex/callback/?code=private&state=private"], ["GET", "/api/sync"], ["POST", "/api/mutations"], ["GET", "https://other.example/"]]) {
     app.listeners.get("fetch")({ request: { method, mode: "navigate", url: new URL(url, "https://tm.example").href }, respondWith: () => assert.fail("must bypass cache") });
   }
   assert.equal(app.fetches.length, 0);
