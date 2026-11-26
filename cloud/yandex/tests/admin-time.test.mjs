@@ -62,3 +62,9 @@ test('quick ranges include three, twelve, forty-eight hours and fourteen calenda
  const now=Date.parse('2026-11-26T12:34:56.000Z');for(const hours of [3,12,24,48]){const range=presetRange(hours+'h','Europe/Moscow',now);assert.equal(Date.parse(range.to)-Date.parse(range.from),hours*3600000);}
  const range=presetRange('14d','Europe/Moscow',now);assert.equal(daysBetween(dayAt(range.from,'Europe/Moscow'),dayAt(range.to,'Europe/Moscow')).length,14);
 });
+
+test('timeline preserves historical application versions without filling missing reports from the current device',async()=>{
+ const {timelineDevice}=await import('../shared/admin-timeline.mjs'),events=[{...event(0),appVersion:'0.17.0'},{...event(15),appVersion:'0.17.2'},event(30)],range={from:'2026-11-26T12:00:00.000Z',to:'2026-11-26T13:00:00.000Z'};
+ const device=timelineDevice({deviceId:'test',current:{...events[2],appVersion:'0.17.2'},history:events},range);assert.equal(device.events[0].appVersion,'0.17.0');assert.equal(device.events[1].appVersion,'0.17.2');const legacy=timelineDevice({deviceId:'legacy',history:[event(0)]},range);assert.equal(legacy.events[0].appVersion,null);
+ const spans=evidenceSegments(device.events,range);assert.equal(spans[0].fromVersion,'0.17.0');assert.equal(spans[0].toVersion,'0.17.2');
+});

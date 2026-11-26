@@ -1191,3 +1191,5 @@ select, .admin-zone-control select, .api-channel-controls select, .reaction-cata
 .reaction-select::after { display: none; }
 .admin-range-trigger { padding-right: 14px; }
 .admin-header-actions { align-items: flex-end; }
+
+.admin-timeline-tooltip { max-height: 208px; }

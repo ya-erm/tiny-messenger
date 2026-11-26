@@ -2,14 +2,14 @@ import {ApiError} from "@/lib/api";
 import type {AdminRange} from "./time";
 export const TIMELINE_CHANNELS=["default","vps-1","yandex-1","vps-direct"] as const;
 export type TimelineChannel=typeof TIMELINE_CHANNELS[number];
-export interface TimelineEvent{id:string;at:string;receivedAt:string;sessionId:string;channel:TimelineChannel;reason:string;latencyMs:number|null;delayed:boolean}
+export interface TimelineEvent{id:string;at:string;receivedAt:string;sessionId:string;channel:TimelineChannel;reason:string;latencyMs:number|null;delayed:boolean;appVersion?:string|null}
 export interface TimelineDevice{deviceId:string;browser:string;platform:string;origin:string;pwa:boolean;events:TimelineEvent[];truncated?:boolean}
 export interface TimelineUser{id:string;devices:TimelineDevice[]}
 export interface TimelineData{users:TimelineUser[];truncated:boolean;generatedAt:string}
 export function timelineUsers(params:URLSearchParams){const ids=(params.get("users")||"").split(",").filter(Boolean);if(ids.length<1||ids.length>20||new Set(ids).size!==ids.length||ids.some(id=>!/^[0-9a-f-]{36}$/.test(id)))throw new ApiError(422,"invalid_timeline_users","Выберите от 1 до 20 пользователей");return ids;}
 function eventOf(input:any):TimelineEvent|null{
  if(!input||typeof input.id!=="string"||input.id.length>64||typeof input.sessionId!=="string"||input.sessionId.length>64||!TIMELINE_CHANNELS.includes(input.channel)||!Number.isFinite(Date.parse(input.at))||!Number.isFinite(Date.parse(input.receivedAt)))return null;
- return {id:input.id,at:input.at,receivedAt:input.receivedAt,sessionId:input.sessionId,channel:input.channel,reason:String(input.reason||"").slice(0,64),latencyMs:Number.isInteger(input.latencyMs)?input.latencyMs:null,delayed:Math.abs(Date.parse(input.at)-Date.parse(input.receivedAt))>120000};
+ return {id:input.id,at:input.at,receivedAt:input.receivedAt,sessionId:input.sessionId,channel:input.channel,reason:String(input.reason||"").slice(0,64),appVersion:typeof input.appVersion==="string"?input.appVersion.slice(0,64):null,latencyMs:Number.isInteger(input.latencyMs)?input.latencyMs:null,delayed:Math.abs(Date.parse(input.at)-Date.parse(input.receivedAt))>120000};
 }
 export function timelineDevice(device:any,range:AdminRange):TimelineDevice{
  const events=new Map<string,TimelineEvent>();
@@ -41,8 +41,8 @@ export async function adminTimeline(tx:any,ids:string[],range:AdminRange):Promis
 }
 export function evidenceSegments(events:TimelineEvent[],range:AdminRange){
  const sessions=new Map<string,TimelineEvent[]>();for(const event of events){let items=sessions.get(event.sessionId);if(!items)sessions.set(event.sessionId,items=[]);items.push(event);}
- const result:Array<{from:string;to:string;channel:TimelineChannel;sessionId:string}>=[];
- for(const [sessionId,items]of sessions){items.sort((a,b)=>a.at.localeCompare(b.at));for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i],gap=Date.parse(b.at)-Date.parse(a.at);if(a.delayed||b.delayed||gap<=0||gap>20*60000)continue;const from=a.at<range.from?range.from:a.at,to=b.at>range.to?range.to:b.at;if(from<to)result.push({from,to,channel:a.channel,sessionId});}}
+ const result:Array<{from:string;to:string;channel:TimelineChannel;sessionId:string;fromVersion:string|null;toVersion:string|null}>=[];
+ for(const [sessionId,items]of sessions){items.sort((a,b)=>a.at.localeCompare(b.at));for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i],gap=Date.parse(b.at)-Date.parse(a.at);if(a.delayed||b.delayed||gap<=0||gap>20*60000)continue;const from=a.at<range.from?range.from:a.at,to=b.at>range.to?range.to:b.at;if(from<to)result.push({from,to,channel:a.channel,sessionId,fromVersion:a.appVersion||null,toVersion:b.appVersion||null});}}
  return result;
 }
 export function channelDistribution(users:TimelineUser[],range:AdminRange,now=Date.now()){
