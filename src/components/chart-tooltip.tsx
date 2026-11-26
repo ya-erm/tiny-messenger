@@ -10,7 +10,7 @@ export function ChartTooltip() {
   let active:Element|null=null;
   const find=(target:EventTarget|null)=>target instanceof Element?target.closest('[data-chart-tooltip]'):null;
   const hide=()=>{active=null;setTip(null);};
-  const show=(element:Element,x:number,y:number)=>{active=element;setTip({text:element.getAttribute('data-chart-tooltip')||'',x:Math.max(8,Math.min(x+12,innerWidth-284)),y:Math.max(8,Math.min(y+14,innerHeight-110))});};
+  const show=(element:Element,x:number,y:number)=>{active=element;setTip({text:element.getAttribute('data-chart-tooltip')||'',x:Math.max(8,Math.min(x+12,innerWidth-336)),y:Math.max(8,Math.min(y+14,innerHeight-110))});};
   const pointer=(event:PointerEvent)=>{if(event.pointerType!=='mouse')return;const element=find(event.target);if(element)show(element,event.clientX,event.clientY);else if(active)hide();};
   const focus=(event:FocusEvent)=>{const element=find(event.target);if(!element){hide();return;}const bounds=element.getBoundingClientRect();show(element,bounds.left,bounds.bottom);};
   const leave=(event:PointerEvent)=>{if(active&&!active.contains(event.relatedTarget as Node))hide();};
