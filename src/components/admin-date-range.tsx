@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useId,useRef,useState,type CSSProperties} from "react";
+import {useCallback,useEffect,useId,useRef,useState,type CSSProperties} from "react";
 import {civilInstant,dayAt,presetRange,rangeValid,timeAt,type AdminRange} from "@/lib/admin/time";
 const quick=[['5m','5 мин'],['15m','15 мин'],['1h','1 ч'],['6h','6 ч'],['24h','24 ч'],['7d','7 д'],['30d','30 д'],['90d','90 д']] as const;
 const weekdays=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
@@ -11,16 +11,17 @@ export function AdminDateRange({value,onChange,timeZone,min,max,label="Инте�
  const id=useId(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),[open,setOpen]=useState(false);
  const [placement,setPlacement]=useState<CSSProperties>({});
  const [start,setStart]=useState(''),[end,setEnd]=useState(''),[startTime,setStartTime]=useState('00:00:00'),[endTime,setEndTime]=useState('23:59:59'),[month,setMonth]=useState(monthOf(max)),[anchor,setAnchor]=useState<string|null>(null),[preset,setPreset]=useState<string|undefined>();
+ const place=useCallback(()=>{const rect=trigger.current?.getBoundingClientRect();if(!rect)return;const width=Math.min(660,innerWidth-24),height=Math.min(650,innerHeight-24);setPlacement({position:"fixed",left:Math.max(12,Math.min(rect.left,innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,innerHeight-height-12)),width,maxHeight:innerHeight-24});},[]);
  function draft(range:AdminRange){setStart(dayAt(range.from,timeZone));setEnd(dayAt(range.to,timeZone));setStartTime(timeAt(range.from,timeZone));setEndTime(timeAt(range.to,timeZone));setPreset(range.preset);setMonth(monthOf(dayAt(range.from,timeZone)));setAnchor(null);}
  function close(){setOpen(false);trigger.current?.focus();}
  useEffect(()=>{
   if(!open)return;const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))setOpen(false);},escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopPropagation();setOpen(false);trigger.current?.focus();}};
-  const resize=()=>setOpen(false);window.addEventListener('resize',resize);document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape);return()=>{window.removeEventListener('resize',resize);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape);};
- },[open]);
+  const resize=()=>place();window.addEventListener('resize',resize);document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape);return()=>{window.removeEventListener('resize',resize);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape);};
+ },[open,place]);
  const from=civilInstant(start,startTime,timeZone),to=civilInstant(end,endTime,timeZone,true),selection=from&&to?{from,to,preset}:null,valid=!!selection&&rangeValid(selection)&&start>=min&&end<=max;
  function choose(day:string){setPreset(undefined);if(!anchor){setStart(day);setEnd(day);setAnchor(day);}else{setStart(day<anchor?day:anchor);setEnd(day>anchor?day:anchor);setAnchor(null);}}
  const first=dayAt(value.from,timeZone),last=dayAt(value.to,timeZone),description=`${shortDay(first)} ${timeAt(value.from,timeZone)} — ${shortDay(last)} ${timeAt(value.to,timeZone)}`;
- return <div className="admin-range" ref={root}><span className="admin-control-label" id={id+'-label'}>{label}</span><button ref={trigger} type="button" className={`admin-range-trigger${open?' open':''}`} aria-labelledby={id+'-label '+id+'-value'} aria-expanded={open} aria-controls={id} aria-haspopup="dialog" title={description} onClick={()=>{if(open)close();else{draft(value);const rect=trigger.current!.getBoundingClientRect(),width=Math.min(660,innerWidth-24),height=Math.min(650,innerHeight-24);setPlacement({position:"fixed",left:Math.max(12,Math.min(rect.left,innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,innerHeight-height-12)),width,maxHeight:innerHeight-24});setOpen(true);}}}>
+ return <div className="admin-range" ref={root}><span className="admin-control-label" id={id+'-label'}>{label}</span><button ref={trigger} type="button" className={`admin-range-trigger${open?' open':''}`} aria-labelledby={id+'-label '+id+'-value'} aria-expanded={open} aria-controls={id} aria-haspopup="dialog" title={description} onClick={()=>{if(open)close();else{draft(value);place();setOpen(true);}}}>
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 2v6m10-6v6M3 11h18"/></svg><span id={id+'-value'}>{first===last?`${shortDay(first)} · ${timeAt(value.from,timeZone).slice(0,5)}–${timeAt(value.to,timeZone).slice(0,5)}`:`${shortDay(first)} — ${shortDay(last)}`}</span><span className="admin-range-caret" aria-hidden="true">⌄</span>
  </button>{open?<section className="admin-range-popover" style={placement} id={id} role="dialog" aria-label="Выбор интервала">
   <div className="admin-calendar-navigation"><button type="button" aria-label="Предыдущий месяц" disabled={monthOf(month)<=monthOf(min)} onClick={()=>setMonth(moveMonth(month,-1))}>‹</button><span>{anchor?'Выберите конец интервала':'Выберите начало и конец'}</span><button type="button" aria-label="Следующий месяц" disabled={monthOf(month)>=monthOf(max)} onClick={()=>setMonth(moveMonth(month,1))}>›</button></div>
