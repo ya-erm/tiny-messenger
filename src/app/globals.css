@@ -955,8 +955,9 @@ body:has([data-tooltip]:hover) [data-tooltip]:not(:hover)::after { opacity: 0; }
 .yandex-section .form-hint { margin: 8px 0 12px; }
 
 .admin-shell { max-width: 1200px; padding: 28px 20px; margin: auto; }
-.admin-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.admin-header h1 { font-size: 26px; margin: 18px 0 8px; }
+.admin-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
+.admin-header > div { min-width: 0; }
+.admin-header h1 { overflow-wrap: anywhere; font-size: 26px; margin: 18px 0 8px; }
 .admin-columns { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; margin-top: 24px; }
 .admin-user { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; }
 .admin-user.active { border-color: var(--accent, #6871e8); background: #88888818; }
