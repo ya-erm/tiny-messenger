@@ -140,7 +140,19 @@ export function createHandler(serviceProvider = getService, configuration = proc
       } else if (/^\/api\/messages\/[0-9a-f-]+(?:\/(?:reaction|answer))?$/.test(path) && !["GET"].includes(method)) {
         const id = path.split("/")[3], action = path.split("/")[4];
         if (!(action === "answer" && method === "POST" || action === "reaction" && method === "PUT" || !action && ["PATCH", "DELETE"].includes(method))) throw new HttpError(405, "method_not_allowed", "Метод не поддерживается");
-        data = await service.rows.modifyMessage(user, id, body, action === "answer" ? "answer" : action === "reaction" ? "reaction" : method === "PATCH" ? "edit" : "delete");
+        const rich = await service.rows.database.transaction((tx) => service.rows.state(tx, "Message", [id]), { readOnly: true });
+        if (rich) data = await service.rows.modifyMessage(user, id, body, action === "answer" ? "answer" : action === "reaction" ? "reaction" : method === "PATCH" ? "edit" : "delete");
+        else {
+          const message = await service.message(user, id);
+          const base = { protocolVersion: 1, operationId: randomUUID(), actorId: user.id, deviceId: "00000000-0000-4000-8000-000000000000", occurredAt: new Date().toISOString() };
+          if (action === "answer") throw new HttpError(403, "not_a_choice", "Нет права ответа");
+          const operation = action === "reaction" ? { ...base, type: "reaction.set", reaction: { messageId: id, userId: user.id, emoji: body.emoji } }
+            : method === "DELETE" ? { ...base, type: "message.delete", deletion: { messageId: id, scope: body.scope } }
+            : { ...base, type: "message.edit", message: { id, fromUserId: message.fromUserId, toUserId: message.toUserId, kind: "text", text: body.text, sentAt: message.sentAt } };
+          await service.mutate(user, operation);
+          data = method === "DELETE" ? { deleted: true, id, scope: body.scope }
+            : action === "reaction" ? { reactions: (await service.message(user, id)).reactions } : { message: await service.message(user, id) };
+        }
       } else if (path === "/api/messages" && method === "GET") {
         const snapshot = await service.snapshot(user, pageSize(url.searchParams.get("limit") || 100));
         data = { messages: snapshot.messages.filter((message) => (!url.searchParams.has("contactId")

@@ -80,6 +80,10 @@ try{
  await remote("POST","/api/messages/"+poll.id+"/answer",{id:"no"},1,409);
  // A quote may target a native v1 message. Deletion removes its preview.
  const originalId=randomUUID();await write(tx=>acceptMutation(tx,{protocolVersion:1,operationId:randomUUID(),actorId:users[0].id,deviceId:randomUUID(),occurredAt:now,type:"message.create",message:{id:originalId,fromUserId:users[0].id,toUserId:users[1].id,text:"Quoted secret",kind:"text",sentAt:now}},users[0]));await drain();
+ await remote("PATCH","/api/messages/"+originalId,{text:"Native edit via legacy endpoint"});
+ await remote("PUT","/api/messages/"+originalId+"/reaction",{emoji:"👍"},1);await drain();
+ assert.equal((await read(db=>db.message.findUniqueOrThrow({where:{id:originalId}}))).text,"Native edit via legacy endpoint");
+ assert.equal(await read(db=>db.messageReaction.count({where:{messageId:originalId,userId:users[1].id}})),1);
  const quoted=(await remote("POST","/api/messages",{toUserId:users[0].id,text:"Quote from cloud",kind:"text",replyToId:originalId,clientRequestId:randomUUID()},1,201)).message;
  assert.equal(quoted.reply.available,true);await drain();
  await local(deleteMessage,{scope:"everyone"},0,originalId,"DELETE");await drain();assert.equal((await remote("GET","/api/messages/"+quoted.id,undefined,1)).message.reply.available,false);
