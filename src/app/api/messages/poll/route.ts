@@ -52,7 +52,7 @@ export const POST = route(async (request) => {
       await advanceReadState(tx, authenticated.id, fromUserId, { deliveredAt: sentAt });
     }
     const readStates = (await tx.readState.findMany({ where: { userId: authenticated.id } })).map(toReadStateRecord);
-    return pending.map((message) => publicMessage(message, readStates));
+    return pending.map((message) => publicMessage(message.receiptStatus === "sent" ? { ...message, receiptStatus: "delivered" } : message, readStates));
   }) : snapshot.pending.map((message) => publicMessage(message, snapshot.readStates));
 
   return ok({ messages, polledAt: now });

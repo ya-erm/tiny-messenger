@@ -1,0 +1,64 @@
+import "server-only";
+import { createHash } from "node:crypto";
+import type { Prisma } from "@/generated/prisma/client";
+import { acceptMutation } from "@/lib/mutations/accept";
+import { parseMutation, serializeMutation, mutationMessageId, type Mutation, type TextMessageEntity } from "@/lib/mutations/protocol";
+
+export function historyId(value: string) {
+  const bytes = createHash("sha256").update("tiny-messenger-bootstrap:" + value).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+  const hex = bytes.toString("hex"); return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
+}
+type Historical = TextMessageEntity & { editedAt?: string; attachments?: unknown[]; replyToId?: string; reactions: Array<{ userId: string; emoji: string }> };
+export type Bootstrap = { formatVersion: number; createdAt: string; messages: Historical[];
+  deletions: Array<{ messageId: string; userId: string }>; operations: Mutation[] };
+export async function prepareHistory(tx: Prisma.TransactionClient, snapshot: Bootstrap, now: string) {
+  if (snapshot.formatVersion !== 1 || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.operations)) throw Error("Invalid replication bootstrap");
+  const current = await tx.message.findMany({ include: { attachments: true, reactions: true, deletions: true } });
+  const existing = new Map(current.map((row) => [row.id, row]));
+  const old = new Map(snapshot.messages.map((row) => [row.id, row]));
+  const hasJournal = new Set((await tx.mutationOperation.findMany({ where: { type: "message.create" }, select: { entityId: true } })).map((entry) => entry.entityId));
+  const base = (actorId: string, label: string, occurredAt: string) => ({ protocolVersion: 1 as const, actorId,
+    operationId: historyId(label), deviceId: "00000000-0000-4000-8000-000000000000", occurredAt });
+  const entity = (row: Historical): TextMessageEntity => Object.fromEntries(["id", "fromUserId", "toUserId", "kind", "text", "sentAt"].map((key) => [key, row[key as keyof Historical]])) as unknown as TextMessageEntity;
+  let adopted = 0;
+  for (const id of new Set([...old.keys(), ...existing.keys()])) {
+    if (hasJournal.has(id)) continue;
+    const row = existing.get(id), original = old.get(id);
+    const source = original || row;
+    if (!source || source.kind !== "text" || source.attachments?.length || source.replyToId) continue;
+    const message = entity(source as Historical);
+    const operations: Mutation[] = [{ ...base(source.fromUserId, "create:" + id, source.sentAt), type: "message.create", message }];
+    for (const reaction of source.reactions) operations.push({ ...base(reaction.userId, "reaction:" + id + ":" + reaction.userId, original ? snapshot.createdAt : now),
+      type: "reaction.set", reaction: { messageId: id, userId: reaction.userId, emoji: reaction.emoji } });
+    for (const mark of snapshot.deletions.filter((item) => original && item.messageId === id)) operations.push({
+      ...base(mark.userId, "delete-me:" + id + ":" + mark.userId, snapshot.createdAt), type: "message.delete", deletion: { messageId: id, scope: "me" } });
+    // The seed script skipped this message too if it is outside protocol v1.
+    // Reject explicitly rather than silently recording an unparseable journal.
+    for (const operation of operations) parseMutation(operation);
+    for (const operation of operations) await tx.mutationOperation.create({ data: {
+      operationId: operation.operationId, protocolVersion: 1, actorId: operation.actorId, deviceId: operation.deviceId,
+      occurredAt: operation.occurredAt, type: operation.type, entityId: mutationMessageId(operation), body: serializeMutation(operation), receivedAt: now, status: "applied",
+    } });
+    adopted++;
+    const repair = async (operation: Mutation) => {
+      const actor = await tx.user.findUniqueOrThrow({ where: { id: operation.actorId } });
+      await acceptMutation(tx, operation, actor);
+    };
+    if (!row) {
+      await repair({ ...base(source.fromUserId, "reconcile-delete:" + id, now), type: "message.delete", deletion: { messageId: id, scope: "everyone" } });
+      continue;
+    }
+    if (row.text !== source.text || row.editedAt) await repair({ ...base(row.fromUserId, "reconcile-edit:" + id, row.editedAt || now), type: "message.edit", message: entity(row as Historical) });
+    for (const userId of new Set([...source.reactions, ...row.reactions].map((item) => item.userId))) {
+      const before = source.reactions.find((item) => item.userId === userId)?.emoji || null;
+      const after = row.reactions.find((item) => item.userId === userId)?.emoji || null;
+      if (before !== after) await repair({ ...base(userId, "reconcile-reaction:" + id + ":" + userId, now), type: "reaction.set", reaction: { messageId: id, userId, emoji: after } });
+    }
+    for (const mark of row.deletions) {
+      if (!operations.some((op) => op.type === "message.delete" && op.actorId === mark.userId)) await repair({
+        ...base(mark.userId, "reconcile-delete-me:" + id + ":" + mark.userId, now), type: "message.delete", deletion: { messageId: id, scope: "me" } });
+    }
+  }
+  return { adopted };
+}

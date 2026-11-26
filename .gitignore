@@ -28,3 +28,6 @@ deploy/release.env.previous
 .secrets/
 cloud/yandex/shared/
 cloud/yandex/dist/
+
+# Runtime replication credentials and the private reconciliation snapshot.
+/data/replication*.json

@@ -32,7 +32,7 @@ export const PATCH = route<Context>(async (request, { params }) => {
       ...(status === "read" ? { readAt: row.sentAt } : {}),
     });
     const readStates = await readStatesForChat(tx, row.fromUserId);
-    return publicMessage(toMessageRecord(row), readStates);
+    return publicMessage(toMessageRecord(await tx.message.findUniqueOrThrow({ where: { id }, include: messageInclude })), readStates);
   });
   return ok({ message: (await read((db) => withReplies(db, authenticated.id, [message])))[0] });
 });

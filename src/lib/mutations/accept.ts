@@ -6,9 +6,10 @@ import { queueMessagePush } from "@/lib/push-queue";
 import { serializeMutation, parseMutation, mutationMessageId, type Mutation } from "./protocol";
 import { reduceMessageOperations } from "./reduce";
 
-// Local authenticated submissions only. Peer imports will require attestations.
+// Peer imports may retain an operation rejected after dependency resolution.
+// Only the separately authenticated replication service may set peerImport.
 // Caller owns the transaction: journal, projection and push commit together.
-export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutation, actor: { id: string; name: string }) {
+export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutation, actor: { id: string; name: string }, options: { peerImport?: boolean } = {}) {
   const operation = parseMutation(input);
   if (operation.actorId !== actor.id) throw new ApiError(403, "mutation_actor_mismatch", "Нельзя отправить мутацию другого пользователя");
   const body = serializeMutation(operation);
@@ -32,7 +33,7 @@ export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutati
   }
   const projection = reduceMessageOperations([...operations, operation]);
   const status = projection.statuses.get(operation.operationId)!;
-  if (status === "rejected") throw new ApiError(403, "mutation_not_allowed", "Нет прав на изменение сообщения или изменены неизменяемые поля");
+  if (status === "rejected" && !options.peerImport) throw new ApiError(403, "mutation_not_allowed", "Нет прав на изменение сообщения или изменены неизменяемые поля");
   const receivedAt = new Date().toISOString();
   await tx.mutationOperation.create({ data: {
     operationId: operation.operationId, protocolVersion: operation.protocolVersion,
@@ -51,7 +52,7 @@ export async function acceptMutation(tx: Prisma.TransactionClient, input: Mutati
     } else {
       if (!existing) {
         const author = await tx.user.findUniqueOrThrow({ where: { id: message.fromUserId }, select: { name: true } });
-        await tx.message.create({ data: { ...message, senderName: author.name, editedAt: projection.editedAt } });
+        await tx.message.create({ data: { ...message, senderName: author.name, editedAt: projection.editedAt, ...(options.peerImport ? { receiptStatus: "sent" } : {}) } });
         await showConversation(tx, message.fromUserId, message.toUserId);
         // queueMessagePush schedules from Date.now(); sentAt is its unread
         // alert boundary and must match the message, including offline sends.

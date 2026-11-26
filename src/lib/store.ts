@@ -46,6 +46,7 @@ export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclu
 
 export function toMessageRecord(row: MessageRow): MessageRecord {
   return {
+    ...(row.receiptStatus === "sent" || row.receiptStatus === "read" || row.receiptStatus === "delivered" ? { receiptStatus: row.receiptStatus } : {}),
     ...(row.attachments?.length ? { attachments: row.attachments.map(attachmentInfo) } : {}),
     ...(row.replyToId ? { replyToId: row.replyToId } : {}),
     id: row.id,
@@ -168,8 +169,11 @@ export function notCoveredBy(
     answerId: null,
     ...visibleTo(userId),
     OR: [
-      { fromUserId: { notIn: marks.map((state) => state.chatId) } },
-      ...marks.map((state) => ({ fromUserId: state.chatId, sentAt: { gt: state[mark] } })),
+      { receiptStatus: { in: mark === "lastReadAt" ? ["sent", "delivered"] : ["sent"] } },
+      { receiptStatus: null, OR: [
+        { fromUserId: { notIn: marks.map((state) => state.chatId) } },
+        ...marks.map((state) => ({ fromUserId: state.chatId, sentAt: { gt: state[mark] } })),
+      ] },
     ],
   };
 }
@@ -198,6 +202,13 @@ export async function advanceReadState(
 ) {
   const current = await tx.readState.findUnique({ where: { userId_chatId: { userId, chatId } } });
   const next = nextReadState(current ? toReadStateRecord(current) : undefined, marks);
+  // Explicitly acknowledge only imported messages present when this local
+  // request runs. An old watermark must not acknowledge a later import.
+  if (marks.deliveredAt) await tx.message.updateMany({ where: { toUserId: userId, fromUserId: chatId,
+    sentAt: { lte: marks.deliveredAt }, receiptStatus: "sent" }, data: { receiptStatus: "delivered" } });
+  const explicitRead = marks.readAt ? await tx.message.updateMany({ where: { toUserId: userId, fromUserId: chatId,
+    sentAt: { lte: marks.readAt }, receiptStatus: { in: ["sent", "delivered"] } }, data: { receiptStatus: "read" } }) : { count: 0 };
+  if (explicitRead.count) await queueMessagePush(tx, userId);
   if (current && current.lastDeliveredAt === (next.lastDeliveredAt ?? null) && current.lastReadAt === (next.lastReadAt ?? null)) {
     return toReadStateRecord(current);
   }

@@ -9,7 +9,7 @@ const settings = Object.fromEntries((await readFile(path.join(root, "deploy/rele
 const ts = createRequire(import.meta.url)(path.join(settings.MESSENGER_DEPENDENCIES_DIR, "typescript"));
 const output = path.join(root, "cloud/yandex/shared");
 await mkdir(output, { recursive: true });
-const files = { "protocol": "src/lib/mutations/protocol.ts", "reduce": "src/lib/mutations/reduce.ts", "reactions": "src/lib/reactions.ts" };
+const files = { "protocol": "src/lib/mutations/protocol.ts", "reduce": "src/lib/mutations/reduce.ts", "reactions": "src/lib/reactions.ts", "replication": "src/lib/replication/protocol.ts" };
 const hashes = {};
 for (const [name, file] of Object.entries(files)) {
   const source = await readFile(path.join(root, file), "utf8");

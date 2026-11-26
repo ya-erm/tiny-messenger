@@ -10,3 +10,5 @@ data/realtime.json
 data/realtime.*.tmp
 npm-debug.log*
 .DS_Store
+
+data/replication*.json

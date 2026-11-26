@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
 import next from "next";
+import { startReplication } from "./replication-pump.mjs";
 
 import { RealtimeService } from "./realtime-service.mjs";
 import { attachWebSocketTransport } from "./ws-gateway.mjs";
@@ -72,6 +73,7 @@ if (listenError) {
 }
 
 console.log(`Tiny Messenger listening on http://${hostname}:${port} (WebSocket: /ws)`);
+const stopReplication = startReplication(upstream);
 const stopAttachmentCleanup = startAttachmentCleanup(upstream);
 const stopMessagePushDispatch = startMessagePushDispatch(upstream);
 
@@ -80,6 +82,7 @@ let stopping = false;
 async function shutdown(signal) {
   if (stopping) return;
   stopping = true;
+  stopReplication();
   stopAttachmentCleanup();
   stopMessagePushDispatch();
   console.log(`Received ${signal}, shutting down`);

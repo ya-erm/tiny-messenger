@@ -24,7 +24,7 @@ async function snapshot(db: Db, userId: string, alertAfter: string | null) {
     WITH unread AS (
       SELECT m.id, m.sentAt, m.fromUserId AS chat, 'peer' AS kind, m.text, m.senderName AS name, NULL AS groupName
       FROM Message m LEFT JOIN ReadState r ON r.userId = ${userId} AND r.chatId = m.fromUserId
-      WHERE m.toUserId = ${userId} AND m.sentAt > COALESCE(r.lastReadAt, '')
+      WHERE m.toUserId = ${userId} AND ((m.receiptStatus IS NOT NULL AND m.receiptStatus != 'read') OR (m.receiptStatus IS NULL AND m.sentAt > COALESCE(r.lastReadAt, '')))
         AND NOT EXISTS (SELECT 1 FROM MessageDeletion d WHERE d.messageId = m.id AND d.userId = ${userId})
         AND NOT EXISTS (SELECT 1 FROM HiddenConversation h WHERE h.ownerId = ${userId} AND h.peerId = m.fromUserId AND m.sentAt <= h.hiddenAt)
       UNION ALL

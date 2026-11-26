@@ -1,3 +1,4 @@
+import { appendReplication } from "./replication.mjs";
 import { createHash } from "node:crypto";
 import { parseMutation, serializeMutation, mutationMessageId, MutationValidationError } from "../shared/protocol.mjs";
 import { reduceMessageOperations } from "../shared/reduce.mjs";
@@ -32,7 +33,7 @@ export function createService(database, installationId = "yandex-1") {
     return { ...message, status: message.answer ? "answered" : receipt?.read?.includes(message.id) ? "read"
       : receipt?.delivered?.includes(message.id) ? "delivered" : message.status || "sent" };
   }
-  return {
+  const service = {
     installationId,
     async authenticate(token) {
       if (!token) throw new HttpError(401, "missing_token", "Передайте токен Messenger");
@@ -88,7 +89,7 @@ export function createService(database, installationId = "yandex-1") {
         return { installationId, cursor: cursor(changes.at(-1)?.sequence || sequence), changes, hasMore };
       }, { readOnly: true });
     },
-    async mutate(user, value) {
+    async mutate(user, value, sourceId) {
       const operation = parse(value);
       if (operation.actorId !== user.id) throw new HttpError(403, "mutation_actor_mismatch", "Нельзя изменить данные другого пользователя");
       return database.transaction(async (tx) => {
@@ -110,9 +111,10 @@ export function createService(database, installationId = "yandex-1") {
         if (Buffer.byteLength(JSON.stringify(operations)) > 1024 * 1024) throw new HttpError(413, "message_journal_full", "Достигнут лимит истории изменений прототипа");
         const projection = reduceMessageOperations(operations);
         const status = projection.statuses.get(operation.operationId);
-        if (status === "rejected") throw new HttpError(403, "mutation_not_allowed", "Нет прав на изменение сообщения");
+        if (status === "rejected" && !sourceId) throw new HttpError(403, "mutation_not_allowed", "Нет прав на изменение сообщения");
         const receivedAt = new Date().toISOString();
-        await tx.put("operations", operation.operationId, { operation, receivedAt });
+        await tx.put("operations", operation.operationId, { operation, receivedAt, ...(sourceId ? { sourceId } : {}) });
+        if (!sourceId) await appendReplication(tx, "operation:" + operation.operationId, { type: "mutation", operation });
         await tx.put("states", messageId, { ...state, operations });
         if (projection.message) {
           const sequence = await tx.nextSequence();
@@ -136,6 +138,54 @@ export function createService(database, installationId = "yandex-1") {
         return { operationId: operation.operationId, messageId, receivedAt, replayed: false, status };
       });
     },
+    async importMutation(value, sourceId) {
+      const operation = parse(value);
+      const actor = await database.transaction((tx) => tx.get("users", operation.actorId), { readOnly: true });
+      if (!actor) throw new HttpError(409, "peer_actor_missing", "Сначала передайте пользователя");
+      return service.mutate(actor, operation, sourceId);
+    },
+    async importDirectory(directory) {
+      if (!Array.isArray(directory.users) || directory.users.length > 500 || !Array.isArray(directory.contacts)
+        || directory.contacts.length > 500 || !Array.isArray(directory.receipts) || directory.receipts.length > 500)
+        throw new HttpError(422, "invalid_directory", "Некорректный справочник");
+      for (const input of directory.users) {
+        if (!/^[0-9a-f-]{36}$/.test(input.id) || typeof input.name !== "string" || !/^[0-9a-f]{64}$/.test(input.tokenHash))
+          throw new HttpError(422, "invalid_directory_user", "Некорректный пользователь");
+        const user = Object.fromEntries(["id", "name", "nickname", "avatarUrl", "avatarBackground", "tokenHash", "createdAt", "updatedAt"]
+          .filter((key) => input[key] != null).map((key) => [key, input[key]]));
+        await database.transaction(async (tx) => {
+          const previous = await tx.get("users", user.id);
+          if (JSON.stringify(previous) !== JSON.stringify(user)) await tx.put("users", user.id, user);
+          if (!previous || previous.tokenHash !== user.tokenHash) await tx.put("tokens", user.tokenHash, { userId: user.id });
+        });
+      }
+      for (const state of directory.contacts) await database.transaction(async (tx) => {
+        if (!await tx.get("users", state.userId) || !Array.isArray(state.contacts) || state.contacts.length > 500)
+          throw new HttpError(422, "invalid_directory_contacts", "Некорректные контакты");
+        const before = await tx.get("user-state", state.userId) || {};
+        if (JSON.stringify(before.contacts || []) !== JSON.stringify(state.contacts))
+          await tx.put("user-state", state.userId, { ...before, contacts: state.contacts });
+      });
+      for (const receipt of directory.receipts) await service.importReceipt(receipt);
+    },
+    async importReceipt(receipt) {
+      if (!Array.isArray(receipt.delivered) || !Array.isArray(receipt.read)
+        || receipt.delivered.length > 5000 || receipt.read.length > 5000)
+        throw new HttpError(422, "invalid_peer_receipt", "Некорректное прочтение");
+      await database.transaction(async (tx) => {
+        const key = receipt.userId + ":" + receipt.peerId;
+        const before = await tx.get("receipts", key) || { delivered: [], read: [] };
+        // Unknown IDs are retained as receipt dependencies: the operation can
+        // arrive in a later batch. They never acknowledge a different message.
+        const read = [...new Set([...before.read, ...receipt.read])].sort();
+        const delivered = [...new Set([...before.delivered, ...receipt.delivered, ...read])].sort();
+        if (JSON.stringify(before) === JSON.stringify({ delivered, read })) return;
+        await tx.put("receipts", key, { delivered, read });
+        const sequence = await tx.nextSequence();
+        for (const viewer of [receipt.userId, receipt.peerId])
+          await tx.addFeed(viewer, sequence, { type: "receipts", delivered, read });
+      });
+    },
     async receipt(user, messageId, status) {
       if (!["delivered", "read"].includes(status)) throw new HttpError(422, "invalid_status", "Некорректный статус");
       return database.transaction(async (tx) => {
@@ -150,6 +200,8 @@ export function createService(database, installationId = "yandex-1") {
         const read = status === "read" ? [...new Set([...before.read, ...known])].sort() : before.read;
         if (JSON.stringify({ delivered, read }) !== JSON.stringify(before)) {
           await tx.put("receipts", key, { delivered, read });
+          await appendReplication(tx, "receipt:" + key + ":" + hash(JSON.stringify({ delivered, read })),
+            { type: "receipt", userId: user.id, peerId: message.fromUserId, delivered, read });
           const sequence = await tx.nextSequence();
           for (const viewer of [user.id, message.fromUserId]) await tx.addFeed(viewer, sequence, { type: "receipts", delivered, read });
         }
@@ -157,4 +209,5 @@ export function createService(database, installationId = "yandex-1") {
       });
     },
   };
+  return service;
 }

@@ -41,6 +41,7 @@ export interface MessageReply {
 // "Deleted for me" marks live in their own table and are applied as a query
 // filter, so a record the caller can see never carries them.
 export interface MessageRecord {
+  receiptStatus?: "sent" | "delivered" | "read";
   attachments?: AttachmentInfo[];
   replyToId?: string;
   reply?: MessageReply;

@@ -40,9 +40,9 @@ export function ready() {
 // queries on the same connection without taking the transaction mutex, so a
 // write outside a transaction could land inside (and roll back with) someone
 // else's. Reads may use `prisma` directly.
-export async function write<T>(mutate: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+export async function write<T>(mutate: (tx: Prisma.TransactionClient) => Promise<T>, options?: { timeout?: number }): Promise<T> {
   await ready();
-  return prisma.$transaction(mutate);
+  return prisma.$transaction(mutate, options);
 }
 
 export async function read<T>(query: (db: PrismaClient) => Promise<T>): Promise<T> {

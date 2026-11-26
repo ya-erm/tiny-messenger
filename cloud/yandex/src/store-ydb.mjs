@@ -39,6 +39,10 @@ export async function connectYdb(connectionString, credentialsProvider = new Met
             const [rows] = await tx`SELECT body FROM tm_kv WHERE bucket = ${bucket} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
             return rows.map((row) => JSON.parse(row.body));
           },
+          async scanEntries(bucket, limit = 100) {
+            const [rows] = await tx`SELECT key, body FROM tm_kv WHERE bucket = ${bucket} ORDER BY key LIMIT ${new Uint64(BigInt(limit))}`;
+            return rows.map((row) => ({ key: row.key, value: JSON.parse(row.body) }));
+          },
           async putView(userId, message) {
             const body = JSON.stringify(message);
             await tx`UPSERT INTO tm_views (user_id, sent_at, message_id, body) VALUES (${userId}, ${message.sentAt}, ${message.id}, ${body})`;

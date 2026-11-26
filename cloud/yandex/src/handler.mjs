@@ -1,4 +1,6 @@
 import { createService, publicUser, HttpError } from "./service.mjs";
+import { authorizePeer, createReplication } from "./replication.mjs";
+import { REPLICATION_MAX_BYTES } from "../shared/replication.mjs";
 import { connectYdb } from "./store-ydb.mjs";
 
 const mutationTypes = ["message.create", "message.edit", "message.delete", "reaction.set"];
@@ -6,12 +8,16 @@ const limits = { name: 20, nickname: 32, avatarUrl: 500, message: 16384, option:
   choiceOptionsMin: 2, choiceOptionsMax: 2, tokenMin: 8, tokenMax: 64, pageSize: 100, groupName: 40, groupMembersMax: 50 };
 let servicePromise;
 async function getService() {
-  servicePromise ||= connectYdb(process.env.YDB_CONNECTION_STRING).then((database) => createService(database, process.env.TM_INSTALLATION_ID || "yandex-1"));
+  servicePromise ||= connectYdb(process.env.YDB_CONNECTION_STRING).then((database) => {
+    const service = createService(database, process.env.TM_INSTALLATION_ID || "yandex-1");
+    service.exchange = createReplication(database, service, process.env);
+    return service;
+  });
   try { return await servicePromise; } catch (error) { servicePromise = undefined; throw error; }
 }
-function parseBody(event) {
+function parseBody(event, maxBytes = 16384) {
   const raw = event.isBase64Encoded ? Buffer.from(event.body || "", "base64").toString("utf8") : event.body || "{}";
-  if (Buffer.byteLength(raw) > 16384) throw new HttpError(413, "payload_too_large", "Запрос превышает 16 КиБ");
+  if (Buffer.byteLength(raw) > maxBytes) throw new HttpError(413, "payload_too_large", "Запрос превышает 16 КиБ");
   let body;
   try { body = JSON.parse(raw); } catch { throw new HttpError(400, "invalid_json", "Ожидался JSON"); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "invalid_json", "Ожидался JSON-объект");
@@ -45,8 +51,14 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token"], voice: false, files: false, replication: false } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token"], voice: false, files: false, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
+      if (path === "/api/internal/replication/exchange" && method === "POST") {
+        authorizePeer(headers, configuration);
+        const body = parseBody(event, REPLICATION_MAX_BYTES);
+        const service = await serviceProvider();
+        return response(200, { ok: true, data: await service.exchange(body) });
+      }
       const service = await serviceProvider();
       const body = ["POST", "PATCH", "PUT", "DELETE"].includes(method) ? parseBody(event) : {};
       const token = path === "/api/auth/session" && method === "POST" ? String(body.token || "").trim()

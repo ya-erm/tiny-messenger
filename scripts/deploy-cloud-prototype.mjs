@@ -4,6 +4,7 @@ import { serviceAccountCredentials, cloudApi } from "./yandex-auth.mjs";
 const directory = new URL("../.secrets/yandex-cloud/", import.meta.url);
 const stateFile = new URL("deployment.json", directory);
 const state = JSON.parse(await readFile(stateFile, "utf8"));
+const replication = JSON.parse(await readFile(new URL("replication.json", directory), "utf8").catch(() => "null"));
 const api = cloudApi(serviceAccountCredentials(new URL("service-account.json", directory)));
 const save = () => writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
 async function complete(value) {
@@ -33,7 +34,8 @@ const version = await complete(await api("https://serverless-functions.api.cloud
   functionId: state.functionId, runtime: "nodejs22", entrypoint: "index.handler", resources: { memory: "268435456" },
   executionTimeout: "15s", serviceAccountId: state.runtimeServiceAccountId, content: content.toString("base64"),
   environment: { YDB_CONNECTION_STRING: state.databaseConnectionString, TM_INSTALLATION_ID: "yandex-1",
-    TM_ALLOWED_ORIGINS: "https://tm.ya-erm.ru,https://gh.tm.ya-erm.ru,https://vm.tm.ya-erm.ru" },
+    TM_ALLOWED_ORIGINS: "https://tm.ya-erm.ru,https://gh.tm.ya-erm.ru,https://vm.tm.ya-erm.ru",
+    ...(replication ? { TM_REPLICATION_SECRET: replication.secret, TM_REPLICATION_PEER: replication.installationId } : {}) },
   tag: ["prototype"], concurrency: "1", logOptions: { folderId: state.folderId, minLevel: "WARN" },
 } }));
 state.functionVersionId = version.id; await save();

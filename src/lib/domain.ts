@@ -56,6 +56,7 @@ function receiptFor(state: ReadStateRecord | undefined, sentAt: string): Message
 
 export function messageStatus(message: MessageRecord, readStates: ReadStateRecord[]): MessageStatus {
   if (message.answer) return "answered";
+  if (message.receiptStatus) return message.receiptStatus;
   return receiptFor(findReadState(readStates, message.toUserId, message.fromUserId), message.sentAt);
 }
 
@@ -64,7 +65,8 @@ export function isUnread(status: MessageStatus) {
 }
 
 export function publicMessage(message: MessageRecord, readStates: ReadStateRecord[]): PublicMessage {
-  return { ...message, status: messageStatus(message, readStates) };
+  const { receiptStatus: _receiptStatus, ...record } = message;
+  return { ...record, status: messageStatus(message, readStates) };
 }
 
 export function canAccessMessage(user: UserRecord, message: MessageRecord) {
