@@ -117,8 +117,8 @@ export class RealtimeService {
   validOrigin(request) {
     const origin = request.headers.origin;
     if (!origin) return true;
-    const configured = process.env.WS_ALLOWED_ORIGIN?.trim();
-    if (configured) return origin === configured;
+    const configured=(process.env.WS_ALLOWED_ORIGINS||process.env.WS_ALLOWED_ORIGIN||" ").split(",").map(value=>value.trim()).filter(Boolean);
+    if(configured.length)return configured.includes(origin);
     try {
       return new URL(origin).host === request.headers.host;
     } catch {

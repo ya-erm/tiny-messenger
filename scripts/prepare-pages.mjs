@@ -18,7 +18,7 @@ export default function Home(){
 `);
 await writeFile(path.join(stage,'next.config.ts'),`import {createRequire} from 'node:module';
 const {version}=createRequire(import.meta.url)('./package.json');
-export default {output:'export',trailingSlash:true,images:{unoptimized:true},experimental:{cpus:1},env:{NEXT_PUBLIC_APP_VERSION:version,NEXT_PUBLIC_STATIC_CLIENT:'1',NEXT_PUBLIC_CLOUD_API_ORIGIN:process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN||''}};
+export default {output:'export',trailingSlash:true,images:{unoptimized:true},experimental:{cpus:1},env:{NEXT_PUBLIC_APP_VERSION:version,NEXT_PUBLIC_STATIC_CLIENT:'1',NEXT_PUBLIC_VPS_MIRROR_HOST:process.env.NEXT_PUBLIC_VPS_MIRROR_HOST||'',NEXT_PUBLIC_CLOUD_API_ORIGIN:process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN||''}};
 `);
 await writeFile(path.join(stage,'src/app/manifest.ts'),(await readFile(path.join(stage,'src/app/manifest.ts'),'utf8'))+"\nexport const dynamic='force-static';\n");
 const config=JSON.parse(await readFile(path.join(stage,'tsconfig.json'),'utf8'));config.include=['next-env.d.ts','src/app/**/*.ts','src/app/**/*.tsx','.next/types/**/*.ts'];await writeFile(path.join(stage,'tsconfig.json'),JSON.stringify(config,null,2));

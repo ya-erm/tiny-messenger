@@ -10,7 +10,7 @@ const modules = new Map();
 for (const file of ['client-storage', 'client-transport', 'mutations/protocol', 'reactions', 'registration-client', 'token-rotation-client']) {
   const code = await readFile(new URL('../src/lib/' + file + '.ts', import.meta.url), 'utf8');
   modules.set('/' + file + '.mjs', ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
-    .replaceAll('process.env.NEXT_PUBLIC_STATIC_CLIENT', '"0"').replaceAll('process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN', '"https://cloud.example"').replaceAll('"./mutations/protocol"', '"./mutations/protocol.mjs"').replaceAll('"../reactions"', '"../reactions.mjs"').replaceAll('"emoji-regex"', '"/emoji-regex.mjs"'));
+    .replaceAll('process.env.NEXT_PUBLIC_VPS_MIRROR_HOST', '""').replaceAll('process.env.NEXT_PUBLIC_STATIC_CLIENT', '"0"').replaceAll('process.env.NEXT_PUBLIC_CLOUD_API_ORIGIN', '"https://cloud.example"').replaceAll('"./mutations/protocol"', '"./mutations/protocol.mjs"').replaceAll('"../reactions"', '"../reactions.mjs"').replaceAll('"emoji-regex"', '"/emoji-regex.mjs"'));
 }
 modules.set('/emoji-regex.mjs', await readFile(settings.MESSENGER_DEPENDENCIES_DIR + '/emoji-regex/index.mjs', 'utf8'));
 const server = createServer((req, res) => { const code = modules.get(req.url); res.setHeader('Content-Type', code ? 'text/javascript' : 'text/html'); res.end(code || '<title>Client storage test</title>'); });

@@ -32,8 +32,9 @@ import { reactionLabel } from "@/lib/reactions";
 import type { MessageReply, MessageReaction, MessageStatus, PublicContact, PublicGroup, PublicGroupMessage, PublicMessage, PublicUser } from "@/lib/types";
 
 import { registrationRequest, clearRegistrationRequest } from "@/lib/registration-client";
+import { startChannelTelemetry } from "@/lib/channel-telemetry";
 import { ApiChannelSelector } from "@/components/api-channel-selector";
-import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, type ChannelId } from "@/lib/client-transport";
+import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, selectedMode, type ChannelId } from "@/lib/client-transport";
 import { applyCloudChanges, cacheProfile, cachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
 import type { Mutation } from "@/lib/mutations/protocol";
 
@@ -245,7 +246,7 @@ function isMessageRateLimitError(error: unknown): error is ApiClientError {
     && error.code === "message_rate_limited";
 }
 
-async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", channel = selectedChannel()) {
+async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", channel: ChannelId = selectedChannel()) {
   const response = await fetchChannel(path, {
     signal: init.signal || AbortSignal.timeout(25_000),
     ...init,
@@ -255,7 +256,7 @@ async function fetchApi<T>(path: string, init: RequestInit = {}, token = "", cha
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
-  }, channel);
+  }, ["auto","default"].includes(selectedMode()) ? undefined : channel);
   let payload: ApiEnvelope<T>;
   try { payload = await response.json(); }
   catch { throw new ApiClientError("Сервер вернул неожиданный ответ", response.status, "invalid_response"); }
@@ -679,6 +680,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
+  useEffect(()=>{if(phase!=="ready"||!user||!token)return;try{return startChannelTelemetry(user.id,token);}catch{}},[phase,user?.id,token]);
   const viewportRef = useMobileViewport(phase === "ready");
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
@@ -970,7 +972,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     if (!user || !token || !navigator.onLine) return;
     const processed = await flushMutations(user.id, (operation, target) => fetchApi<{ status?: string }>("/api/mutations", {
       method: "POST", body: JSON.stringify(operation),
-    }, token, target));
+    }, token));
     if (processed) await refreshState();
   }, [user, token, refreshState]);
   useEffect(() => {

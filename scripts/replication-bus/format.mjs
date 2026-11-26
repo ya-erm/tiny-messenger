@@ -18,7 +18,7 @@ export function parseBusFrame(value, self, peers) {
     || typeof frame.id !== "string" || !/^[a-z0-9:-]{1,160}$/.test(frame.id) || !Number.isFinite(Date.parse(frame.at))
     || Buffer.byteLength(JSON.stringify(frame)) > BUS_MAX_BYTES) throw Error("Invalid replication bus frame");
   if (frame.kind === "events" && (!Array.isArray(frame.events) || frame.events.length < 1 || frame.events.length > BUS_BATCH
-    || frame.events.some((event) => !["mutation", "row", "receipt", "user", "contact", "identity"].includes(event?.type)))) throw Error("Invalid replication bus events");
+    || frame.events.some((event) => !["mutation", "row", "receipt", "user", "contact", "identity", "telemetry"].includes(event?.type)))) throw Error("Invalid replication bus events");
   return frame;
 }
 export function makeBusFrame(from, to, kind, id, payload = {}) {

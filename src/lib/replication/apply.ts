@@ -1,3 +1,4 @@
+import {storeObservation} from "./telemetry-protocol";
 import { applyIdentityOperation } from "./identity-protocol";
 import { identityStore } from "./identity";
 import "server-only";
@@ -18,6 +19,7 @@ export async function applyPeerEvents(tx: Prisma.TransactionClient, peerId: stri
       for (const user of users) { await importNewPeerUser(tx,user); for(const operation of Object.values(user.identity||{})) await applyIdentityOperation(identityStore(tx),operation); }
       for (const event of events) {
         if (event.type === "user") await importNewPeerUser(tx,event.user);
+        else if (event.type === "telemetry") await storeObservation(identityStore(tx),event.observation);
         else if (event.type === "identity") await applyIdentityOperation(identityStore(tx),event.operation);
         else if (event.type === "contact") await importPeerContact(tx,event.contact);
         else if (event.type === "mutation") {

@@ -1,3 +1,4 @@
+import {acknowledgeObservations,parseObservation} from "../shared/telemetry-protocol.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { REPLICATION_VERSION, REPLICATION_BATCH, REPLICATION_FEED, replicationCursor } from "../shared/replication.mjs";
 import { HttpError } from "./service.mjs";
@@ -24,7 +25,11 @@ export function createReplication(database, service, configuration) {
     if (body.rows?.length && body.rowProtocolVersion !== 1) throw new HttpError(409, "row_protocol_mismatch", "Нужна совместимая версия обмена");
     // Import every item durably before acknowledging the batch. If the request
     // fails half way through, replay is safe and neither cursor advances.
+    if(body.telemetryAcks!==undefined&&(!Array.isArray(body.telemetryAcks)||body.telemetryAcks.length>5))throw new HttpError(422,"invalid_telemetry_ack","Некорректное подтверждение");
+    if(body.telemetryAcks?.length)await database.transaction(tx=>acknowledgeObservations(tx,body.telemetryAcks.map(parseObservation)));
+    if(body.telemetry!==undefined&&(!Array.isArray(body.telemetry)||body.telemetry.length>5))throw new HttpError(422,"invalid_telemetry_batch","Некорректный пакет устройств");
     if (body.directory) await service.importDirectory(body.directory);
+    for(const observation of body.telemetry||[])await service.importTelemetry(observation);
     for (const operation of body.operations) await service.importMutation(operation, body.sourceId);
     for (const operation of body.rows || []) {
       if (operation.origin !== body.sourceId) throw new HttpError(422, "row_origin_mismatch", "Неверный источник изменения");
@@ -36,10 +41,12 @@ export function createReplication(database, service, configuration) {
       let hasMore = events.length > REPLICATION_BATCH;
       if (hasMore) events.pop();
       while (events.length > 1 && Buffer.byteLength(JSON.stringify(events)) > 420 * 1024) { events.pop(); hasMore = true; }
-      if(events.some(event=>event.type==="user"||event.type==="contact")&&![1,2].includes(body.userProtocolVersion))throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
-      if(events.some(event=>event.type==="identity")&&body.userProtocolVersion!==2)throw new HttpError(409,"identity_protocol_unavailable","Нужна совместимая версия обмена профилями");
-      const userIds = new Set();
-      for(const event of events)if(event.type==="identity")userIds.add(event.operation.userId);else if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
+      if(events.some(event=>event.type==="user"||event.type==="contact")&&![1,2,3].includes(body.userProtocolVersion))throw new HttpError(409,"user_protocol_unavailable","Нужна совместимая версия обмена аккаунтами");
+      if(events.some(event=>event.type==="identity")&&![2,3].includes(body.userProtocolVersion))throw new HttpError(409,"identity_protocol_unavailable","Нужна совместимая версия обмена профилями");
+      if(events.some(event=>event.type==="telemetry")&&body.userProtocolVersion!==3)throw new HttpError(409,"telemetry_protocol_unavailable","Нужна совместимая версия обмена");
+      const telemetry=body.userProtocolVersion===3?(await tx.scanEntries("telemetry-outbox",5)).flatMap(item=>item.value.items).slice(0,5):[];
+      const userIds = new Set(telemetry.map(observation=>observation.userId));
+      for(const event of events)if(event.type==="telemetry")userIds.add(event.observation.userId);else if(event.type==="identity")userIds.add(event.operation.userId);else if(event.type==="user")userIds.add(event.user.id);else if(event.type==="contact"){userIds.add(event.contact.ownerId);userIds.add(event.contact.userId);}
       for (const event of events) if (event.type === "mutation") {
         userIds.add(event.operation.actorId);
         if (event.operation.type === "message.create") {
@@ -53,8 +60,8 @@ export function createReplication(database, service, configuration) {
       }
       const users = [];
       for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{}}); }
-      return { users, userProtocolVersion: 2, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
-        events, cursor: events.at(-1)?.sequence || after, hasMore };
+      return { users, userProtocolVersion: 3, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
+        events, telemetry, cursor: events.at(-1)?.sequence || after, hasMore };
     }, { readOnly: true });
     return result;
   };

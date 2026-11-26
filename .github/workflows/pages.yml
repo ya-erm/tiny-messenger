@@ -17,6 +17,7 @@ jobs:
     env:
       NEXT_PUBLIC_CLOUD_API_ORIGIN: ${{ secrets.TM_CLOUD_API_ORIGIN }}
       TM_PAGES_DOMAIN: ${{ vars.TM_PAGES_DOMAIN }}
+      NEXT_PUBLIC_VPS_MIRROR_HOST: ${{ vars.TM_VPS_MIRROR_HOST }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

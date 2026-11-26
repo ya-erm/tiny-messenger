@@ -1,3 +1,5 @@
+import {acknowledgeObservations} from "./telemetry-protocol";
+import {identityStore} from "./identity";
 import "server-only";
 import { isBusHealthy } from "../../../scripts/replication-bus/format.mjs";
 import { readFile } from "node:fs/promises";
@@ -10,7 +12,7 @@ import { publicUser } from "@/lib/auth";
 import { toUserRecord } from "@/lib/store";
 import { REPLICATION_BATCH, REPLICATION_MAX_BYTES, REPLICATION_VERSION, replicationCursor } from "./protocol";
 
-type State = { rowSeq?: number; sentSeq: number; cursor: string; hashes: Record<string, string>; nextPoll: number;
+type State = { telemetryAcks?:any[]; rowSeq?: number; sentSeq: number; cursor: string; hashes: Record<string, string>; nextPoll: number;
   activeUntil: number; retryAt: number; failures: number; caughtUp?: boolean; lastSuccess?: string; lastError?: string };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 let running: Promise<unknown> | undefined;
@@ -56,7 +58,9 @@ async function synchronize() {
     const operations = await tx.mutationOperation.findMany({ where: { seq: { gt: state.sentSeq } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
     const rowChanges = await tx.replicaChange.findMany({ where: { seq: { gt: state.rowSeq || 0 } }, orderBy: { seq: "asc" }, take: REPLICATION_BATCH + 1 });
     const identities=await tx.replicationState.findMany({where:{OR:[{key:{startsWith:"identity-state:"}},{key:{startsWith:"nickname-claim:"}}]}});
-    return { users, identities, contacts, marks, messages, operations, rowChanges, rowsIngested };
+    const outboxes=await tx.replicationState.findMany({where:{key:{startsWith:"telemetry-outbox:"}},take:5});
+    const telemetry=outboxes.flatMap(item=>JSON.parse(item.body).items).slice(0,5);
+    return { users, telemetry, identities, contacts, marks, messages, operations, rowChanges, rowsIngested };
   });
   if (!local.rowsIngested) return { enabled: true, preparingRows: true };
   const usersById = new Map(local.users.map((user) => [user.id, user]));
@@ -80,7 +84,7 @@ async function synchronize() {
   }
   for (const [key, receipt] of receipts) { receipt.delivered.sort(); receipt.read.sort(); note("receipts", key, receipt); }
   const busReady = Boolean((config as any).bus?.enabled && isBusHealthy(now));
-  if (!entries.length && (busReady || !local.operations.length && !local.rowChanges.length) && state.nextPoll > now) return { enabled: true, idle: true, lastSuccess: state.lastSuccess };
+  if (!state.telemetryAcks?.length && !local.telemetry.length && !entries.length && (busReady || !local.operations.length && !local.rowChanges.length) && state.nextPoll > now) return { enabled: true, idle: true, lastSuccess: state.lastSuccess };
   const changed = entries.slice(0, REPLICATION_BATCH);
   // New actors/recipients must exist before their operations are accepted.
   const canSendOperations = !entries.slice(REPLICATION_BATCH).some((entry) => entry.kind === "users");
@@ -88,8 +92,8 @@ async function synchronize() {
   const rowChanges = canSendOperations ? local.rowChanges.slice(0, REPLICATION_BATCH - operations.length) : [];
   const directory: Record<string, unknown[]> = { users: [], contacts: [], receipts: [] };
   for (const entry of changed) directory[entry.kind].push(entry.value);
-  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 2, sourceId: config.installationId, targetId: config.peerId,
-    after: state.cursor, rows: rowChanges.map((entry) => operationFromChange(entry, config.installationId)), operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
+  const body = JSON.stringify({ protocolVersion: REPLICATION_VERSION, rowProtocolVersion: 1, userProtocolVersion: 3, sourceId: config.installationId, targetId: config.peerId,
+    after: state.cursor, telemetry:local.telemetry,telemetryAcks:state.telemetryAcks||[], rows: rowChanges.map((entry) => operationFromChange(entry, config.installationId)), operations: operations.map((entry) => JSON.parse(entry.body)), ...(changed.length ? { directory } : {}) });
   if (Buffer.byteLength(body) > REPLICATION_MAX_BYTES) throw Error("Replication batch exceeds byte limit");
   try {
     const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", "x-tm-replication-key": config.secret },
@@ -100,10 +104,11 @@ async function synchronize() {
     const result = JSON.parse(text);
     const data = result.data;
     if (!result.ok || data?.protocolVersion !== REPLICATION_VERSION || data.sourceId !== config.peerId || data.targetId !== config.installationId
-      || !Array.isArray(data.events) || data.events.length > REPLICATION_BATCH || !Array.isArray(data.users) || data.users.length > REPLICATION_BATCH * 3)
+      || !Array.isArray(data.events) || data.events.length > REPLICATION_BATCH || !Array.isArray(data.users) || data.users.length > REPLICATION_BATCH * 5)
       throw Error("Invalid peer response");
     if ((rowChanges.length || data.events.some((event: { type: string }) => event.type === "row")) && data.rowProtocolVersion !== 1) throw Error("Peer row protocol unavailable");
-    if(data.events.some((event:{type:string})=>["user","contact","identity"].includes(event.type))&&![1,2].includes(data.userProtocolVersion))throw Error("Peer user protocol unavailable");
+    if((local.telemetry.length||data.telemetry?.length)&&data.userProtocolVersion!==3)throw Error("Peer telemetry protocol unavailable");
+    if(data.events.some((event:{type:string})=>["user","contact","identity","telemetry"].includes(event.type))&&![1,2,3].includes(data.userProtocolVersion))throw Error("Peer user protocol unavailable");
     const cursor = replicationCursor(data.cursor);
     let previous = BigInt(state.cursor);
     for (const event of data.events) {
@@ -113,12 +118,15 @@ async function synchronize() {
     }
     if (BigInt(cursor) !== previous) throw Error("Invalid peer acknowledgement");
     await write(async (tx) => {
-      await applyPeerEvents(tx, config.peerId, data.events, data.users, config.installationId);
+      if(data.telemetry!==undefined&&(!Array.isArray(data.telemetry)||data.telemetry.length>5))throw Error("Invalid peer telemetry");
+      await applyPeerEvents(tx, config.peerId, [...data.events,...(data.telemetry||[]).map((observation:any)=>({type:"telemetry",observation}))], data.users, config.installationId);
+      await acknowledgeObservations(identityStore(tx),local.telemetry);
+      state.telemetryAcks=data.telemetry||[];
       if (rowChanges.length) state.rowSeq = rowChanges.at(-1)!.seq;
       if (operations.length) state.sentSeq = operations.at(-1)!.seq;
       state.cursor = cursor;
       for (const entry of changed) state.hashes[entry.key] = entry.hash;
-      const active = rowChanges.length || operations.length || data.events.length || changed.length;
+      const active = data.telemetry?.length || local.telemetry.length || rowChanges.length || operations.length || data.events.length || changed.length;
       if (active) state.activeUntil = now + 120_000;
       const more = data.hasMore || local.rowChanges.length > rowChanges.length || local.operations.length > operations.length || entries.length > changed.length;
       state.caughtUp = await tx.replicaRow.count({ where: { pending: true } }) === 0 && !data.hasMore && local.rowChanges.length <= rowChanges.length && local.operations.length <= operations.length;
@@ -126,7 +134,7 @@ async function synchronize() {
       state.retryAt = 0; state.failures = 0; state.lastError = undefined; state.lastSuccess = new Date().toISOString();
       await tx.replicationState.upsert({ where: { key }, create: { key, body: JSON.stringify(state) }, update: { body: JSON.stringify(state) } });
     });
-    return { enabled: true, sent: operations.length, sentRows: rowChanges.length, received: data.events.length, directoryItems: changed.length, lastSuccess: state.lastSuccess };
+    return { enabled: true, sent: operations.length, sentRows: rowChanges.length, received: data.events.length+(data.telemetry?.length||0), sentTelemetry:local.telemetry.length, directoryItems: changed.length, lastSuccess: state.lastSuccess };
   } catch (error) {
     // Don't log response bodies, message content, credential paths or headers.
     state.failures++; state.retryAt = now + Math.min(300_000, 5000 * 2 ** Math.min(6, state.failures - 1));
@@ -134,7 +142,7 @@ async function synchronize() {
     // Reload the persisted acknowledgement: a failed local commit must never
     // accidentally persist the optimistic cursors modified above.
     const previous = stored ? JSON.parse(stored.body) : { sentSeq: 0, cursor: "0", hashes: {} };
-    const failed = { ...state, sentSeq: previous.sentSeq, cursor: previous.cursor, hashes: previous.hashes, rowSeq: previous.rowSeq || 0 };
+    const failed = { ...state, sentSeq: previous.sentSeq, cursor: previous.cursor, hashes: previous.hashes, rowSeq: previous.rowSeq || 0, telemetryAcks:previous.telemetryAcks||[] };
     await write((tx) => tx.replicationState.upsert({ where: { key }, create: { key, body: JSON.stringify(failed) }, update: { body: JSON.stringify(failed) } }));
     console.error(JSON.stringify({ event: "replication", status: state.lastError, failures: state.failures }));
     return { enabled: true, error: state.lastError, failures: state.failures };

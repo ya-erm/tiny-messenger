@@ -49,6 +49,7 @@ docker create --name "$container" --platform linux/amd64 \
   --workdir /app --mount "type=volume,src=tm-dependencies-$dependencies_key,dst=/app/node_modules" \
   --env "NODE_OPTIONS=--max-old-space-size=$heap_mb" --env NEXT_TELEMETRY_DISABLED=1 \
   --env "NEXT_PUBLIC_CLOUD_API_ORIGIN=${NEXT_PUBLIC_CLOUD_API_ORIGIN:-}" \
+  --env "NEXT_PUBLIC_VPS_MIRROR_HOST=${NEXT_PUBLIC_VPS_MIRROR_HOST:-}" \
   --env "PACKAGE_DEPENDENCIES=$package_dependencies" "$build_image" \
   sh -c 'tar -xf /tmp/source.tar -C /app && sh scripts/build-in-container.sh' >/dev/null
 docker cp "$work/source.tar" "$container:/tmp/source.tar"

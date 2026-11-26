@@ -1,3 +1,4 @@
+import {parseObservation,storeObservation,queueObservation} from "../shared/telemetry-protocol.mjs";
 import { createIdentityService } from "./identity.mjs";
 import { applyIdentityOperation, reconcileIdentityNicknames } from "../shared/identity-protocol.mjs";
 import { createRegistrationService } from "./registration.mjs";
@@ -39,6 +40,8 @@ export function createService(database, installationId = "yandex-1") {
   }
   const service = {
     installationId,
+    async telemetry(actor,body){let observation;try{observation=parseObservation({...body,userId:actor.id,receivedAt:new Date().toISOString(),installationId});}catch{throw new HttpError(422,"invalid_telemetry","Некорректные данные устройства");}return database.transaction(async tx=>{if(await storeObservation(tx,observation,true))await queueObservation(tx,observation);return {accepted:true,id:observation.id};});},
+    async importTelemetry(input){return database.transaction(tx=>storeObservation(tx,input));},
     async authenticate(token) {
       if (!token) throw new HttpError(401, "missing_token", "Передайте токен Messenger");
       return database.transaction(async (tx) => {

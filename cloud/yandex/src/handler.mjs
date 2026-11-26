@@ -56,7 +56,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);
@@ -83,6 +83,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
       let data;
       let status = 200;
       if ((path === "/api/auth/session" && method === "POST") || (path === "/api/me" && method === "GET")) data = { user: publicUser(user) };
+      else if(path==="/api/client/telemetry"&&method==="POST")data=await service.telemetry(user,body);
       else if(path==="/api/me"&&method==="PATCH"){const updated=await service.identity.profile(user,body);data={user:publicUser(updated.user)};}
       else if(path==="/api/contacts"&&method==="POST"){data=await service.registration.contact(user,body);status=201;}
       else if(/^\/api\/contacts\/[0-9a-f-]+$/.test(path)&&method==="DELETE")data=await service.registration.contact(user,{userId:path.split("/").at(-1)},true);

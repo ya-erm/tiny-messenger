@@ -10,6 +10,7 @@ export function memoryStore() {
         const store = {
           async get(bucket, id) { return structuredClone(draft.kv.get(key(bucket, id))); },
           async put(bucket, id, value) { draft.kv.set(key(bucket, id), structuredClone(value)); },
+          async delete(bucket,id){draft.kv.delete(key(bucket,id));},
           async scan(bucket, limit = 100) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0")).slice(0, limit).map(([, value]) => structuredClone(value)); },
           async scanPrefix(bucket, prefix, limit = 1000) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0" + prefix)).sort(([a], [b]) => a.localeCompare(b)).slice(0, limit).map(([, value]) => structuredClone(value)); },
           async scanEntries(bucket, limit = 100) { return [...draft.kv].filter(([id]) => id.startsWith(bucket + "\0")).slice(0, limit).map(([id, value]) => ({ key: id.slice(bucket.length + 1), value: structuredClone(value) })); },

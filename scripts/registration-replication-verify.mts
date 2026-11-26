@@ -1,3 +1,4 @@
+import {POST as localTelemetry} from "../src/app/api/client/telemetry/route";
 import {POST as rotateLocal} from "../src/app/api/me/token/route";
 import {authenticateToken} from "../src/lib/auth";
 import assert from 'node:assert/strict';import{randomUUID,randomBytes}from'node:crypto';import{mkdtemp,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';
@@ -54,5 +55,9 @@ try{
  assert.ok(winning);assert.equal((await cloud.authenticate(winning)).tokenHash,finalLocal.tokenHash);await assert.rejects(cloud.authenticate(rootChange.replacementToken));
  const shared={...change(),changedAt:new Date(Date.now()+1).toISOString()};await local(rotateLocal,shared,winning!);await remote('/api/me/token',shared,winning!);await drain();assert.equal((await cloud.authenticate(shared.replacementToken)).id,firstLocal.user.id);assert.equal((await authenticateToken(shared.replacementToken)).id,firstLocal.user.id);
 
- console.log(JSON.stringify({independentTokenRotation:true,independentProfileEdits:true,lostResponseRetry:true,concurrentRotationsConverge:true,cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
+
+ const device=randomUUID(),observation={id:randomUUID(),deviceId:device,sessionId:randomUUID(),sequence:1,at:new Date().toISOString(),mode:'auto',channel:'yandex-1',reason:'startup',latencyMs:37,browser:'Test',platform:'Test',pwa:true,appVersion:'test',origin:'https://client.example'};
+ await remote('/api/client/telemetry',observation,shared.replacementToken);await drain();const telemetryKey='device-telemetry:'+firstLocal.user.id+':'+device;const localDevice=await read(d=>d.replicationState.findUniqueOrThrow({where:{key:telemetryKey}}));assert.equal(JSON.parse(localDevice.body).current.channel,'yandex-1');
+ await local(localTelemetry,{...observation,id:randomUUID(),sequence:2,channel:'vps-direct',reason:'manual'},shared.replacementToken);await drain();const remoteDevice=await db.transaction(tx=>tx.get('device-telemetry',firstLocal.user.id+':'+device));assert.equal(remoteDevice.current.channel,'vps-direct');assert.equal(remoteDevice.history.length,2);
+ console.log(JSON.stringify({deviceTelemetryReplicated:true,independentTokenRotation:true,independentProfileEdits:true,lostResponseRetry:true,concurrentRotationsConverge:true,cloudRegistrationWithoutVps:true,stableTokenAndRetry:true,nicknameUniqueness:true,usersAndCredentialsReplicated:true,cloudContactsBidirectional:true,newUserCanMessage:true,isolatedNicknameConflictResolved:true,replayDoesNotRestoreRevokedToken:true}));
 }finally{globalThis.fetch=originalFetch;await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

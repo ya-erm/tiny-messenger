@@ -1,0 +1,19 @@
+import test from'node:test';import assert from'node:assert/strict';import{randomUUID}from'node:crypto';import{memoryStore}from'./memory-store.mjs';import{createService}from'../src/service.mjs';import{storeObservation}from'../shared/telemetry-protocol.mjs';
+const observation=(userId,deviceId=randomUUID(),sequence=1)=>({id:randomUUID(),userId,deviceId,sessionId:randomUUID(),sequence,at:new Date().toISOString(),mode:'auto',channel:'vps-direct',reason:'latency',latencyMs:22,browser:'Test',platform:'Test',pwa:true,appVersion:'test',origin:'https://client.example',receivedAt:new Date().toISOString(),installationId:'test'});
+test('device telemetry is user scoped, merges retries, sessions and out of order observations',async()=>{
+ const db=memoryStore(),service=createService(db),created=await service.registration.register({name:'Telemetry'}),actor=await service.authenticate(created.token),device=randomUUID(),a=observation(actor.id,device),b=observation(actor.id,device,2);b.channel='yandex-1';
+ await service.telemetry(actor,{...a,userId:randomUUID(),receivedAt:'untrusted',installationId:'untrusted'});await service.telemetry(actor,b);await service.telemetry(actor,b);
+ const key=actor.id+':'+device;let current=await db.transaction(tx=>tx.get('device-telemetry',key));assert.equal(current.current.channel,'yandex-1');assert.equal(current.history.length,2);assert.equal(current.sessions.length,2);assert.ok(current.history.every(e=>e.userId===actor.id&&e.installationId===service.installationId));
+ await db.transaction(tx=>storeObservation(tx,{...observation(actor.id,device,1),channel:'vps-1'}));current=await db.transaction(tx=>tx.get('device-telemetry',key));assert.equal(current.current.channel,'yandex-1');await service.telemetry(actor,observation(actor.id));assert.equal((await db.transaction(tx=>tx.scan('device-telemetry',100))).length,2);
+ await assert.rejects(service.telemetry(actor,{...a,deviceId:'bad'}),e=>e.status===422);
+});
+test('history and session counts are bounded; heartbeats do not displace switch history',async()=>{
+ const db=memoryStore(),service=createService(db),created=await service.registration.register({name:'Telemetry'}),actor=await service.authenticate(created.token),device=randomUUID();
+ for(let i=1;i<=135;i++)await service.telemetry(actor,observation(actor.id,device,i));for(let i=136;i<=145;i++)await service.telemetry(actor,{...observation(actor.id,device,i),reason:'heartbeat'});
+ const state=await db.transaction(tx=>tx.get('device-telemetry',actor.id+':'+device));assert.equal(state.history.length,128);assert.equal(state.sessions.length,8);assert.equal(state.current.sequence,145);assert.equal(state.history.at(-1).sequence,135);assert.equal(state.receipts.length,32);
+ const queued=await db.transaction(tx=>tx.get('telemetry-outbox',actor.id+':'+device));assert.equal(queued.items.length,32);assert.equal((await db.transaction(tx=>tx.feed('@tm-replication-v1','0',1000))).length,1,'Telemetry must not grow the permanent message feed');
+});
+
+test('the same report retried at another contour converges to the first acknowledgement',async()=>{
+ const left=memoryStore(),right=memoryStore(),a=createService(left,'left'),b=createService(right,'right'),registered=await a.registration.register({name:'Test'}),actor=await a.authenticate(registered.token);await b.importDirectory({users:[actor],contacts:[],receipts:[]});const report=observation(actor.id);await a.telemetry(actor,report);await new Promise(r=>setTimeout(r,4));await b.telemetry(actor,report);const key=actor.id+':'+report.deviceId,one=await left.transaction(tx=>tx.get('device-telemetry',key)),two=await right.transaction(tx=>tx.get('device-telemetry',key));await a.importTelemetry(two.current);await b.importTelemetry(one.current);assert.deepEqual(await left.transaction(tx=>tx.get('device-telemetry',key)),await right.transaction(tx=>tx.get('device-telemetry',key)));
+});

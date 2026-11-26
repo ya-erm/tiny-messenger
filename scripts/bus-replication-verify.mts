@@ -1,3 +1,5 @@
+import {storeObservation,queueObservation} from "../src/lib/replication/telemetry-protocol";
+import {identityStore} from "../src/lib/replication/identity";
 import {recordIdentity} from "../src/lib/replication/identity";
 import assert from "node:assert/strict";
 import {randomUUID,createHash}from"node:crypto";
@@ -46,6 +48,10 @@ try{
  const credentialChange={kind:"token",previousTokenHash:users[0].tokenHash,tokenHash:createHash("sha256").update("bus token change").digest("hex")};
  await write(tx=>recordIdentity(tx,users[0].id,credentialChange));await publishLocalBus();await deliverCloud();assert.equal((await database.transaction(tx=>tx.get("users",users[0].id))).tokenHash,credentialChange.tokenHash);
  const beforeIdentity=await read(db=>db.user.findUniqueOrThrow({where:{id:users[1].id}}));await cloud.identity.profile(beforeIdentity,{name:"Cloud bus profile"});await flushCloudBus(cloud,env);await deliverVps();assert.equal((await read(db=>db.user.findUniqueOrThrow({where:{id:users[1].id}}))).name,"Cloud bus profile");
+
+ const observation={id:randomUUID(),userId:users[0].id,deviceId:randomUUID(),sessionId:randomUUID(),sequence:1,at:new Date().toISOString(),mode:'auto',channel:'vps-direct',reason:'latency',latencyMs:12,browser:'Test',platform:'Test',pwa:true,appVersion:'test',origin:'https://client.example',receivedAt:new Date().toISOString(),installationId:'vps-1'};
+ await write(async tx=>{const store=identityStore(tx);await storeObservation(store,observation);await queueObservation(store,observation);});await publishLocalBus();await deliverCloud();assert.equal((await database.transaction(tx=>tx.get('device-telemetry',users[0].id+':'+observation.deviceId))).current.channel,'vps-direct');
+ await cloud.telemetry(users[0],{...observation,id:randomUUID(),sequence:2,channel:'yandex-1'});await flushCloudBus(cloud,env);await deliverVps();assert.equal(JSON.parse((await read(db=>db.replicationState.findUniqueOrThrow({where:{key:'device-telemetry:'+users[0].id+':'+observation.deviceId}}))).body).current.channel,'yandex-1');
  await synchronizeInstallations();
  const baseline=exchanges;
  const outgoing=creation("Actual event body VPS → cloud");await write(tx=>acceptMutation(tx,outgoing,users[0]));await publishLocalBus();
@@ -77,5 +83,5 @@ try{
  const fallback=creation("HTTP outage with queue reserve");await write(tx=>acceptMutation(tx,fallback,users[0]));await publishLocalBus();
  assert.ok(queues.get(directTarget.address)!.length>0);await deliverCloud();
  assert.equal((await cloud.message(users[1],fallback.message.id)).text,fallback.message.text);
- console.log(JSON.stringify({directDataBothDirections:true,richEntitiesOverBus:true,noHttpPullForDelivery:true,noEcho:true,roundTripHealth:true,rareCatchupWhenHealthy:true,fallbackOnBusFailure:true,lostPublishResponseDeduplicated:true,directHttpPreferred:true,queueFallbackOnHttpFailure:true}));
+ console.log(JSON.stringify({deviceTelemetryOverBus:true,directDataBothDirections:true,richEntitiesOverBus:true,noHttpPullForDelivery:true,noEcho:true,roundTripHealth:true,rareCatchupWhenHealthy:true,fallbackOnBusFailure:true,lostPublishResponseDeduplicated:true,directHttpPreferred:true,queueFallbackOnHttpFailure:true}));
 }finally{globalThis.fetch=originalFetch;Object.assign(busHealth(),{listenerAt:0,confirmedAt:0,failedAt:0});await prisma.$disconnect();await rm(temporary,{recursive:true,force:true});}

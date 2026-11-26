@@ -1,3 +1,4 @@
+import {acknowledgeObservations} from "../shared/telemetry-protocol.mjs";
 import { createBusTransport } from "../shared/bus-transport.mjs";
 import { makeBusFrame, parseBusFrame, BUS_BATCH } from "../shared/bus-format.mjs";
 import { REPLICATION_FEED } from "../shared/replication.mjs";
@@ -17,7 +18,7 @@ export async function flushCloudBus(service, environment = process.env) {
       const after = (await tx.get("meta", stateKey))?.sequence || config.bootstrapCursor || "0";
       return { after, events: await tx.feed(REPLICATION_FEED, after, 101) };
     }, { readOnly: true });
-    if (!events.length) return { enabled: true, published: 0, hasMore: false };
+    if (!events.length) {const count=await flushTelemetry(service,config,createBusTransport(config));return {enabled:true,published:count,hasMore:count===25};}
     const selected = events.slice(0,100), transport = createBusTransport(config);
     for (const target of config.targets) {
       const frames = [];
@@ -32,7 +33,8 @@ export async function flushCloudBus(service, environment = process.env) {
       const previous = (await tx.get("meta", stateKey))?.sequence || after;
       if (BigInt(last) > BigInt(previous)) await tx.put("meta",stateKey,{sequence:last});
     });
-    return { enabled: true, published: selected.length, hasMore: events.length > selected.length };
+    const count=await flushTelemetry(service,config,transport);
+    return { enabled: true, published: selected.length+count, hasMore: events.length > selected.length||count===25 };
   })();
   pending.set(service,run);
   try { return await run; } finally { pending.delete(service); }
@@ -49,6 +51,7 @@ export async function consumeCloudFrames(service, frames, environment = process.
     if (frame.kind === "pong") continue;
     for (const event of frame.events) {
       if(event.type==="user"||event.type==="contact")throw Error("Directory creation events are exported by this installation, not accepted from a broker");
+      else if(event.type==="telemetry")await service.importTelemetry(event.observation);
       else if(event.type==="identity")await service.identity.import(event.operation);
       else if (event.type === "mutation") await service.importMutation(event.operation,frame.from);
       else if (event.type === "row") {
@@ -76,4 +79,10 @@ export async function consumeQueueEvent(event, service, environment = process.en
     frames.push(message.details.message.body);
   }
   return consumeCloudFrames(service,frames,environment);
+}
+async function flushTelemetry(service,config,transport){
+ const observations=await service.rows.database.transaction(async tx=>(await tx.scanEntries("telemetry-outbox",25)).flatMap(item=>item.value.items).slice(0,25),{readOnly:true});
+ if(!observations.length)return 0;
+ for(const target of config.targets){const frames=[];for(let i=0;i<observations.length;i+=BUS_BATCH)frames.push(makeBusFrame(service.installationId,target.installationId,"events","telemetry:"+observations[i].id,{events:observations.slice(i,i+BUS_BATCH).map(observation=>({type:"telemetry",observation}))}));for(let i=0;i<frames.length;i+=10)await transport.publish(target.address,frames.slice(i,i+10));}
+ await service.rows.database.transaction(tx=>acknowledgeObservations(tx,observations));return observations.length;
 }
