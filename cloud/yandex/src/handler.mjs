@@ -1,4 +1,5 @@
-import {adminAllowed,adminUsers,adminDevices} from "../shared/admin-protocol.mjs";
+import {adminTimeline,timelineUsers} from "../shared/admin-timeline.mjs";
+import {adminAllowed,adminUsers,adminDevices,adminOptions} from "../shared/admin-protocol.mjs";
 import {yandexAvailable,makeYandexFlow,exchangeYandexCode} from "../shared/yandex-protocol.mjs";
 import {externalStatus,finishYandex} from "../shared/yandex-service.mjs";
 import {appendReplication} from "./replication.mjs";
@@ -60,7 +61,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login", "image-thumbnails"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login", "image-thumbnails", "admin-charts-v2"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);
@@ -100,8 +101,9 @@ export function createHandler(serviceProvider = getService, configuration = proc
         if(action==="access")return response(200,{ok:true,data:{admin}});
         if(!admin)throw new HttpError(403,"admin_required","Доступ только для администратора");
         if(action==="devices"&&!/^[0-9a-f-]{36}$/.test(url.searchParams.get("userId")||""))throw new HttpError(422,"invalid_user","Некорректный UUID");
-        if(!["users","devices"].includes(action))throw new HttpError(404,"not_found","Не найдено");
-        const data=await service.database.transaction(tx=>action==="users"?adminUsers(tx):adminDevices(tx,url.searchParams.get("userId")),{readOnly:true});
+        if(!["users","devices","timeline"].includes(action))throw new HttpError(404,"not_found","Не найдено");
+        if(action==="timeline"){const ids=timelineUsers(url.searchParams),options=adminOptions(url.searchParams);if(!options.range)throw new HttpError(422,"missing_range","Выберите интервал");return response(200,{ok:true,data:await service.database.transaction(tx=>adminTimeline(tx,ids,options.range),{readOnly:true})});}
+        const data=await service.database.transaction(tx=>action==="users"?adminUsers(tx,adminOptions(url.searchParams)):adminDevices(tx,url.searchParams.get("userId")),{readOnly:true});
         return response(200,{ok:true,data});
       }
       let data;
