@@ -1,3 +1,4 @@
+import { deletionIdsForUser } from "@/lib/replication/deletions";
 import { withReplies } from "@/lib/message-replies";
 import { ok, readJson, route } from "@/lib/api";
 import { authenticate, publicUser } from "@/lib/auth";
@@ -45,7 +46,7 @@ export const POST = route(async (request) => {
     })).map(toGroupRecord);
     const groupIds = groups.map((group) => group.id);
 
-    const [contacts, messages, groupMessages, hidden, readStates] = await Promise.all([
+    const [contacts, messages, groupMessages, hidden, readStates, deletedMessageIds] = await Promise.all([
       db.contact.findMany({ where: { ownerId: authenticated.id }, include: { user: true } }),
       db.message.findMany({
         where: { ...involving(authenticated.id), ...visibleTo(authenticated.id) },
@@ -61,6 +62,7 @@ export const POST = route(async (request) => {
       }),
       db.hiddenConversation.findMany({ where: { ownerId: authenticated.id }, select: { peerId: true } }),
       readStatesAround(db, authenticated.id, groupIds),
+      deletionIdsForUser(db, authenticated.id),
     ]);
 
     return {
@@ -70,6 +72,7 @@ export const POST = route(async (request) => {
       groupMessages: groupMessages.reverse().map(toGroupMessageRecord),
       hiddenPeerIds: hidden.map((item) => item.peerId),
       readStates,
+      deletedMessageIds,
     };
   };
 
@@ -108,6 +111,7 @@ export const POST = route(async (request) => {
 
     return {
       contacts,
+      deletedMessageIds: loaded.deletedMessageIds,
       messages: loaded.messages.map((message) => publicMessage(message, loaded.readStates)),
       hiddenPeerIds: loaded.hiddenPeerIds,
       groups: loaded.groups.map(publicGroup),

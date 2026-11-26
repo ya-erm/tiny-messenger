@@ -7,6 +7,7 @@ import { POST as pollMessages } from "../src/app/api/messages/poll/route";
 import { prisma, read, write } from "../src/lib/db";
 import { acceptMutation } from "../src/lib/mutations/accept";
 import { synchronizeInstallations } from "../src/lib/replication/synchronize";
+import { deletionIdsForUser } from "../src/lib/replication/deletions";
 import { prepareHistory, historyId } from "../src/lib/replication/history";
 import { publicMessage } from "../src/lib/domain";
 import { messageInclude, toMessageRecord, readStatesForChat, advanceReadState } from "../src/lib/store";
@@ -87,7 +88,9 @@ try {
   assert.deepEqual((await localMessage(a.message.id))?.reactions, [{ userId: users[1].id, emoji: "👍" }]);
   const deletion = { ...envelope(users[1].id), type: "message.delete" as const, deletion: { messageId: a.message.id, scope: "everyone" as const } };
   await write((tx) => acceptMutation(tx, deletion, users[1])); await cloud.mutate(users[0], { ...late, operationId: randomUUID() }); await drain();
-  assert.equal(await localMessage(a.message.id), null); await assert.rejects(cloud.message(users[0], a.message.id), (error: any) => error.status === 404);
+  assert.equal(await localMessage(a.message.id), null);
+  assert.ok((await read((db) => deletionIdsForUser(db, users[0].id))).includes(a.message.id));
+  assert.ok((await cloud.snapshot(users[1])).deletedMessageIds.includes(a.message.id)); await assert.rejects(cloud.message(users[0], a.message.id), (error: any) => error.status === 404);
 
   await cloud.receipt(users[1], b.message.id, "read"); await drain();
   assert.equal((await localMessage(b.message.id))?.status, "read");

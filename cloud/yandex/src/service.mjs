@@ -60,6 +60,7 @@ export function createService(database, installationId = "yandex-1") {
         }
         return { contacts: state.contacts || [], groups: state.groups || [], groupMessages: state.groupMessages || [],
           hiddenPeerIds: state.hiddenPeerIds || [], readStates: state.readStates || [], messages,
+          deletedMessageIds: (await tx.scan("deleted:" + user.id, 10000)).map((item) => item.id),
           installationId, cursor: cursor(await tx.sequence()), syncedAt: new Date().toISOString() };
       }, { readOnly: true });
     },
@@ -124,6 +125,7 @@ export function createService(database, installationId = "yandex-1") {
               fromUserId: projection.message.fromUserId, toUserId: projection.message.toUserId, deleted: true }
               : await withReceipt(tx, { ...projection.message, senderName: state.senderName,
                 ...(projection.editedAt ? { editedAt: projection.editedAt } : {}), reactions: projection.reactions });
+            if (hidden) await tx.put("deleted:" + viewer, messageId, { id: messageId });
             await tx.putView(viewer, message);
             await tx.addFeed(viewer, sequence, hidden ? { type: "message.delete", id: messageId }
               : { type: "message", message });

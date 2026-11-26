@@ -5,6 +5,7 @@ import type { ChannelId } from "./client-transport";
 
 export const STORAGE_EVENT = "tiny-messenger:storage";
 export interface CachedSnapshot {
+  deletedMessageIds?: string[];
   contacts: PublicContact[]; messages: PublicMessage[]; groups: PublicGroup[];
   groupMessages: PublicGroupMessage[]; hiddenPeerIds: string[];
   readStates: Array<Pick<ReadStateRecord, "chatId" | "lastDeliveredAt" | "lastReadAt">>; syncedAt: string; cursor?: string; installationId?: string;
@@ -55,6 +56,7 @@ export async function cachedProfile(token: string): Promise<PublicUser | undefin
   return transaction("profiles", "readonly", async (store) => (await result(store.get(key)))?.user);
 }
 export async function saveSnapshot(userId: string, channel: ChannelId, snapshot: CachedSnapshot) {
+  if (snapshot.deletedMessageIds?.length) await hideCachedMessages(userId, snapshot.deletedMessageIds);
   await transaction("snapshots", "readwrite", async (store) => {
     const rows = await result(store.index("userId").getAll(userId)) as SnapshotRow[];
     const receivedAt = Math.max(Date.now(), ...rows.map((row) => (row.receivedAt || 0) + 1));
@@ -145,7 +147,7 @@ export async function readCachedSnapshot(userId: string, channel: ChannelId): Pr
     }
     if (operation.type === "message.delete" && item.state !== "failed") hidden.add(operation.deletion.messageId);
   }
-  return { contacts: [...contacts.values()], groups: [...groups.values()], messages: [...messages.values()].filter((item) => !hidden.has(item.id))
+  return { contacts: preferred ? preferred.contacts : [...contacts.values()], groups: [...groups.values()], messages: [...messages.values()].filter((item) => !hidden.has(item.id))
     .sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id)), groupMessages: [...groupMessages.values()].filter((item) => !hidden.has(item.id)),
     hiddenPeerIds: preferred?.hiddenPeerIds || [], readStates: preferred?.readStates || [], syncedAt: preferred?.syncedAt || new Date().toISOString(),
     cursor: preferred?.cursor, installationId: preferred?.installationId };
