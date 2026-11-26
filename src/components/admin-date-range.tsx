@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useId,useRef,useState,type CSSProperties} from "react";
 import {civilInstant,dayAt,presetRange,rangeValid,timeAt,type AdminRange} from "@/lib/admin/time";
-const quick=[['5m','5 мин'],['15m','15 мин'],['1h','1 ч'],['6h','6 ч'],['24h','24 ч'],['7d','7 д'],['30d','30 д'],['90d','90 д']] as const;
+const quick=[['5m','5 мин'],['15m','15 мин'],['1h','1 ч'],['3h','3 ч'],['6h','6 ч'],['12h','12 ч'],['24h','24 ч'],['48h','48 ч'],['7d','7 д'],['14d','14 д'],['30d','30 д'],['90d','90 д']] as const;
 const weekdays=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 function monthOf(day:string){return day.slice(0,7)+"-01";}
 function moveMonth(day:string,offset:number){const date=new Date(day+"T12:00:00Z");date.setUTCMonth(date.getUTCMonth()+offset);return date.toISOString().slice(0,10);}

@@ -61,7 +61,7 @@ export function createHandler(serviceProvider = getService, configuration = proc
         status: "healthy", apiVersion: 1, installationId: configuration.TM_INSTALLATION_ID || "yandex-1", time: new Date().toISOString() } });
       if (path === "/api/transport" && method === "GET") return response(200, { ok: true, data: {
         installationId: configuration.TM_INSTALLATION_ID || "yandex-1", protocolVersion: 1, rowReplicationVersion: 1, mutationTypes,
-        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login", "image-thumbnails", "admin-charts-v3"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
+        capabilities: ["personal-text", "edits", "reactions", "deletions", "changes", "native-token", "groups", "quotes", "choices", "attachments", "registration", "contacts-write", "profile-write", "token-rotation", "device-telemetry", "yandex-login", "image-thumbnails", "admin-charts-v4"], voice: false, files: true, replication: Boolean(configuration.TM_REPLICATION_SECRET) } });
       if (path === "/api/config" && method === "GET") return response(200, { ok: true, data: { apiVersion: 1, limits, suggestedNames: [] } });
       if (path === "/api/internal/replication/events" && method === "POST") {
         authorizePeer(headers,configuration);

@@ -52,7 +52,13 @@ test('hourly counts clip both boundaries, deduplicate and keep empty local hours
  const rows=['06:29:59.999','06:30:00.000','08:59:00.000','09:15:00.000','09:15:00.001'].map((time,index)=>({bucket:'Message',id:String(index),fromUserId:'one',at:day+'T'+time+'Z'}));
  const one=summarizeAdmin(users,[...rows,{...rows[1],bucket:'operations',opType:'message.create'}],{range,timeZone:'Europe/Moscow'}).users[0];
  assert.deepEqual(one.hourly.map(item=>item.count),[1,0,1,1]);assert.equal(one.hourly[0].at,day+'T06:00:00.000Z');assert.equal(one.daily[0].count,3);assert.equal(one.counters.messages,5);
- assert.equal(hourlyStarts({from:range.from,to:new Date(Date.parse(range.from)+86400000).toISOString()},'UTC').length,0);
+ for(const hours of [24,48])assert.equal(hourlyStarts({from:day+'T00:00:00.000Z',to:new Date(Date.parse(day+'T00:00:00.000Z')+hours*3600000).toISOString()},'UTC').length,hours+1);
+ assert.equal(hourlyStarts({from:range.from,to:new Date(Date.parse(range.from)+172800001).toISOString()},'UTC').length,0);
  assert.equal(hourlyStarts({from:day+'T06:30:00.000Z',to:day+'T07:30:00.000Z'},'Asia/Kathmandu')[0],day+'T06:15:00.000Z');
  const fold=hourlyStarts({from:'2026-10-25T00:00:00.000Z',to:'2026-10-25T02:30:00.000Z'},'Europe/Berlin');assert.deepEqual(fold,['2026-10-25T00:00:00.000Z','2026-10-25T01:00:00.000Z','2026-10-25T02:00:00.000Z']);
+});
+
+test('quick ranges include three, twelve, forty-eight hours and fourteen calendar days',()=>{
+ const now=Date.parse('2026-11-26T12:34:56.000Z');for(const hours of [3,12,24,48]){const range=presetRange(hours+'h','Europe/Moscow',now);assert.equal(Date.parse(range.to)-Date.parse(range.from),hours*3600000);}
+ const range=presetRange('14d','Europe/Moscow',now);assert.equal(daysBetween(dayAt(range.from,'Europe/Moscow'),dayAt(range.to,'Europe/Moscow')).length,14);
 });

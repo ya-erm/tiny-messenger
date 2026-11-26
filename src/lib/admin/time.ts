@@ -27,7 +27,7 @@ export function startOfDay(day:string,timeZone:string):number{
  return low;
 }
 export function presetRange(preset:string,timeZone:string,now=Date.now(),minimum?:string):AdminRange {
- const durations:Record<string,number>={"5m":300000,"15m":900000,"1h":3600000,"6h":21600000,"24h":86400000};
+ const durations:Record<string,number>={"5m":300000,"15m":900000,"1h":3600000,"3h":10800000,"6h":21600000,"12h":43200000,"24h":86400000,"48h":172800000};
  if(durations[preset])return{from:new Date(now-durations[preset]).toISOString(),to:new Date(now).toISOString(),preset};
  const today=dayAt(now,timeZone),count=Number(preset.replace("d",""))||30;
  const first=preset==="all"?minimum||shiftDay(today,-365):shiftDay(today,-Math.min(365,count-1));
@@ -41,7 +41,7 @@ export function axisDays(days:string[],width:number){
 }
 
 export function hourlyStarts(range:AdminRange,timeZone:string):string[]{
- const from=Date.parse(range.from),to=Date.parse(range.to);if(!Number.isFinite(from)||!Number.isFinite(to)||to<from||to-from>=86400000)return[];
+ const from=Date.parse(range.from),to=Date.parse(range.to);if(!Number.isFinite(from)||!Number.isFinite(to)||to<from||to-from>172800000)return[];
  const time=timeAt(from,timeZone).split(":").map(Number),origin=from-time[1]*60000-time[2]*1000-((from%1000+1000)%1000);
  return Array.from({length:Math.floor((to-origin)/3600000)+1},(_,index)=>new Date(origin+index*3600000).toISOString());
 }

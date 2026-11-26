@@ -60,7 +60,7 @@ export function AdminPanel() {
   return()=>controller.abort();
  },[selected,revision]);
  const users=overview?.users||[],current=users.find(user=>user.id===selected),visible=users.filter(user=>(user.name+" "+(user.nickname||"")+" "+user.id).toLowerCase().includes(query.toLowerCase()));
- const hourly=Date.parse(userRange.to)-Date.parse(userRange.from)<86400000;
+ const hourly=Date.parse(userRange.to)-Date.parse(userRange.from)<=172800000;
  const rangeDays=daysBetween(dayAt(userRange.from,timeZone),dayAt(userRange.to,timeZone)),periodDays=rangeDays.length,validPeriod=rangeValid(userRange)&&periodDays>0;
  const points=useMemo(()=>{if(!current||!validPeriod)return[];if(hourly)return(current.hourly||[]).map(item=>({day:item.at,count:item.count}));const counts=new Map(current.daily.map(item=>[item.day,item.count]));return daysBetween(dayAt(userRange.from,timeZone),dayAt(userRange.to,timeZone)).map(day=>({day,count:counts.get(day)||0}));},[current,validPeriod,hourly,userRange.from,userRange.to,timeZone]);
  useEffect(()=>{const timer=setTimeout(()=>setStableTimelineSearch(timelineSearch),300);return()=>clearTimeout(timer);},[timelineSearch]);
