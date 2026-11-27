@@ -79,3 +79,34 @@ test('sessions expire and separate provider exchanges never reuse an operation I
  const decode=proof=>JSON.parse(Buffer.from(proof.slice(5).split('.')[0],'base64url').toString());
  assert.notEqual(decode(one.proof).id,decode(two.proof).id);
 });
+
+test('Yandex photo is optional, replicated separately and never changes the Messenger avatar automatically',async()=>{
+ const {withExternalProfile}=await import('../shared/external-protocol.mjs');
+ const f=await fixture(),other=await fixture();await other.db.transaction(tx=>tx.put('users',f.user.id,f.user));
+ const make=async(mode,avatar)=>{
+  const flow=makeYandexFlow(config,{mode,origin:config.origins[0],challenge:sha256url(verifier)},mode==='link'?f.user:undefined);
+  assert.equal(new URL(flow.url).searchParams.get('scope'),'login:info login:avatar');
+  return{...await exchangeYandexCode(config,{state:flow.state,code:'photo-code',verifier},async url=>Response.json(url.includes('/token')?{access_token:'temporary-token'}:{psuid:'photo-subject-123',client_id:config.clientId,display_name:'Фото',...avatar})),verifier};
+ };
+ const p=await make('link',{is_avatar_empty:false,default_avatar_id:'12345/photo-id'}),events=[];
+ await f.db.transaction(tx=>finishYandex(config,tx,p,f.user,async op=>events.push(op)));
+ const photo='https://avatars.yandex.net/get-yapic/12345/photo-id/islands-200';
+ assert.equal((await f.db.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,photo);
+ assert.equal((await f.service.authenticate(f.registered.token)).avatarUrl,f.user.avatarUrl);
+ const saved=await f.db.transaction(tx=>tx.get('external-operations',events[0].id));assert.equal(Object.keys(saved).length,8);assert.equal(saved.avatarUrl,undefined);
+ // A legacy peer may deliver the original eight fields before the supplement.
+ await other.db.transaction(tx=>applyExternalLink(tx,saved));
+ const directory=await f.db.transaction(async tx=>withExternalProfile(await tx.get('external-users',f.user.id),await tx.get('external-profile',f.user.id)));
+ await other.db.transaction(tx=>applyExternalLink(tx,directory));await other.db.transaction(tx=>applyExternalLink(tx,directory));
+ assert.equal((await other.db.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,photo);
+ assert.equal((await other.db.transaction(tx=>tx.get('external-operations',saved.id))).avatarUrl,undefined);
+ await assert.rejects(other.db.transaction(tx=>applyExternalLink(tx,{...directory,id:randomUUID(),at:'2099-01-01T00:00:00.000Z',avatarUrl:'https://evil.example/photo'})),/Invalid external avatar/);
+ // Login updates provider metadata without replacing a manually chosen picture.
+ await new Promise(resolve=>setTimeout(resolve,5));
+ const login=await make('login',{is_avatar_empty:false,default_avatar_id:'12345/new-photo'});
+ const result=await f.db.transaction(tx=>finishYandex(config,tx,login,undefined,async op=>events.push(op)));
+ assert.ok(result.token.startsWith('tmw_'));assert.equal((await f.db.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,'https://avatars.yandex.net/get-yapic/12345/new-photo/islands-200');
+ await new Promise(resolve=>setTimeout(resolve,5));
+ const empty=await make('link',{is_avatar_empty:true,default_avatar_id:'0/0-0'});await f.db.transaction(tx=>finishYandex(config,tx,empty,f.user));
+ assert.equal((await f.db.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,null);
+});

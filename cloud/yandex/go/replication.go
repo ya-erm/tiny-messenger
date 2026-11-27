@@ -237,7 +237,7 @@ func (sv *Service) exchange(ctx context.Context, body M) M {
 				if identity == nil {
 					identity = M{}
 				}
-				users = append(users, merge(user, M{"identity": identity, "externalIdentity": tx.Get("external-users", id)}))
+				users = append(users, merge(user, M{"identity": identity, "externalIdentity": withExternalProfile(tx.Get("external-users", id), tx.Get("external-profile", id))}))
 			}
 		}
 		cursor := after

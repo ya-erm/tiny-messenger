@@ -100,3 +100,61 @@ func TestStrictJSONAndMissingRows(t *testing.T) {
 		}
 	}
 }
+
+func TestYandexAvatarCompatibilityAndReplication(t *testing.T) {
+	raw, err := exec.Command("node", "../tests/go-protocol-reference.mjs").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := m(decode(string(raw)))
+	ctx := context.Background()
+	db := newMemoryDB()
+	user := get(fixture, "user")
+	sv := &Service{Database: db, ID: "test-cloud", Config: get(fixture, "config")}
+	sv.transaction(ctx, false, func(tx Tx) any {
+		tx.Put("users", s(user, "id"), user)
+		result := finishYandex(tx, sv.Config, get(fixture, "avatarProof"), user)
+		if !b(result, "linked") {
+			t.Fatal("link missing")
+		}
+		return nil
+	})
+	sv.transaction(ctx, true, func(tx Tx) any {
+		link := tx.Get("external-users", s(user, "id"))
+		receipt := tx.Get("external-operations", s(link, "id"))
+		if len(receipt) != 8 || own(receipt, "avatarUrl") {
+			t.Fatal("legacy receipt was extended")
+		}
+		status := externalStatus(tx, s(user, "id"))
+		if s(status, "avatarUrl") != "https://avatars.yandex.net/get-yapic/123/test-photo/islands-200" {
+			t.Fatal("provider picture missing")
+		}
+		if own(tx.Get("users", s(user, "id")), "avatarUrl") {
+			t.Fatal("Messenger picture automatically replaced")
+		}
+		feed := tx.Feed(replicationFeed, "0", 5)
+		if len(feed) != 1 || s(get(feed[0], "operation"), "avatarUrl") != "https://avatars.yandex.net/get-yapic/123/test-photo/islands-200" {
+			t.Fatal("picture absent from replication event")
+		}
+		return nil
+	})
+	replica := newMemoryDB()
+	sv.transaction(ctx, true, func(tx Tx) any {
+		link := tx.Get("external-users", s(user, "id"))
+		operation := withExternalProfile(link, tx.Get("external-profile", s(user, "id")))
+		_, err := replica.Transaction(ctx, false, func(other Tx) any {
+			other.Put("users", s(user, "id"), user)
+			applyExternal(other, link)
+			applyExternal(other, operation)
+			applyExternal(other, link)
+			if s(externalStatus(other, s(user, "id")), "avatarUrl") != s(operation, "avatarUrl") {
+				t.Fatal("metadata lost after legacy receipt replay")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	})
+}

@@ -1,7 +1,7 @@
 import {mergeRow,rowKey,parseRowOperation} from '../shared/rows.mjs';
 import {reduceMessageOperations} from '../shared/reduce.mjs';
 import {applyIdentityOperation} from '../shared/identity-protocol.mjs';
-import {makeWebSession,makeYandexFlow} from '../shared/yandex-protocol.mjs';
+import {makeWebSession,makeYandexFlow,exchangeYandexCode,sha256url} from '../shared/yandex-protocol.mjs';
 import {memoryStore} from './memory-store.mjs';
 import {createHash} from 'node:crypto';
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -19,8 +19,10 @@ const database=memoryStore();await database.transaction(tx=>tx.put('users',user.
 for(const op of identity)await database.transaction(tx=>applyIdentityOperation(tx,op));
 const identityExpected=await database.transaction(tx=>tx.get('users',user.id));
 const config={clientId:'test-client',clientSecret:'synthetic',sessionKey:'a'.repeat(64),origins:['https://tm.example']};
+const verifier='a'.repeat(64),avatarFlow=makeYandexFlow(config,{mode:'link',origin:config.origins[0],challenge:sha256url(verifier)},user);
+const avatarProof={...await exchangeYandexCode(config,{state:avatarFlow.state,code:'test-code',verifier},async url=>Response.json(url.includes('/token')?{access_token:'synthetic'}:{psuid:'test-photo-subject',client_id:config.clientId,display_name:'Тест',is_avatar_empty:false,default_avatar_id:'123/test-photo'})),verifier};
 const session=makeWebSession(user,config),flow=makeYandexFlow(config,{mode:'link',challenge:'A'.repeat(43),origin:'https://tm.example'},user);
 const nativeBase={protocolVersion:1,operationId:id(70),actorId:id(1),deviceId:id(3),occurredAt:at(0),type:'message.create',message:{id:id(71),fromUserId:id(1),toUserId:id(2),kind:'text',text:'Первый',sentAt:at(0)}};
 const nativeOps=[nativeBase,...[1,2].map(n=>({...nativeBase,operationId:id(71+n),occurredAt:at(n),type:'message.edit',message:{...nativeBase.message,text:'Редакция '+n}})),{protocolVersion:1,operationId:id(74),actorId:id(2),deviceId:id(3),occurredAt:at(3),type:'reaction.set',reaction:{messageId:id(71),userId:id(2),emoji:'👩🏽‍💻'}},{protocolVersion:1,operationId:id(75),actorId:id(2),deviceId:id(3),occurredAt:at(4),type:'message.delete',deletion:{messageId:id(71),scope:'everyone'}}];
 const native=Array.from({length:12},()=>{const operations=[...nativeOps].sort(()=>next()%3-1),projection=reduceMessageOperations(operations);return{operations,expected:{...projection,statuses:Object.fromEntries(projection.statuses)}};});
-console.log(JSON.stringify({rows,native,user,identity,identityExpected,session,flow,config}));
+console.log(JSON.stringify({rows,native,user,identity,identityExpected,session,flow,config,avatarProof}));

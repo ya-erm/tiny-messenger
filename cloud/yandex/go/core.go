@@ -258,7 +258,7 @@ func wireKeys(v M) []string {
 		return []string{"version", "id", "userId", "at", "kind", "nicknameAt", "profile"}
 	}
 	if s(v, "provider") == "yandex" && own(v, "subjectHash") && own(v, "deleted") {
-		return []string{"version", "id", "userId", "subjectHash", "provider", "at", "deleted", "label"}
+		return []string{"version", "id", "userId", "subjectHash", "provider", "at", "deleted", "label", "avatarUrl"}
 	}
 	if len(v) == 4 && own(v, "name") && own(v, "nickname") && own(v, "avatarUrl") && own(v, "avatarBackground") {
 		return []string{"name", "nickname", "avatarUrl", "avatarBackground"}

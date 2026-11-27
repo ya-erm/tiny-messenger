@@ -2909,7 +2909,7 @@ function UserSearch({ request, contacts, exclude, disabled, pickLabel, onPick }:
   );
 }
 
-function AvatarEditor({ name, avatarUrl, avatarBackground, onAvatarUrl, onAvatarBackground, onDone, imageGroupLabel = "Готовые изображения профиля" }: {
+function AvatarEditor({ name, avatarUrl, avatarBackground, onAvatarUrl, onAvatarBackground, onDone, imageGroupLabel = "Готовые изображения профиля", yandexAvatarUrl }: {
   name: string;
   avatarUrl: string;
   avatarBackground: string;
@@ -2917,6 +2917,7 @@ function AvatarEditor({ name, avatarUrl, avatarBackground, onAvatarUrl, onAvatar
   onAvatarBackground: (value: string) => void;
   onDone: () => void;
   imageGroupLabel?: string;
+  yandexAvatarUrl?: string;
 }) {
   return <div className="settings-section avatar-editor-section">
     <div className="avatar-editor-current">
@@ -2925,7 +2926,7 @@ function AvatarEditor({ name, avatarUrl, avatarBackground, onAvatarUrl, onAvatar
     </div>
     <div className="field-label avatar-field">Изображение
       <div className="avatar-presets" role="group" aria-label={imageGroupLabel}>
-        {AVATAR_PRESETS.map((preset) => (
+        {(yandexAvatarUrl ? [{name: "Фото из Яндекс ID", url: yandexAvatarUrl}, ...AVATAR_PRESETS] : AVATAR_PRESETS).map((preset) => (
           <button
             key={preset.name}
             type="button"
@@ -3184,6 +3185,7 @@ function SettingsDialog({
   const [nickname, setNickname] = useState(user.nickname ?? "");
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
   const [avatarBackground, setAvatarBackground] = useState(user.avatarBackground ?? "");
+  const [yandexAvatarUrl, setYandexAvatarUrl] = useState<string>();
   const [view, setView] = useState<"profile" | "avatar" | "notifications">("profile");
   const [showToken, setShowToken] = useState(false);
   const [confirmTokenReset, setConfirmTokenReset] = useState(false);
@@ -3328,6 +3330,7 @@ function SettingsDialog({
         ) : view === "avatar" ? (
           <AvatarEditor
             name={name || user.name}
+            yandexAvatarUrl={yandexAvatarUrl}
             avatarUrl={avatarUrl}
             avatarBackground={avatarBackground}
             onAvatarUrl={setAvatarUrl}
@@ -3392,7 +3395,7 @@ function SettingsDialog({
         </div> : null}
 
         {view === "profile" && adminAccess ? <div className="settings-section"><a className="notification-help-link" href="/admin/">Администрирование</a></div> : null}
-        {view === "profile" ? <YandexAccount token={token} userId={user.id} /> : null}
+        {view === "profile" ? <YandexAccount token={token} userId={user.id} selectedAvatar={avatarUrl} onAvatarAvailable={setYandexAvatarUrl} disabled={busy} onSelectAvatar={(url) => {setAvatarUrl(url);setNotice("Фото Яндекса выбрано. Нажмите «Сохранить», чтобы обновить профиль.");}} /> : null}
         {view === "profile" ? <div className="settings-section token-section">
           {/* Not a <label>: it wraps no input, so the first button became its
               implicit labelled control and inherited :hover from the whole block. */}

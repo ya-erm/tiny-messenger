@@ -19,7 +19,7 @@ async function call<T>(action: string, body?: unknown, token = "", channel?: Cha
   return value.data as T;
 }
 export const yandexConfig = () => call<{enabled: boolean}>("config");
-export const yandexLinkStatus = (token: string) => call<{linked: boolean; label?: string; conflict?: boolean}>("link", undefined, token);
+export const yandexLinkStatus = (token: string) => call<{linked: boolean; label?: string; conflict?: boolean; avatarUrl?: string | null}>("link", undefined, token);
 function base64url(bytes: Uint8Array) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
 export async function startYandex(mode: "link" | "login", token = "", userId?: string) {
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(48)));

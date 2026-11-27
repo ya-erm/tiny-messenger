@@ -100,7 +100,7 @@ func makeYandexFlow(config, body, user M) M {
 		flow["actorGeneration"] = sha(s(user, "tokenHash"))
 	}
 	state := sign("tmyf_", flow, s(config, "sessionKey"))
-	q := url.Values{"response_type": {"code"}, "client_id": {s(config, "clientId")}, "redirect_uri": {s(flow, "redirectUri")}, "scope": {"login:info"}, "force_confirm": {"yes"}, "state": {state}, "code_challenge": {s(flow, "challenge")}, "code_challenge_method": {"S256"}}
+	q := url.Values{"response_type": {"code"}, "client_id": {s(config, "clientId")}, "redirect_uri": {s(flow, "redirectUri")}, "scope": {"login:info login:avatar"}, "force_confirm": {"yes"}, "state": {state}, "code_challenge": {s(flow, "challenge")}, "code_challenge_method": {"S256"}}
 	return M{"url": "https://oauth.yandex.ru/authorize?" + q.Encode(), "state": state}
 }
 func verifierMatches(v M, verifier string) bool {
@@ -166,6 +166,14 @@ func exchangeYandex(ctx context.Context, config, body M) M {
 		exp = int64(n(flow["exp"]))
 	}
 	proof := merge(flow, M{"id": uuid(), "subjectHash": sha("yandex\x00" + s(config, "clientId") + "\x00" + s(info, "psuid")), "label": label, "exp": exp})
+	if info["is_avatar_empty"] == true {
+		proof["avatarUrl"] = nil
+	} else if info["is_avatar_empty"] == false {
+		avatarID := s(info, "default_avatar_id")
+		if avatarID != "" && len(avatarID) <= 400 && regexpMust(`^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$`).MatchString(avatarID) {
+			proof["avatarUrl"] = "https://avatars.yandex.net/get-yapic/" + avatarID + "/islands-200"
+		}
+	}
 	return M{"proof": sign("tmyv_", proof, s(config, "sessionKey"))}
 }
 func truncateUTF16(v string, limit int) string {
@@ -201,6 +209,7 @@ func finishYandex(tx Tx, config, body, actor M) M {
 		if user == nil {
 			fail(409, "yandex_account_pending", "Аккаунт ещё синхронизируется")
 		}
+		recordYandexProfile(tx, proof, s(user, "id"))
 		return M{"token": makeWebSession(user, config), "user": publicUser(user)}
 	}
 	if actor == nil || s(actor, "id") != s(proof, "actorId") || sha(s(actor, "tokenHash")) != s(proof, "actorGeneration") {
@@ -222,14 +231,27 @@ func finishYandex(tx Tx, config, body, actor M) M {
 	if b(body, "checkOnly") {
 		return M{"canLink": true, "userId": actor["id"]}
 	}
-	if current != nil && !b(current, "deleted") && s(current, "subjectHash") == s(proof, "subjectHash") {
-		return M{"linked": true, "userId": actor["id"]}
+	recordYandexProfile(tx, proof, s(actor, "id"))
+	return M{"linked": true, "userId": actor["id"]}
+}
+func recordYandexProfile(tx Tx, proof M, userID string) {
+	current := tx.Get("external-users", userID)
+	profile := withExternalProfile(current, tx.Get("external-profile", userID))
+	op := M{"version": 1, "id": proof["id"], "userId": userID, "provider": "yandex", "subjectHash": proof["subjectHash"], "at": proof["at"], "deleted": false, "label": proof["label"]}
+	if own(proof, "avatarUrl") {
+		op["avatarUrl"] = proof["avatarUrl"]
+	} else if own(profile, "avatarUrl") {
+		op["avatarUrl"] = profile["avatarUrl"]
 	}
-	op := M{"version": 1, "id": proof["id"], "userId": actor["id"], "provider": "yandex", "subjectHash": proof["subjectHash"], "at": proof["at"], "deleted": false, "label": proof["label"]}
+	if current != nil && !b(current, "deleted") && s(current, "subjectHash") == s(proof, "subjectHash") && s(current, "label") == s(proof, "label") && (!own(proof, "avatarUrl") || equal(profile["avatarUrl"], proof["avatarUrl"])) {
+		return
+	}
+	if current != nil && identityOrder(current) > identityOrder(op) {
+		return
+	}
 	applyExternal(tx, op)
-	if s(tx.Get("external-users", s(actor, "id")), "id") != s(op, "id") {
+	if s(tx.Get("external-users", userID), "id") != s(op, "id") {
 		fail(409, "yandex_link_superseded", "Привязка уже была изменена. Начните заново.")
 	}
 	appendReplication(tx, "external:"+s(op, "id"), M{"type": "external", "operation": op})
-	return M{"linked": true, "userId": actor["id"]}
 }

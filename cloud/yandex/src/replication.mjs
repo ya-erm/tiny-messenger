@@ -1,3 +1,4 @@
+import {withExternalProfile} from "../shared/external-protocol.mjs";
 import {acknowledgeObservations,parseObservation} from "../shared/telemetry-protocol.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { REPLICATION_VERSION, REPLICATION_BATCH, REPLICATION_FEED, replicationCursor } from "../shared/replication.mjs";
@@ -60,7 +61,7 @@ export function createReplication(database, service, configuration) {
         for (const key of ["fromUserId", "toUserId", "ownerId", "uploaderId", "userId", "peerId"]) if (patch[key]) userIds.add(patch[key]);
       }
       const users = [];
-      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{},externalIdentity:await tx.get("external-users",id)}); }
+      for (const id of userIds) { const user = await tx.get("users", id); if (user) users.push({...user,identity:await tx.get("identity-state",id)||{},externalIdentity:withExternalProfile(await tx.get("external-users",id),await tx.get("external-profile",id))}); }
       return { users, userProtocolVersion: 4, rowProtocolVersion: 1, protocolVersion: REPLICATION_VERSION, sourceId: service.installationId, targetId: body.sourceId,
         events, telemetry, cursor: events.at(-1)?.sequence || after, hasMore };
     }, { readOnly: true });

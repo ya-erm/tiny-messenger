@@ -336,7 +336,7 @@ func applyExternal(tx Tx, input M) bool {
 		if !equal(saved, op) {
 			panicError("External operation ID conflict")
 		}
-		return false
+		return storeExternalAvatar(tx, input, op)
 	}
 	if tx.Get("users", s(op, "userId")) == nil {
 		panicError("External user missing")
@@ -353,6 +353,7 @@ func applyExternal(tx Tx, input M) bool {
 		tx.Put("external-users", s(op, "userId"), op)
 	}
 	tx.Put("external-operations", s(op, "id"), op)
+	storeExternalAvatar(tx, input, op)
 	return true
 }
 func externalOwners(tx Tx, hash string) []string {
@@ -372,5 +373,34 @@ func externalStatus(tx Tx, id string) M {
 	if link == nil || b(link, "deleted") {
 		return M{"linked": false}
 	}
-	return M{"linked": true, "label": link["label"], "conflict": len(externalOwners(tx, s(link, "subjectHash"))) > 1, "linkedAt": link["at"]}
+	result := M{"linked": true, "label": link["label"], "conflict": len(externalOwners(tx, s(link, "subjectHash"))) > 1, "linkedAt": link["at"]}
+	profile := withExternalProfile(link, tx.Get("external-profile", id))
+	if own(profile, "avatarUrl") {
+		result["avatarUrl"] = profile["avatarUrl"]
+	}
+	return result
+}
+
+var yandexAvatarRE = regexpMust(`^https://avatars\.yandex\.net/get-yapic/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/islands-200$`)
+
+func validYandexAvatar(v any) bool { return len(str(v)) <= 500 && yandexAvatarRE.MatchString(str(v)) }
+func withExternalProfile(link, profile M) M {
+	if link != nil && profile != nil && s(link, "subjectHash") == s(profile, "subjectHash") {
+		return merge(link, M{"avatarUrl": profile["avatarUrl"]})
+	}
+	return link
+}
+func storeExternalAvatar(tx Tx, input, op M) bool {
+	if !own(input, "avatarUrl") {
+		return false
+	}
+	if input["avatarUrl"] != nil && !validYandexAvatar(input["avatarUrl"]) {
+		invalid("external avatar")
+	}
+	previous := tx.Get("external-profile", s(op, "userId"))
+	if previous != nil && identityOrder(previous) >= identityOrder(op) {
+		return false
+	}
+	tx.Put("external-profile", s(op, "userId"), merge(pick(op, "id", "at", "subjectHash"), M{"avatarUrl": input["avatarUrl"]}))
+	return true
 }
