@@ -1238,3 +1238,5 @@ select, .admin-zone-control select, .api-channel-controls select, .reaction-cata
 .yandex-section .text-action { border: 0; padding: 0; background: none; color: var(--green); font: inherit; font-size: 11px; line-height: 1.4; cursor: pointer; }
 .yandex-section .text-action:disabled { color: var(--muted); cursor: default; }
 .yandex-section .text-action:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 2px; }
+
+.api-channel-settings[hidden] { display: none; }

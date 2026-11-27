@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { API_CHANNELS, CHANNEL_OPTIONS, ROUTE_EVENT, transportStatus, checkChannels, selectedMode, CHANNEL_EVENT, CHANNEL_KEY, chooseChannel, type ChannelId } from "@/lib/client-transport";
 import { queuedMutations, retryQueuedMutations, STORAGE_EVENT } from "@/lib/client-storage";
 
-export function ApiChannelSelector({ userId }: { userId?: string }) {
+export function ApiChannelSelector({ userId, autoCheck = false, hidden = false }: { userId?: string; autoCheck?: boolean; hidden?: boolean }) {
   const selectId = useId();
   const [channel, setChannel] = useState<ChannelId>("default");
   const [activeAlias,setActiveAlias]=useState("");
@@ -23,11 +23,30 @@ export function ApiChannelSelector({ userId }: { userId?: string }) {
     update(); window.addEventListener(ROUTE_EVENT,update); window.addEventListener(CHANNEL_EVENT, update); window.addEventListener(STORAGE_EVENT, update); window.addEventListener("storage", storage);
     return () => { cancelled = true; window.removeEventListener(ROUTE_EVENT,update);window.removeEventListener(CHANNEL_EVENT, update); window.removeEventListener(STORAGE_EVENT, update); window.removeEventListener("storage", storage); };
   }, [userId]);
-  async function measure() {
+  const mounted = useRef(false);
+  const measuring = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const measure = useCallback(async (updateRoute = true) => {
+    if (measuring.current) return;
+    measuring.current = true;
     setChecking(true);setMeasurements({});
-    try{await checkChannels(item=>setMeasurements(previous=>({...previous,[item.channel]:item.ok?`${item.latencyMs} мс`:"Нет ответа"})));}finally{setChecking(false);}
-  }
-  return <section className="settings-section api-channel-settings" aria-label="Канал связи">
+    try {
+      await checkChannels(item => {
+        if (mounted.current) setMeasurements(previous => ({...previous, [item.channel]: item.ok ? `${item.latencyMs} мс` : "Нет ответа"}));
+      }, {updateRoute});
+    } finally {
+      measuring.current = false;
+      if (mounted.current) setChecking(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (autoCheck) void measure(false);
+  }, [autoCheck, measure]);
+
+  return <section hidden={hidden} className="settings-section api-channel-settings" aria-label="Канал связи">
     <label className="field-label" htmlFor={selectId}>Канал связи</label>
     <div className="api-channel-controls">
       <div className="api-channel-select">

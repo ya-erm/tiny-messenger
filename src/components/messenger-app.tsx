@@ -3436,7 +3436,7 @@ function SettingsDialog({
             </div>
           ) : null}
         </div> : null}
-        {view === "profile" ? <ApiChannelSelector userId={user.id} /> : null}
+        <ApiChannelSelector userId={user.id} autoCheck hidden={view !== "profile"} />
         {view === "profile" ? <p className="emoji-credit">Эмодзи: <a href="/emoji/twemoji-17.0.3/NOTICE.txt" target="_blank" rel="noreferrer">Twemoji</a> · <a href="/emoji/twemoji-17.0.3/LICENSE-GRAPHICS.txt" target="_blank" rel="noreferrer">CC BY 4.0</a></p> : null}
       </section>
     </div>

@@ -89,7 +89,7 @@ async function ensureRoute(force=false,excluded?:PhysicalChannel,credential=curr
   if(force||!active||activeMode!==mode||substantial)select(best.channel,force?"unavailable":mode==="default"?"primary-fallback":"latency");
  })();selecting=run;try{await run;}finally{selecting=undefined;}
 }
-export async function checkChannels(onResult?:(result:Measurement)=>void){const result=await Promise.all(API_CHANNELS.map(c=>probeChannel(c.id).then(result=>{onResult?.(result);return result;})));checkedAt=0;await ensureRoute().catch(()=>{});return result;}
+export async function checkChannels(onResult?:(result:Measurement)=>void,options:{updateRoute?:boolean}={}){const result=await Promise.all(API_CHANNELS.map(c=>probeChannel(c.id).then(result=>{onResult?.(result);return result;})));if(options.updateRoute!==false){checkedAt=0;await ensureRoute().catch(()=>{});}return result;}
 function retrySafe(path:string,init:RequestInit){
  if(!init.method||["GET","HEAD","OPTIONS"].includes(init.method))return true;
  if(init.method!=="POST")return false;
