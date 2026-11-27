@@ -1,0 +1,43 @@
+name: Build avatar fix with existing public channel configuration
+on:
+  push:
+    branches: ['build/tm-avatars-public-channel-config']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6f9530a5b169745aa1ba308f5083f3d206104157
+          persist-credentials: false
+      - name: Read-only public connectivity check
+        run: |
+          if curl --fail --silent --show-error --max-time 12 https://tm.ya-erm.ru/api/health; then
+            echo "PUBLIC_TM_HEALTH=ok"
+          else
+            echo "PUBLIC_TM_HEALTH=unreachable"
+          fi
+      - name: Build isolated Linux release
+        env:
+          NEXT_PUBLIC_CLOUD_API_ORIGIN: ${{ secrets.TM_CLOUD_API_ORIGIN }}
+          NEXT_PUBLIC_VPS_MIRROR_HOST: ${{ vars.TM_VPS_MIRROR_HOST }}
+          RUNTIME_IMAGE: node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          BUILD_CPUS: '2'
+          BUILD_MEMORY_MB: '4096'
+          BUILD_NODE_HEAP_MB: '2048'
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tm-task29-6f9530a5b169
+          path: |
+            releases/artifacts/6f9530a5b169745aa1ba308f5083f3d206104157/app.tar.gz
+            releases/artifacts/6f9530a5b169745aa1ba308f5083f3d206104157/runtime-image
+            releases/artifacts/6f9530a5b169745aa1ba308f5083f3d206104157/dependencies-key
+            releases/artifacts/6f9530a5b169745aa1ba308f5083f3d206104157/revision
+            releases/artifacts/6f9530a5b169745aa1ba308f5083f3d206104157/SHA256SUMS
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
