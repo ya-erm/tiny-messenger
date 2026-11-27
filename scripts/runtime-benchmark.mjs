@@ -31,7 +31,7 @@ async function collectWarm(runtime,digest,count=3,initial=[]){
  return{rows,observed};
 }
 const command=process.argv[2]||'help';
-if(command==='help'){console.log('Usage: runtime-benchmark.mjs prepare [node|go] | sample [rounds] | burst node|go [count] | probe | cleanup');}
+if(command==='help'){console.log('Usage: runtime-benchmark.mjs prepare [node|go] | sample [rounds] | burst node|go [count] | probe | series [waves] [idle-seconds] [warm-count] | cleanup');}
 else if(command==='cleanup'){
  for(const entry of Object.values(state.functions)){if(entry.deletedAt)continue;await complete(await api(functionsApi+'functions/'+entry.id,{method:'DELETE'}));entry.deletedAt=new Date().toISOString();await save();}console.log('Disposable benchmark functions removed');
 }else if(command==='prepare'){
@@ -46,6 +46,30 @@ else if(command==='cleanup'){
  await credentials.getToken();state.probes||=[];
  for(const runtime of ['node','go']){const {rows,observed}=await collectWarm(runtime,state.rounds[0].runtimes[runtime].cold.digest);state.probes.push({at:new Date().toISOString(),runtime,rows,observed});await save();if(rows.length!==3)throw Error('Not enough initialized-process calls');console.log(JSON.stringify({runtime,coldMs:observed.filter(row=>row.firstCall).map(row=>Math.round(row.clientMs)),warmMs:rows.map(row=>Math.round(row.clientMs))}));}
 
+}else if(command==='series'){
+ const waves=Math.max(1,Math.min(6,Number(process.argv[3])||4)),idleSeconds=Math.max(60,Math.min(180,Number(process.argv[4])||90)),warmCount=Math.max(3,Math.min(8,Number(process.argv[5])||5));
+ const series={startedAt:new Date().toISOString(),waves:[],memoryMiB:256,idleSeconds,warmCount,firstCallDefinition:'firstCall=true on a successful read; false flags are never counted as cold'};
+ state.series||=[];state.series.push(series);await save();
+ for(let wave=0;wave<waves;wave++){
+  if(wave)await new Promise(resolve=>setTimeout(resolve,idleSeconds*1000));
+  const entry={at:new Date().toISOString(),order:wave%2?['go','node']:['node','go'],runtimes:{}};
+  for(const runtime of entry.order){
+   const first=await call(runtime,'read');if(!first.userPresent||first.count<1)throw Error('Missing benchmark dataset');
+   const {rows:warm,observed}=await collectWarm(runtime,first.digest,warmCount,[first.bootId]);
+   if(warm.length!==warmCount)throw Error('Not enough initialized-process calls');
+   entry.runtimes[runtime]={first,warm,observed:[first,...observed]};
+   console.log(JSON.stringify({wave,runtime,firstMs:Math.round(first.clientMs),firstCall:first.firstCall,coldMs:entry.runtimes[runtime].observed.filter(row=>row.firstCall).map(row=>Math.round(row.clientMs)),warmMs:warm.map(row=>Math.round(row.clientMs))}));
+  }
+  if(entry.runtimes.node.first.digest!==entry.runtimes.go.first.digest)throw Error('Go/Node datasets disagree');
+  series.waves.push(entry);await save();
+ }
+ const describe=values=>{const sorted=[...values].sort((a,b)=>a-b),n=sorted.length;return n?{count:n,minMs:Math.round(sorted[0]),medianMs:Math.round(n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2),maxMs:Math.round(sorted[n-1])}:null;};
+ const summary={waves:series.waves.length,idleSeconds,memoryMiB:256,runtimes:{}};
+ for(const runtime of ['node','go']){
+  const entries=series.waves.map(wave=>wave.runtimes[runtime]),cold=[...new Map(entries.flatMap(row=>row.observed.filter(item=>item.firstCall)).map(item=>[item.bootId,item])).values()];
+  summary.runtimes[runtime]={cold:describe(cold.map(row=>row.clientMs)),warm:describe(entries.flatMap(row=>row.warm.map(item=>item.clientMs))),messagesRead:entries[0].first.count};
+ }
+ series.completedAt=new Date().toISOString();series.summary=summary;await save();console.log(JSON.stringify(summary));
 }else if(command==='sample'){
  const rounds=Math.max(1,Math.min(10,Number(process.argv[3])||5));
  for(let round=0;round<rounds;round++){

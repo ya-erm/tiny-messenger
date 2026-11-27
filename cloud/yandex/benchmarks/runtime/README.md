@@ -59,6 +59,20 @@ The first command consumes freshly prepared versions. Omit `reuse-first` to
 create another version before measuring. Additional source-based samples require
 another managed build, including for copied Go versions.
 
+For several serial waves without rebuilding the functions:
+
+```sh
+node scripts/runtime-benchmark.mjs series 4 90 5
+```
+
+This alternates which runtime goes first, leaves 90 seconds of quiet between
+waves, and collects five initialized-process calls per runtime in each wave.
+The pause does not guarantee a cold process: only an explicit first-call flag
+is counted as cold. Additional processes encountered while collecting warm
+calls are retained as separate observations. Every pair must return matching
+dataset digests. The runner retains all latencies, including outliers, and
+reports counts, minimum, median and maximum rather than unstable percentiles.
+
 The runtime generates a process identifier and marks its first invocation.
 Multiple processes may receive alternating sequential requests: a different
 process identifier alone does not indicate a cold call. Warm classification
