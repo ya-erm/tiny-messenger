@@ -9,10 +9,10 @@ import {applyExternalLink} from '../shared/external-protocol.mjs';
 const config={clientId:'test-client',clientSecret:'test-secret',sessionKey:'a'.repeat(64),origins:['https://client.example']};
 const verifier='a'.repeat(64);
 async function fixture(){const db=memoryStore(),service=createService(db,'test',{yandex:config}),registered=await service.registration.register({name:'User'},'192.0.2.1');return{db,service,registered,user:await service.authenticate(registered.token)};}
-async function proof(mode,user,psuid='provider-subject-123'){
+async function proof(mode,user,psuid='provider-subject-123',providerFields={}){
  const flow=makeYandexFlow(config,{mode,origin:config.origins[0],challenge:sha256url(verifier)},user);
  const calls=[];
- const fetcher=async(url,init)=>{calls.push({url,init});return Response.json(url.includes('/token')?{access_token:'provider-token-must-not-be-stored'}:{psuid,client_id:config.clientId,display_name:'Test Yandex'});};
+ const fetcher=async(url,init)=>{calls.push({url,init});return Response.json(url.includes('/token')?{access_token:'provider-token-must-not-be-stored'}:{psuid,client_id:config.clientId,display_name:'Test Yandex',...providerFields});};
  const verified=await exchangeYandexCode(config,{state:flow.state,code:'test-code',verifier},fetcher);
  return{...verified,verifier,flow,calls};
 }
@@ -121,4 +121,12 @@ test('relayed legacy binding keeps the original picture version instead of renew
  const staleRelay=await a.transaction(async tx=>withExternalProfile(await tx.get('external-users',f.user.id),await tx.get('external-profile',f.user.id)));
  await b.transaction(tx=>applyExternalLink(tx,staleRelay));assert.equal((await b.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,fresh.avatarUrl);
  await a.transaction(tx=>applyExternalLink(tx,fresh));assert.equal((await a.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,fresh.avatarUrl);
+});
+
+test('refreshing a legacy link records an explicitly empty Yandex photo',async()=>{
+ const f=await fixture(),old=await proof('link',f.user);await f.db.transaction(tx=>finishYandex(config,tx,old,f.user));
+ assert.equal(Object.hasOwn(await f.db.transaction(tx=>externalStatus(tx,f.user.id)),'avatarUrl'),false);
+ await new Promise(resolve=>setTimeout(resolve,5));
+ const empty=await proof('link',f.user,'provider-subject-123',{is_avatar_empty:true,default_avatar_id:'0/0-0'});await f.db.transaction(tx=>finishYandex(config,tx,empty,f.user));
+ const status=await f.db.transaction(tx=>externalStatus(tx,f.user.id));assert.equal(Object.hasOwn(status,'avatarUrl'),true);assert.equal(status.avatarUrl,null);
 });

@@ -5,7 +5,7 @@ export async function externalStatus(tx:any,userId:string){const link=await tx.g
 async function recordYandexProfile(tx:any,proof:any,userId:string,record?: (operation:ExternalLinkOperation)=>Promise<void>){
  const current=await tx.get("external-users",userId),profile=withExternalProfile(current,await tx.get("external-profile",userId));
  const avatar=Object.hasOwn(proof,"avatarUrl")?{avatarUrl:proof.avatarUrl}:Object.hasOwn(profile||{},"avatarUrl")?{avatarUrl:profile.avatarUrl,avatarVersion:profile.avatarVersion}:{};
- if(current&&!current.deleted&&current.subjectHash===proof.subjectHash&&current.label===proof.label&&(!Object.hasOwn(proof,"avatarUrl")||(profile.avatarUrl??null)===(proof.avatarUrl??null)))return;
+ if(current&&!current.deleted&&current.subjectHash===proof.subjectHash&&current.label===proof.label&&(!Object.hasOwn(proof,"avatarUrl")||Object.hasOwn(profile,"avatarUrl")&&profile.avatarUrl===proof.avatarUrl))return;
  const operation:ExternalLinkOperation={version:1,id:proof.id,userId,provider:"yandex",subjectHash:proof.subjectHash,at:proof.at,deleted:false,label:proof.label,...avatar};
  if(current&&externalOrder(current)>externalOrder(operation))return;
  await applyExternalLink(tx,operation);const saved=await tx.get("external-users",userId);if(saved?.id!==operation.id)throw new ApiError(409,"yandex_link_superseded","Привязка уже была изменена. Начните заново.");

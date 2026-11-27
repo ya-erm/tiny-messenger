@@ -244,7 +244,7 @@ func recordYandexProfile(tx Tx, proof M, userID string) {
 		op["avatarUrl"] = profile["avatarUrl"]
 		op["avatarVersion"] = profile["avatarVersion"]
 	}
-	if current != nil && !b(current, "deleted") && s(current, "subjectHash") == s(proof, "subjectHash") && s(current, "label") == s(proof, "label") && (!own(proof, "avatarUrl") || equal(profile["avatarUrl"], proof["avatarUrl"])) {
+	if current != nil && !b(current, "deleted") && s(current, "subjectHash") == s(proof, "subjectHash") && s(current, "label") == s(proof, "label") && (!own(proof, "avatarUrl") || own(profile, "avatarUrl") && equal(profile["avatarUrl"], proof["avatarUrl"])) {
 		return
 	}
 	if current != nil && identityOrder(current) > identityOrder(op) {
