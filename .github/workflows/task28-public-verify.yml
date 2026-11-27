@@ -1,0 +1,42 @@
+name: Verify task 28 identity tooltip production delivery
+on:
+  push:
+    branches: ['build/tm-task-28-user-id-tooltip']
+permissions:
+  contents: read
+jobs:
+  verify-public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify public production health and tested client bundle
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,hashlib
+          base='https://tm.ya-erm.ru'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'Cache-Control':'no-cache'}),timeout=20) as response:
+                  assert response.status==200
+                  return response.read()
+          assert json.loads(fetch('/api/health?verify=task28'))['ok']
+          body=fetch('/tasks-embed?verify=task28').decode()
+          assert '/_next/static/chunks/2779-aaac9674f0b2b613.js' in body, 'Public HTML does not reference the new client'
+          actual=hashlib.sha256(fetch('/_next/static/chunks/2779-aaac9674f0b2b613.js')).hexdigest()
+          assert actual=='108c9f9eaa98c8237a4e7ba5f9298be918cc4b37142e5f8795e025de10e31bec', 'Public JS differs from tested release'
+          assert b'conversation-title' in fetch('/_next/static/chunks/2779-aaac9674f0b2b613.js') and b'data-tooltip-align' in fetch('/_next/static/chunks/2779-aaac9674f0b2b613.js'), 'Identity tooltip missing'
+          print('PUBLIC_POSTDEPLOY_OK: healthy HTTPS, new HTML and exact client bundle verified')
+          assert hashlib.sha256(fetch('/sw.js')).hexdigest()=='e1b90a5c2abe7efa17a17a6167cbc6da84b5275c068d129a9bf5affed1da8f22'
+          assert hashlib.sha256(fetch('/notification-state.js')).hexdigest()=='da60bb1bc335b360dd71db81b142eb286cec4e16f1598611c0ed38bfc2b21e17'
+          assert hashlib.sha256(fetch('/webp-encoder-worker.js')).hexdigest()=='327cc326fcc5fd838cc67f1953e2b39c681bf72da212898bdbda04ab46b3e106'
+          assert hashlib.sha256(fetch('/codecs/libwebp-1.6.0-edcc45730b9d/encoder.mjs')).hexdigest()=='af70bc61b561ad12b41e7216beca412b973e5a370f65b95d207482faa7dffe28'
+          assert hashlib.sha256(fetch('/codecs/libwebp-1.6.0-edcc45730b9d/encoder.wasm')).hexdigest()=='b652e5f9fb8681b7057da5089345b0703234c99b82973b9b8c48cc133f8f944e'
+          assert '/_next/static/css/5f2755c3518e3e12.css' in body, 'Public HTML does not reference new CSS'
+          assert hashlib.sha256(fetch('/_next/static/css/5f2755c3518e3e12.css')).hexdigest()=='07165871320b9634720cc8d27159db8683801a482a74c1df42fbf2ffb861d1f3', 'Public CSS differs from tested release'
+          print('PUBLIC_CSS_OK: exact stylesheet verified')
+          assert '0.18.4' in fetch('/').decode(), 'Public shell version differs'
+          with urllib.request.urlopen(base+'/codecs/libwebp-1.6.0-edcc45730b9d/encoder.wasm',timeout=20) as r:
+              assert r.headers.get('Content-Type','').startswith('application/wasm')
+              assert 'immutable' in r.headers.get('Cache-Control','')
+          with urllib.request.urlopen(base+'/codecs/libwebp-1.6.0-edcc45730b9d/encoder.mjs',timeout=20) as r:
+              assert 'javascript' in r.headers.get('Content-Type','')
+          PY
