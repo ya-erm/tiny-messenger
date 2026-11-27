@@ -37,7 +37,7 @@ import {clearImageCache,enableImageCache} from "@/lib/image-cache";
 import { YandexAccount } from "@/components/yandex-auth";
 import { ApiChannelSelector } from "@/components/api-channel-selector";
 import { STATIC_CLIENT, CHANNEL_EVENT, CHANNEL_KEY, fetchChannel, selectedChannel, selectedMode, type ChannelId } from "@/lib/client-transport";
-import { applyCloudChanges, cacheProfile, cachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
+import { applyCloudChanges, cacheProfile, cachedProfile, forgetCachedProfile, channelSnapshot, flushMutations, hideCachedMessages, queueMutation, readCachedSnapshot, saveSnapshot, storedMutation, STORAGE_EVENT, type CachedSnapshot } from "@/lib/client-storage";
 import type { Mutation } from "@/lib/mutations/protocol";
 
 function mutationBase(actorId: string) {
@@ -681,9 +681,9 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, []);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<PublicUser | null>(null);
-  const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "ready">("loading");
+  const [phase, setPhase] = useState<"loading" | "restore-error" | "welcome" | "cached" | "ready">("loading");
   useEffect(()=>{if(phase!=="ready"||!user||!token)return;try{return startChannelTelemetry(user.id,token);}catch{}},[phase,user?.id,token]);
-  const viewportRef = useMobileViewport(phase === "ready");
+  const viewportRef = useMobileViewport(phase === "ready" || phase === "cached");
   const [contacts, setContacts] = useState<PublicContact[]>([]);
   const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [hiddenPeerIds, setHiddenPeerIds] = useState<string[]>([]);
@@ -698,6 +698,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   const notificationNonce = useRef(0);
   const syncSequence = useRef(0);
   const groupCreateAttempt = useRef<{ fingerprint: string; id: string } | null>(null);
+  const restoreAttemptRef = useRef(0);
   const activeTokenRef = useRef(token);
   activeTokenRef.current = token;
   const notificationOpeningRef = useRef(false);
@@ -766,6 +767,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, []);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}, explicitToken?: string) => {
+    if (phase === "cached" && !explicitToken) throw new Error("Подключаемся к серверу. Попробуйте ещё раз через несколько секунд.");
     const currentToken = explicitToken ?? token;
     try {
       return await fetchApi<T>(path, init, currentToken, channel);
@@ -780,7 +782,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
       }
       throw error;
     }
-  }, [token, channel]);
+  }, [token, channel, phase]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -844,38 +846,68 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
 
   useEffect(() => {
     let savedToken = window.localStorage.getItem(TOKEN_KEY);
-    if (!savedToken) {
-      setPhase("welcome");
-      return;
-    }
-    let cancelled = false;
-    Promise.resolve().then(async()=>{
-      const pending=await pendingTokenChange(savedToken!);
-      if(pending){try{const result=await fetchApi<{token:string}>("/api/me/token",{method:"POST",body:JSON.stringify(pending)},savedToken!);savedToken=result.token;window.localStorage.setItem(TOKEN_KEY,result.token);clearTokenChange();}catch(error){if(error instanceof ApiClientError&&error.status===409)clearTokenChange();else throw error;}}
-    }).then(()=>fetchApi<{ user: PublicUser }>("/api/auth/session", {
-      method: "POST",
-      body: JSON.stringify({ token: savedToken }),
-    }, savedToken!))
-      .then(({ user: restored }) => {
-        if (cancelled) return;
+    const attempt = ++restoreAttemptRef.current;
+    if (!savedToken) { setPhase("welcome"); return; }
+    let cancelled = false, verified = false, cachedUserId: string | undefined;
+    const current = () => !cancelled && restoreAttemptRef.current === attempt
+      && window.localStorage.getItem(TOKEN_KEY) === savedToken;
+    const local = (async () => {
+      const restored = await cachedProfile(savedToken!);
+      if (!restored || !current() || verified) return false;
+      const snapshot = await readCachedSnapshot(restored.id, channel).catch(() => undefined);
+      if (!current() || verified) return false;
+      cachedUserId = restored.id;
+      activeTokenRef.current = savedToken!;
+      setToken(savedToken!); setUser(restored);
+      setContacts(snapshot?.contacts || []); setMessages(snapshot?.messages || []);
+      setGroups(snapshot?.groups || []); setGroupMessages(snapshot?.groupMessages || []);
+      setHiddenPeerIds(snapshot?.hiddenPeerIds || []); setReadStates(snapshot?.readStates || []);
+      if (snapshot?.installationId) setInstallationId(snapshot.installationId);
+      setPhase("cached");
+      return true;
+    })().catch(() => false);
+    void (async () => {
+      try {
+        const pending = await pendingTokenChange(savedToken!);
+        if (!current()) return;
+        if (pending) {
+          try {
+            const result = await fetchApi<{token:string}>("/api/me/token", {method:"POST", body:JSON.stringify(pending)}, savedToken!);
+            if (!current()) return;
+            savedToken = result.token;
+            window.localStorage.setItem(TOKEN_KEY, result.token); clearTokenChange();
+          } catch (error) {
+            if (!current()) return;
+            if (error instanceof ApiClientError && error.status === 409) clearTokenChange();
+            else throw error;
+          }
+        }
+        const {user:restored} = await fetchApi<{user:PublicUser}>("/api/auth/session", {method:"POST",body:JSON.stringify({token:savedToken})}, savedToken!);
+        if (!current()) return;
+        verified = true;
+        if (cachedUserId && cachedUserId !== restored.id) {
+          syncSequence.current++; setContacts([]); setMessages([]); setGroups([]);
+          setGroupMessages([]); setHiddenPeerIds([]); setReadStates([]); setSelectedChat(null);
+        }
         void cacheProfile(savedToken!, restored).catch(() => {});
-        setToken(savedToken!);
-        setUser(restored);
-        setPhase("ready");
-      })
-      .catch(async (error: unknown) => {
-        if (cancelled) return;
+        activeTokenRef.current = savedToken!;
+        setToken(savedToken!); setUser(restored); setPhase("ready");
+      } catch (error) {
+        if (!current()) return;
         if (error instanceof ApiClientError && error.status === 401 && error.code === "invalid_token") {
-          window.localStorage.removeItem(TOKEN_KEY);
-          setPhase("welcome");
-          setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
+          verified = true; restoreAttemptRef.current++; syncSequence.current++;
+          window.localStorage.removeItem(TOKEN_KEY); activeTokenRef.current = "";
+          void forgetCachedProfile(savedToken!).catch(() => {});
+          setToken(""); setUser(null); setContacts([]); setMessages([]); setGroups([]);
+          setGroupMessages([]); setHiddenPeerIds([]); setReadStates([]); setSelectedChat(null);
+          setPhase("welcome"); setNotice("Сохранённый токен больше не подходит. Введите актуальный.");
           return;
         }
-        const restored = await cachedProfile(savedToken!).catch(() => undefined);
-        if (cancelled) return;
-        if (restored) { setToken(savedToken!); setUser(restored); setPhase("ready"); }
-        else setPhase("restore-error");
-      });
+        const restored = await local;
+        if (!current()) return;
+        setPhase(restored ? "ready" : "restore-error");
+      }
+    })();
     return () => { cancelled = true; };
   }, [channel]);
 
@@ -890,7 +922,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }, [token]);
 
   const refreshState = useCallback(async () => {
-    if (!token) return;
+    if (!token || phase === "cached") return;
     const sequence = ++syncSequence.current;
     const notification = notificationFocusRef.current;
     let data: CachedSnapshot;
@@ -961,25 +993,26 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     setReadStates(data.readStates);
     observeMessageSound(data.messages, data.groupMessages, data.syncedAt);
     return data;
-  }, [observeMessageSound, request, token, user, channel]);
+  }, [observeMessageSound, request, token, user, channel, phase]);
 
   const restoreLocalState = useCallback(async () => {
     if (!user || !token) return;
+    const sequence = syncSequence.current;
     const data = await readCachedSnapshot(user.id, channel);
-    if (!data || activeTokenRef.current !== token || selectedChannel() !== channel) return;
+    if (!data || sequence !== syncSequence.current || activeTokenRef.current !== token || selectedChannel() !== channel) return;
     setInstallationId(data.installationId || "vps-1");
     setContacts(data.contacts); setMessages(data.messages); setGroups(data.groups);
     setGroupMessages(data.groupMessages); setHiddenPeerIds(data.hiddenPeerIds); setReadStates(data.readStates);
   }, [user, token, channel]);
   const flushOutbox = useCallback(async () => {
-    if (!user || !token || !navigator.onLine) return;
+    if (!user || !token || phase === "cached" || !navigator.onLine) return;
     const processed = await flushMutations(user.id, (operation, target) => fetchApi<{ status?: string }>("/api/mutations", {
       method: "POST", body: JSON.stringify(operation),
     }, token));
     if (processed) await refreshState();
-  }, [user, token, refreshState]);
+  }, [user, token, refreshState, phase]);
   useEffect(() => {
-    if (phase !== "ready") return;
+    if (phase !== "ready" && phase !== "cached") return;
     const restore = () => { void restoreLocalState().catch(() => {}); };
     const flush = () => { void flushOutbox().catch(() => {}); };
     const changed = () => { restore(); flush(); };
@@ -1178,7 +1211,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     for (const message of groupMessages) note({ kind: "group", id: message.groupId }, message);
     return result;
   }, [groupMessages, messages, readCursors, user?.id, cloudChannel]);
-  useEffect(() => { if (phase === "ready") onUnread?.([...chatSummaries.values()].reduce((sum, item) => sum + item.unread, 0)); }, [chatSummaries, onUnread, phase]);
+  useEffect(() => { if (phase === "ready" || phase === "cached") onUnread?.([...chatSummaries.values()].reduce((sum, item) => sum + item.unread, 0)); }, [chatSummaries, onUnread, phase]);
 
 
   const peers = useMemo<Peer[]>(() => {
@@ -1338,7 +1371,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     conversation,
     user?.id,
     selectedChat ? readCursors.get(selectedChat.id) ?? "" : "",
-    phase === "ready" && viewVisible && documentVisible,
+    (phase === "ready" || phase === "cached") && viewVisible && documentVisible,
     selectedChat && focusedNotification?.chat === chatKey(selectedChat) ? focusedNotification.id : undefined,
   );
   const membersGroup = groups.find((group) => group.id === membersGroupId) ?? null;
@@ -1360,6 +1393,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     || Boolean(voice.session || voice.invitation) || voice.setupOpen || voice.setupBusy);
 
   function saveSession(nextUser: PublicUser, nextToken: string) {
+    restoreAttemptRef.current++;
     activeTokenRef.current = nextToken;
     notificationFocusRef.current = null;
     setFocusedNotification(null);
@@ -1489,30 +1523,21 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   }
 
   async function logout() {
-    notificationFocusRef.current = null;
-    setPendingNotification(null);
-    setFocusedNotification(null);
-    syncSequence.current++;
-    if ("serviceWorker" in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration();
-      registration?.active?.postMessage({ type: "notification_logout", userId: user?.id });
-    }
-    const mediaCleanup=user?clearImageCache(user.id):Promise.resolve();
+    const previousUser = user?.id;
+    restoreAttemptRef.current++; activeTokenRef.current = "";
     window.localStorage.removeItem(TOKEN_KEY);
-    await mediaCleanup;
-    await disablePushNotifications(true);
-    initialPeerSelectionHandledRef.current = false;
-    setToken("");
-    setUser(null);
-    setContacts([]);
-    setMessages([]);
-    setHiddenPeerIds([]);
-    setGroups([]);
-    setGroupMessages([]);
-    setReadStates([]);
-    setSelectedChat(null);
-    setShowSettings(false);
-    setPhase("welcome");
+    notificationFocusRef.current = null; setPendingNotification(null); setFocusedNotification(null);
+    syncSequence.current++; initialPeerSelectionHandledRef.current = false;
+    setToken(""); setUser(null); setContacts([]); setMessages([]); setHiddenPeerIds([]);
+    setGroups([]); setGroupMessages([]); setReadStates([]); setSelectedChat(null);
+    setShowSettings(false); setPhase("welcome");
+    await Promise.allSettled([
+      previousUser ? clearImageCache(previousUser) : Promise.resolve(),
+      disablePushNotifications(true),
+      "serviceWorker" in navigator ? navigator.serviceWorker.getRegistration().then(registration => {
+        registration?.active?.postMessage({type:"notification_logout",userId:previousUser});
+      }) : Promise.resolve(),
+    ]);
   }
 
   async function shareOwnProfile() {
@@ -1648,7 +1673,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   // Opening a chat reads it: the watermark moves up to the newest incoming
   // message, which covers everything before it. One request per new message.
   useEffect(() => {
-    if (!viewVisible || !documentVisible || !selectedChat || !user || document.visibilityState !== "visible") return;
+    if (phase !== "ready" || !viewVisible || !documentVisible || !selectedChat || !user || document.visibilityState !== "visible") return;
     const explicitReceipts = cloudChannel && selectedChat.kind === "peer";
     const latest = conversation.filter((message) => message.fromUserId !== user.id && (!explicitReceipts || message.status !== "read")).at(-1);
     if (!latest || (!explicitReceipts && latest.sentAt <= (readCursors.get(selectedChat.id) ?? ""))) return;
@@ -1661,7 +1686,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     })
       .then(() => refreshState())
       .catch(() => { readMarkInFlightRef.current = null; });
-  }, [conversation, documentVisible, readCursors, refreshState, request, selectedChat, user, viewVisible, cloudChannel]);
+  }, [conversation, documentVisible, readCursors, refreshState, request, selectedChat, user, viewVisible, cloudChannel, phase]);
 
   async function answer(messageId: string, optionId: string) {
     try {
@@ -2357,7 +2382,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
         token={token}
         request={request}
         onUser={setUser}
-        onToken={(value) => { window.localStorage.setItem(TOKEN_KEY, value); setToken(value); void cacheProfile(value,user).catch(()=>{}); }}
+        onToken={(value) => { restoreAttemptRef.current++; activeTokenRef.current = value; window.localStorage.setItem(TOKEN_KEY, value); setToken(value); void cacheProfile(value,user).catch(()=>{}); }}
         onLogout={logout}
         onClose={() => setShowSettings(false)}
         setNotice={setNotice}

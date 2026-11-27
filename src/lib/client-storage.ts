@@ -56,6 +56,10 @@ export async function cachedProfile(token: string): Promise<PublicUser | undefin
   const key = await fingerprint(token);
   return transaction("profiles", "readonly", async (store) => (await result(store.get(key)))?.user);
 }
+export async function forgetCachedProfile(token: string) {
+  const key = await fingerprint(token);
+  await transaction("profiles", "readwrite", async store => { await result(store.delete(key)); });
+}
 export async function saveSnapshot(userId: string, channel: ChannelId, snapshot: CachedSnapshot) {
   if (snapshot.deletedMessageIds?.length) await hideCachedMessages(userId, snapshot.deletedMessageIds);
   await transaction("snapshots", "readwrite", async (store) => {
