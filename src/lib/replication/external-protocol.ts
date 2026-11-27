@@ -1,4 +1,4 @@
-export interface ExternalLinkOperation {version:1;id:string;userId:string;subjectHash:string;provider:"yandex";at:string;deleted:boolean;label:string;avatarUrl?:string|null}
+export interface ExternalLinkOperation {version:1;id:string;userId:string;subjectHash:string;provider:"yandex";at:string;deleted:boolean;label:string;avatarUrl?:string|null;avatarVersion?:{id:string;at:string}}
 const uuid=(v:unknown)=>typeof v==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v);
 export const externalOrder=(o:ExternalLinkOperation)=>o.at+"|"+o.id;
 export function parseExternalLink(input:any):ExternalLinkOperation{
@@ -8,13 +8,15 @@ export function parseExternalLink(input:any):ExternalLinkOperation{
 // Optional image metadata is stored separately. Version-1 receipts retain their
 // original eight fields, so older replicas can safely ignore the extra data.
 export const isYandexAvatarUrl=(value:unknown):value is string=>typeof value==="string"&&value.length<=500&&/^https:\/\/avatars\.yandex\.net\/get-yapic\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\/islands-200$/.test(value);
-export function withExternalProfile(link:any,profile:any){return link&&profile&&link.subjectHash===profile.subjectHash?{...link,avatarUrl:profile.avatarUrl}:link;}
+export function withExternalProfile(link:any,profile:any){return link&&profile&&link.subjectHash===profile.subjectHash?{...link,avatarUrl:profile.avatarUrl,avatarVersion:{id:profile.id,at:profile.at}}:link;}
 async function storeExternalAvatar(tx:any,input:any,operation:ExternalLinkOperation){
  if(!Object.hasOwn(input,"avatarUrl"))return false;
  if(input.avatarUrl!==null&&!isYandexAvatarUrl(input.avatarUrl))throw Error("Invalid external avatar");
+ const version=input.avatarVersion||{id:operation.id,at:operation.at};
+ if(!uuid(version.id)||typeof version.at!=="string"||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(version.at)||!Number.isFinite(Date.parse(version.at))||version.at>operation.at)throw Error("Invalid external avatar version");
  const previous=await tx.get("external-profile",operation.userId);
- if(previous&&externalOrder(previous)>=externalOrder(operation))return false;
- await tx.put("external-profile",operation.userId,{id:operation.id,at:operation.at,subjectHash:operation.subjectHash,avatarUrl:input.avatarUrl});return true;
+ if(previous&&externalOrder(previous)>=externalOrder(version))return false;
+ await tx.put("external-profile",operation.userId,{id:version.id,at:version.at,subjectHash:operation.subjectHash,avatarUrl:input.avatarUrl});return true;
 }
 export async function applyExternalLink(tx:any,input:unknown){
  const operation=parseExternalLink(input),receipt=await tx.get("external-operations",operation.id);

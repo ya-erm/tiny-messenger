@@ -110,3 +110,15 @@ test('Yandex photo is optional, replicated separately and never changes the Mess
  const empty=await make('link',{is_avatar_empty:true,default_avatar_id:'0/0-0'});await f.db.transaction(tx=>finishYandex(config,tx,empty,f.user));
  assert.equal((await f.db.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,null);
 });
+
+test('relayed legacy binding keeps the original picture version instead of renewing stale metadata',async()=>{
+ const {withExternalProfile}=await import('../shared/external-protocol.mjs');
+ const f=await fixture(),a=memoryStore(),b=memoryStore();for(const db of[a,b])await db.transaction(tx=>tx.put('users',f.user.id,f.user));
+ const base={version:1,id:randomUUID(),userId:f.user.id,provider:'yandex',subjectHash:'c'.repeat(64),at:'2026-01-01T00:00:00.000Z',deleted:false,label:'Test'};
+ await a.transaction(tx=>applyExternalLink(tx,{...base,avatarUrl:'https://avatars.yandex.net/get-yapic/1/old/islands-200'}));
+ const latest={...base,id:randomUUID(),at:'2026-01-03T00:00:00.000Z'};await a.transaction(tx=>applyExternalLink(tx,latest));
+ const fresh={...base,id:randomUUID(),at:'2026-01-02T00:00:00.000Z',avatarUrl:'https://avatars.yandex.net/get-yapic/1/new/islands-200'};await b.transaction(tx=>applyExternalLink(tx,fresh));
+ const staleRelay=await a.transaction(async tx=>withExternalProfile(await tx.get('external-users',f.user.id),await tx.get('external-profile',f.user.id)));
+ await b.transaction(tx=>applyExternalLink(tx,staleRelay));assert.equal((await b.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,fresh.avatarUrl);
+ await a.transaction(tx=>applyExternalLink(tx,fresh));assert.equal((await a.transaction(tx=>externalStatus(tx,f.user.id))).avatarUrl,fresh.avatarUrl);
+});

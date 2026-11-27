@@ -386,7 +386,7 @@ var yandexAvatarRE = regexpMust(`^https://avatars\.yandex\.net/get-yapic/[A-Za-z
 func validYandexAvatar(v any) bool { return len(str(v)) <= 500 && yandexAvatarRE.MatchString(str(v)) }
 func withExternalProfile(link, profile M) M {
 	if link != nil && profile != nil && s(link, "subjectHash") == s(profile, "subjectHash") {
-		return merge(link, M{"avatarUrl": profile["avatarUrl"]})
+		return merge(link, M{"avatarUrl": profile["avatarUrl"], "avatarVersion": pick(profile, "id", "at")})
 	}
 	return link
 }
@@ -397,10 +397,20 @@ func storeExternalAvatar(tx Tx, input, op M) bool {
 	if input["avatarUrl"] != nil && !validYandexAvatar(input["avatarUrl"]) {
 		invalid("external avatar")
 	}
+	version := get(input, "avatarVersion")
+	if truth(input["avatarVersion"]) && version == nil {
+		invalid("external avatar version")
+	}
+	if version == nil {
+		version = pick(op, "id", "at")
+	}
+	if !validUUID(version["id"]) || !validUTC(version["at"]) || s(version, "at") > s(op, "at") {
+		invalid("external avatar version")
+	}
 	previous := tx.Get("external-profile", s(op, "userId"))
-	if previous != nil && identityOrder(previous) >= identityOrder(op) {
+	if previous != nil && identityOrder(previous) >= identityOrder(version) {
 		return false
 	}
-	tx.Put("external-profile", s(op, "userId"), merge(pick(op, "id", "at", "subjectHash"), M{"avatarUrl": input["avatarUrl"]}))
+	tx.Put("external-profile", s(op, "userId"), merge(pick(version, "id", "at"), M{"subjectHash": op["subjectHash"], "avatarUrl": input["avatarUrl"]}))
 	return true
 }

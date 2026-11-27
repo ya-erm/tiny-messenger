@@ -4,7 +4,7 @@ import {verifiedYandexIdentity,webGeneration,makeWebSession,type YandexConfig} f
 export async function externalStatus(tx:any,userId:string){const link=await tx.get("external-users",userId);if(!link||link.deleted)return {linked:false};const owners=await externalOwners(tx,link.subjectHash),profile=withExternalProfile(link,await tx.get("external-profile",userId));return {linked:true,label:link.label,conflict:owners.length>1,linkedAt:link.at,...(Object.hasOwn(profile,"avatarUrl")?{avatarUrl:profile.avatarUrl}:{})};}
 async function recordYandexProfile(tx:any,proof:any,userId:string,record?: (operation:ExternalLinkOperation)=>Promise<void>){
  const current=await tx.get("external-users",userId),profile=withExternalProfile(current,await tx.get("external-profile",userId));
- const avatar=Object.hasOwn(proof,"avatarUrl")?{avatarUrl:proof.avatarUrl}:Object.hasOwn(profile||{},"avatarUrl")?{avatarUrl:profile.avatarUrl}:{};
+ const avatar=Object.hasOwn(proof,"avatarUrl")?{avatarUrl:proof.avatarUrl}:Object.hasOwn(profile||{},"avatarUrl")?{avatarUrl:profile.avatarUrl,avatarVersion:profile.avatarVersion}:{};
  if(current&&!current.deleted&&current.subjectHash===proof.subjectHash&&current.label===proof.label&&(!Object.hasOwn(proof,"avatarUrl")||(profile.avatarUrl??null)===(proof.avatarUrl??null)))return;
  const operation:ExternalLinkOperation={version:1,id:proof.id,userId,provider:"yandex",subjectHash:proof.subjectHash,at:proof.at,deleted:false,label:proof.label,...avatar};
  if(current&&externalOrder(current)>externalOrder(operation))return;
