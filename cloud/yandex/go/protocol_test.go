@@ -158,3 +158,21 @@ func TestYandexAvatarCompatibilityAndReplication(t *testing.T) {
 		return nil
 	})
 }
+
+func TestLegacyYandexLinkCanRecordEmptyPhoto(t *testing.T) {
+	ctx := context.Background()
+	db := newMemoryDB()
+	id := "11111111-1111-4111-8111-111111111111"
+	sv := &Service{Database: db, ID: "test", Config: M{}}
+	sv.transaction(ctx, false, func(tx Tx) any {
+		tx.Put("users", id, M{"id": id})
+		old := M{"version": 1, "id": "22222222-2222-4222-8222-222222222222", "userId": id, "subjectHash": strings.Repeat("a", 64), "provider": "yandex", "at": "2026-01-01T00:00:00.000Z", "deleted": false, "label": "Test"}
+		applyExternal(tx, old)
+		recordYandexProfile(tx, M{"id": "33333333-3333-4333-8333-333333333333", "subjectHash": old["subjectHash"], "at": "2026-01-02T00:00:00.000Z", "label": "Test", "avatarUrl": nil}, id)
+		status := externalStatus(tx, id)
+		if !own(status, "avatarUrl") || status["avatarUrl"] != nil {
+			t.Fatal("empty provider photo remained unknown")
+		}
+		return nil
+	})
+}
