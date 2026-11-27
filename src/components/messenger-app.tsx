@@ -2051,7 +2051,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
             <header className="conversation-header">
               <button className="mobile-back" onClick={() => setSelectedChat(null)} aria-label="Назад" data-tooltip="Назад" data-tooltip-position="bottom"><Glyph name="back" /></button>
               <Avatar name={selectedEntry.name} avatarUrl={selectedEntry.avatarUrl} avatarBackground={selectedEntry.avatarBackground} className={`contact-avatar large ${selectedGroup ? "group-avatar" : ""}`} />
-              <div className="conversation-title" data-tooltip={selectedEntry.ref.id}>
+              <div className="conversation-title" data-tooltip={selectedEntry.ref.id} data-tooltip-position="bottom" data-tooltip-align="left">
                 <strong>{selectedEntry.name}</strong>
                 <span>{selectedGroup
                   ? pluralize(selectedGroup.members.length, ["участник", "участника", "участников"])

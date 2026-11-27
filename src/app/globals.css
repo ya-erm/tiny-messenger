@@ -195,6 +195,12 @@ button, a, input, textarea, select, [role="button"] { touch-action: manipulation
 [data-tooltip-align="right"]:hover::after,
 [data-tooltip-align="right"]:focus-visible::before,
 [data-tooltip-align="right"]:focus-visible::after { transform: translateY(0); }
+[data-tooltip-align="left"]::after { left: 0; transform: translateY(4px); }
+[data-tooltip-align="left"]::before { left: 12px; transform: translateY(4px); }
+[data-tooltip-align="left"]:hover::before,
+[data-tooltip-align="left"]:hover::after,
+[data-tooltip-align="left"]:focus-visible::before,
+[data-tooltip-align="left"]:focus-visible::after { transform: translateY(0); }
 [data-tooltip][aria-expanded="true"]::before,
 [data-tooltip][aria-expanded="true"]::after { display: none; }
 /* A button keeps focus after a click, so its :focus-visible tooltip would stay
