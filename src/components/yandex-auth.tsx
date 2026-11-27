@@ -25,20 +25,28 @@ export function YandexAccount({token = "", userId, selectedAvatar, onSelectAvata
   }
   if (!enabled) return null;
   return <div className={token ? "settings-section yandex-section" : "yandex-login-section"}>
-    {token ? <>
-      <strong>Яндекс ID</strong>
-      <p className="form-hint">{link?.linked ? link.conflict ? "Обнаружен конфликт привязок. Используйте резервный токен." : `Привязан${link.label ? ": " + link.label : ""}. Можно входить без токена.` : "Привяжите Яндекс ID, чтобы входить в этот аккаунт без токена."}</p>
-    </> : null}
+    {token ? <span className="field-label">Яндекс ID</span> : null}
     {link?.linked ? <>
-      {link.avatarUrl ? <div className="yandex-avatar-row">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={link.avatarUrl} alt="Фото профиля Яндекс ID" className="yandex-avatar-image" width={48} height={48} referrerPolicy="no-referrer" />
-        <div className="yandex-avatar-copy"><span>Фото из Яндекс ID</span>
-          {onSelectAvatar ? <button type="button" className="text-action" disabled={disabled || busy || !!link.conflict || selectedAvatar === link.avatarUrl} onClick={()=>onSelectAvatar(link.avatarUrl!)}>{selectedAvatar === link.avatarUrl ? "Выбрано" : "Выбрать для профиля"}</button> : null}
+      <div className="yandex-account-row">
+        {link.avatarUrl ? <span className="yandex-avatar" aria-hidden="true">
+          <span>Я</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img key={link.avatarUrl} src={link.avatarUrl} alt="" className="yandex-avatar-image" width={40} height={40} referrerPolicy="no-referrer" onError={event=>{event.currentTarget.hidden=true;}} />
+        </span> : null}
+        <div className="yandex-account-copy">
+          <strong>{link.label || "Аккаунт привязан"}</strong>
+          {!link.avatarUrl && !link.conflict ? <span className="yandex-avatar-hint">{link.avatarUrl === null ? "Фото в Яндекс ID не задано" : "Обновите данные, чтобы получить фото"}</span> : null}
+          <div className="yandex-account-actions">
+            {link.avatarUrl && onSelectAvatar ? <button type="button" className="text-action" disabled={disabled || busy || !!link.conflict || selectedAvatar === link.avatarUrl} onClick={()=>onSelectAvatar(link.avatarUrl!)}>{selectedAvatar === link.avatarUrl ? "Фото выбрано" : "Выбрать фото"}</button> : null}
+            <button type="button" className="text-action" disabled={disabled || busy || !!link.conflict} onClick={openYandex}>{busy ? "Открываем…" : "Обновить"}</button>
+          </div>
         </div>
-      </div> : <p className="form-hint yandex-avatar-empty">{link.avatarUrl === null ? "В Яндекс ID нет фото. Добавьте его и обновите данные." : "Фото ещё не получено. Обновите данные Яндекса."}</p>}
-      <button type="button" className="text-action yandex-refresh" disabled={disabled || busy || !!link.conflict} onClick={openYandex}>{busy ? "Открываем Яндекс…" : "Обновить данные"}</button>
-    </> : <button type="button" className="secondary-button wide" disabled={disabled || busy || !!token && !link} onClick={openYandex}>{busy ? "Открываем Яндекс…" : token ? "Привязать Яндекс ID" : "Войти через Яндекс"}</button>}
+      </div>
+      {link.conflict ? <p className="inline-error" role="alert">Конфликт привязок. Используйте резервный токен.</p> : null}
+    </> : <>
+      {token ? <p className="form-hint">Привяжите аккаунт для входа без токена.</p> : null}
+      <button type="button" className="secondary-button wide" disabled={disabled || busy || !!token && !link} onClick={openYandex}>{busy ? "Открываем Яндекс…" : token ? "Привязать Яндекс ID" : "Войти через Яндекс"}</button>
+    </>}
     {error ? <p className="inline-error" role="alert">{error}</p> : null}
   </div>;
 }

@@ -1226,10 +1226,15 @@ select, .admin-zone-control select, .api-channel-controls select, .reaction-cata
  .admin-overview .admin-stat { padding: 8px 10px; gap: 8px; }
 }
 
-.yandex-avatar-row { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
-.yandex-avatar-image { flex: 0 0 48px; width: 48px; height: 48px; object-fit: cover; border-radius: 50%; background: var(--raised); }
-.yandex-avatar-copy { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; font-size: 12px; }
-.yandex-section .text-action { border: 0; padding: 0; background: none; color: var(--green); font: inherit; font-size: 12px; cursor: pointer; }
+/* Linked identity: one compact account row with inline actions. */
+.yandex-account-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.yandex-avatar { position: relative; display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; overflow: hidden; border-radius: 50%; background: var(--green-soft); color: var(--green); font-size: 20px; font-weight: 700; }
+.yandex-avatar-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.yandex-avatar-image[hidden] { display: none; }
+.yandex-account-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.yandex-account-copy > strong { font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.yandex-avatar-hint { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.yandex-account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.yandex-section .text-action { border: 0; padding: 0; background: none; color: var(--green); font: inherit; font-size: 11px; line-height: 1.4; cursor: pointer; }
 .yandex-section .text-action:disabled { color: var(--muted); cursor: default; }
 .yandex-section .text-action:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 2px; }
-.yandex-refresh { margin-top: 2px; }
