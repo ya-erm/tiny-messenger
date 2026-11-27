@@ -15,6 +15,7 @@ import { useMobileViewport } from "@/components/use-mobile-viewport";
 import { useGrowingTextarea } from "@/components/use-growing-textarea";
 import { useConversationScroll } from "@/components/use-conversation-scroll";
 import { useLocalDay } from "@/components/use-local-day";
+import { usePeerProfiles } from "@/components/use-peer-profiles";
 import { MessageDatePinning } from "@/components/floating-message-date";
 import { formatMessageDate, localDateKey } from "@/lib/message-dates";
 import { useMessageSound } from "@/components/use-message-sound";
@@ -1214,6 +1215,7 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
   useEffect(() => { if (phase === "ready" || phase === "cached") onUnread?.([...chatSummaries.values()].reduce((sum, item) => sum + item.unread, 0)); }, [chatSummaries, onUnread, phase]);
 
 
+  const peerProfiles = usePeerProfiles(user?.id || "", channel, phase === "ready", contacts, messages, request);
   const peers = useMemo<Peer[]>(() => {
     const result = new Map<string, Peer>();
     for (const contact of contacts) result.set(contact.userId, {
@@ -1227,16 +1229,20 @@ export function MessengerApp({ sharedIdentifier = "", sharedLabel = "", onUnread
     for (const message of messages) {
       const id = message.fromUserId === user?.id ? message.toUserId : message.fromUserId;
       if (!result.has(id)) {
+        const profile = peerProfiles.get(id);
         result.set(id, {
           id,
-          name: message.fromUserId === id ? message.senderName : shortId(id),
+          name: profile?.name || (message.fromUserId === id ? message.senderName : shortId(id)),
+          nickname: profile?.nickname,
+          avatarUrl: profile?.avatarUrl,
+          avatarBackground: profile?.avatarBackground,
           saved: false,
         });
       }
     }
     const hidden = new Set(hiddenPeerIds);
     return Array.from(result.values()).filter((peer) => !hidden.has(peer.id));
-  }, [contacts, hiddenPeerIds, messages, user?.id]);
+  }, [contacts, hiddenPeerIds, messages, user?.id, peerProfiles]);
 
   const chats = useMemo<ChatEntry[]>(() => {
     const entries: ChatEntry[] = [

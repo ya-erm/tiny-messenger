@@ -60,6 +60,21 @@ export async function forgetCachedProfile(token: string) {
   const key = await fingerprint(token);
   await transaction("profiles", "readwrite", async store => { await result(store.delete(key)); });
 }
+export interface CachedPeerProfile { user: PublicUser; checkedAt: number }
+function peerProfileKey(userId: string, channel: ChannelId, peerId: string) {
+  return `peer:${userId}:${channel}:${peerId}`;
+}
+export async function cachedPeerProfile(userId: string, channel: ChannelId, peerId: string): Promise<CachedPeerProfile | undefined> {
+  return transaction("profiles", "readonly", async store => {
+    const row = await result(store.get(peerProfileKey(userId, channel, peerId)));
+    return row ? { user: row.user, checkedAt: row.checkedAt } : undefined;
+  });
+}
+export async function cachePeerProfile(userId: string, channel: ChannelId, user: PublicUser, checkedAt: number) {
+  await transaction("profiles", "readwrite", async store => {
+    await result(store.put({ fingerprint: peerProfileKey(userId, channel, user.id), user, checkedAt }));
+  });
+}
 export async function saveSnapshot(userId: string, channel: ChannelId, snapshot: CachedSnapshot) {
   if (snapshot.deletedMessageIds?.length) await hideCachedMessages(userId, snapshot.deletedMessageIds);
   await transaction("snapshots", "readwrite", async (store) => {
